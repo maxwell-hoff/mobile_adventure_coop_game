@@ -190,13 +190,7 @@ function drawRegionView(region) {
 
     // Check if hex belongs to a section
     poly.addEventListener("click", () => {
-      let foundSection = region.sections.find(sec =>
-        sec.sectionHexes.some(sHex => sHex.q === hex.q && sHex.r === hex.r)
-      );
-      if (foundSection) {
-        currentSection = foundSection;
-        drawSectionView(region, foundSection);
-      }
+        drawHexDetailView(region, hex);
     });
 
     gRegion.appendChild(poly);
@@ -204,54 +198,98 @@ function drawRegionView(region) {
 }
 
 /**
- * SECTION VIEW: Zoom in further on a subset of hexes in the region.
+ * Draw detail for a single hex, subdivided into smaller hexes.
+ * @param {Object} region - the region data
+ * @param {Object} clickedHex - the axial coords {q, r} for the hex that was clicked
  */
-function drawSectionView(region, section) {
-  currentView = "section";
-
-  const toggleBtn = document.getElementById("toggleZoomBtn");
-  toggleBtn.style.display = "inline-block";
-  toggleBtn.textContent = "Region View"; // section -> region
-
-  const svg = document.getElementById("map-svg");
-  svg.innerHTML = "";
-
-  // Hover label
-  const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  hoverLabel.setAttribute("id", "hoverLabel");
-  hoverLabel.setAttribute("x", "400");
-  hoverLabel.setAttribute("y", "30");
-  hoverLabel.setAttribute("text-anchor", "middle");
-  hoverLabel.setAttribute("font-size", "16");
-  hoverLabel.setAttribute("fill", "#222");
-  svg.appendChild(hoverLabel);
-
-  let gSection = document.createElementNS("http://www.w3.org/2000/svg", "g");
-  gSection.setAttribute("id", "section-group");
-
-  // Scale even further. 
-  gSection.setAttribute("transform", `translate(120,120) scale(3)`);
-
-  svg.appendChild(gSection);
-
-  section.sectionHexes.forEach(hex => {
-    const { x, y } = axialToPixel(hex.q, hex.r);
-    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-    poly.setAttribute("class", "hex-region");
-    poly.setAttribute("points", hexPolygonPoints(x, y));
-    poly.setAttribute("fill", regionColor(region.regionId));
-
-    // Hover label: show "Section (Region)"
-    poly.addEventListener("mouseenter", () => {
-      hoverLabel.textContent = `${section.name} (${region.name})`;
+function drawHexDetailView(region, clickedHex) {
+    currentView = "section"; // Or "detail", whichever you prefer
+  
+    // Show toggle button, letting user go back to region
+    const toggleBtn = document.getElementById("toggleZoomBtn");
+    toggleBtn.style.display = "inline-block";
+    toggleBtn.textContent = "Region View"; // so we can step back up
+  
+    const svg = document.getElementById("map-svg");
+    svg.innerHTML = "";
+  
+    // Hover label
+    const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    hoverLabel.setAttribute("id", "hoverLabel");
+    hoverLabel.setAttribute("x", "400");
+    hoverLabel.setAttribute("y", "30");
+    hoverLabel.setAttribute("text-anchor", "middle");
+    hoverLabel.setAttribute("font-size", "16");
+    hoverLabel.setAttribute("fill", "#222");
+    svg.appendChild(hoverLabel);
+  
+    // Create a group for the subdivided hex grid
+    let gDetail = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    gDetail.setAttribute("id", "hex-detail-group");
+  
+    // We'll place it roughly in the center, then scale up
+    // so it's nicely visible.
+    gDetail.setAttribute("transform", "translate(200,200) scale(2)");
+  
+    svg.appendChild(gDetail);
+  
+    // Let's define how big our sub-grid is:
+    const SUB_GRID_RADIUS = 2; // This yields a 5×5 area (center + 2 in each direction)
+    // If you want 7×7, use 3 for SUB_GRID_RADIUS, and so on.
+  
+    // Sub-hex geometry
+    const SUB_HEX_SIZE = 10; // smaller hexes
+    // We'll need a separate axialToPixel approach for the sub-hex
+  
+    function subAxialToPixel(q, r) {
+      // pointy-top formula again, but using SUB_HEX_SIZE
+      const x = SUB_HEX_SIZE * SQRT3 * (q + r/2);
+      const y = SUB_HEX_SIZE * (3 / 2) * r;
+      return { x, y };
+    }
+  
+    function subHexPolygonPoints(cx, cy) {
+      let points = [];
+      for (let i = 0; i < 6; i++) {
+        let angle_deg = 60 * i + 30;
+        let angle_rad = Math.PI / 180 * angle_deg;
+        let px = cx + SUB_HEX_SIZE * Math.cos(angle_rad);
+        let py = cy + SUB_HEX_SIZE * Math.sin(angle_rad);
+        points.push(`${px},${py}`);
+      }
+      return points.join(" ");
+    }
+  
+    // We'll generate sub-hex axial coords in a diamond/circle shape
+    // e.g., for radius=2, q/r range from -2..2, filter by |q + r| <= radius, etc.
+    // But let's keep it simple: create a square from -2..2 for q, r
+    let subHexList = [];
+    for (let subQ = -SUB_GRID_RADIUS; subQ <= SUB_GRID_RADIUS; subQ++) {
+      for (let subR = -SUB_GRID_RADIUS; subR <= SUB_GRID_RADIUS; subR++) {
+        subHexList.push({ q: subQ, r: subR });
+      }
+    }
+  
+    // Render each small sub-hex
+    subHexList.forEach(subHex => {
+      const { x, y } = subAxialToPixel(subHex.q, subHex.r);
+      const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      poly.setAttribute("class", "hex-region");
+      poly.setAttribute("points", subHexPolygonPoints(x, y));
+      poly.setAttribute("fill", regionColor(region.regionId));
+  
+      // On hover, show something if you want:
+      poly.addEventListener("mouseenter", () => {
+        hoverLabel.textContent = `Sub-Hex (q=${subHex.q}, r=${subHex.r}) of ${region.name}`;
+      });
+      poly.addEventListener("mouseleave", () => {
+        hoverLabel.textContent = "";
+      });
+  
+      gDetail.appendChild(poly);
     });
-    poly.addEventListener("mouseleave", () => {
-      hoverLabel.textContent = "";
-    });
-
-    gSection.appendChild(poly);
-  });
-}
+  }
+  
 
 /**
  * Single toggle button:

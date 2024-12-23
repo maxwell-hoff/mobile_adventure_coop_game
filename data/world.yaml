@@ -9,15 +9,15 @@ regions:
       - {q: 1, r: 0}
       - {q: 0, r: 1}
       - {q: 1, r: 1}
-    sections:
-      - name: "Northern Grove"
-        sectionHexes:
-          - {q: 0, r: 0}
-          - {q: 1, r: 0}
-      - name: "Southern Thicket"
-        sectionHexes:
-          - {q: 0, r: 1}
-          - {q: 1, r: 1}
+    # sections:
+    #   - name: "Northern Grove"
+    #     sectionHexes:
+    #       - {q: 0, r: 0}
+    #       - {q: 1, r: 0}
+    #   - name: "Southern Thicket"
+    #     sectionHexes:
+    #       - {q: 0, r: 1}
+    #       - {q: 1, r: 1}
     vegetation:
       - name: "Redwood Giants"
         description: "Towering conifers forming the forest canopy."
@@ -73,17 +73,17 @@ regions:
       - {q: 2, r: 1}
       - {q: 3, r: 1}
       - {q: 4, r: 1}
-    sections:
-      - name: "Wheatcrest"
-        sectionHexes:
-          - {q: 2, r: 0}
-          - {q: 3, r: 0}
-          - {q: 4, r: 0}
-      - name: "Pasturelands"
-        sectionHexes:
-          - {q: 2, r: 1}
-          - {q: 3, r: 1}
-          - {q: 4, r: 1}
+    # sections:
+    #   - name: "Wheatcrest"
+    #     sectionHexes:
+    #       - {q: 2, r: 0}
+    #       - {q: 3, r: 0}
+    #       - {q: 4, r: 0}
+    #   - name: "Pasturelands"
+    #     sectionHexes:
+    #       - {q: 2, r: 1}
+    #       - {q: 3, r: 1}
+    #       - {q: 4, r: 1}
     vegetation:
       - name: "Wheatrise Grass"
         description: "Staple cereal grass that grows abundantly."
@@ -136,14 +136,14 @@ regions:
       - {q: 2, r: 2}
       - {q: 3, r: 2}
       - {q: 2, r: 3}
-    sections:
-      - name: "Fogcrest Pass"
-        sectionHexes:
-          - {q: 2, r: 2}
-      - name: "Lowland Echoes"
-        sectionHexes:
-          - {q: 3, r: 2}
-          - {q: 2, r: 3}
+    # sections:
+    #   - name: "Fogcrest Pass"
+    #     sectionHexes:
+    #       - {q: 2, r: 2}
+    #   - name: "Lowland Echoes"
+    #     sectionHexes:
+    #       - {q: 3, r: 2}
+    #       - {q: 2, r: 3}
     vegetation:
       - name: "Fogfern"
         description: "Fern that thrives in damp, low-light conditions."
@@ -199,17 +199,17 @@ regions:
       - {q: 0, r: 3}
       - {q: -1, r: 4}
       - {q: 0, r: 4}
-    sections:
-      - name: "Shimmering Pools"
-        sectionHexes:
-          - {q: -1, r: 2}
-          - {q: 0, r: 2}
-          - {q: -1, r: 3}
-      - name: "Moonlit Reeds"
-        sectionHexes:
-          - {q: 0, r: 3}
-          - {q: -1, r: 4}
-          - {q: 0, r: 4}
+    # sections:
+    #   - name: "Shimmering Pools"
+    #     sectionHexes:
+    #       - {q: -1, r: 2}
+    #       - {q: 0, r: 2}
+    #       - {q: -1, r: 3}
+    #   - name: "Moonlit Reeds"
+    #     sectionHexes:
+    #       - {q: 0, r: 3}
+    #       - {q: -1, r: 4}
+    #       - {q: 0, r: 4}
     vegetation:
       - name: "Mirrorscale Lilies"
         description: "Lily pads shimmering like polished silver."
@@ -267,19 +267,19 @@ regions:
       - {q: 5, r: 4}
       - {q: 3, r: 5}
       - {q: 4, r: 5}
-    sections:
-      - name: "Scorched Dunes"
-        sectionHexes:
-          - {q: 3, r: 3}
-          - {q: 4, r: 3}
-          - {q: 5, r: 3}
-          - {q: 3, r: 4}
-      - name: "Sunbaked Pass"
-        sectionHexes:
-          - {q: 4, r: 4}
-          - {q: 5, r: 4}
-          - {q: 3, r: 5}
-          - {q: 4, r: 5}
+    # sections:
+    #   - name: "Scorched Dunes"
+    #     sectionHexes:
+    #       - {q: 3, r: 3}
+    #       - {q: 4, r: 3}
+    #       - {q: 5, r: 3}
+    #       - {q: 3, r: 4}
+    #   - name: "Sunbaked Pass"
+    #     sectionHexes:
+    #       - {q: 4, r: 4}
+    #       - {q: 5, r: 4}
+    #       - {q: 3, r: 5}
+    #       - {q: 4, r: 5}
     vegetation:
       - name: "Redscale Cacti"
         description: "Tall, spined cactus storing crimson-hued water."
@@ -332,14 +332,14 @@ regions:
       - {q: 4, r: 2}
       - {q: 5, r: 2}
       - {q: 4, r: 1}
-    sections:
-      - name: "Bramble Maze"
-        sectionHexes:
-          - {q: 4, r: 2}
-      - name: "Thornpatch Clearing"
-        sectionHexes:
-          - {q: 5, r: 2}
-          - {q: 4, r: 1}
+    # sections:
+    #   - name: "Bramble Maze"
+    #     sectionHexes:
+    #       - {q: 4, r: 2}
+    #   - name: "Thornpatch Clearing"
+    #     sectionHexes:
+    #       - {q: 5, r: 2}
+    #       - {q: 4, r: 1}
     vegetation:
       - name: "Bramble Vines"
         description: "Spiky vines forming natural barriers."
@@ -394,16 +394,16 @@ regions:
       - {q: 6, r: 0}
       - {q: 7, r: 0}
       - {q: 6, r: 1}
-    sections:
-      - name: "Skyreach Crags"
-        sectionHexes:
-          - {q: 6, r: -1}
-          - {q: 5, r: 0}
-      - name: "Hotspring Terraces"
-        sectionHexes:
-          - {q: 6, r: 0}
-          - {q: 7, r: 0}
-          - {q: 6, r: 1}
+    # sections:
+    #   - name: "Skyreach Crags"
+    #     sectionHexes:
+    #       - {q: 6, r: -1}
+    #       - {q: 5, r: 0}
+    #   - name: "Hotspring Terraces"
+    #     sectionHexes:
+    #       - {q: 6, r: 0}
+    #       - {q: 7, r: 0}
+    #       - {q: 6, r: 1}
     vegetation:
       - name: "Skybloom Edelweiss"
         description: "Delicate flower thriving on cliff ledges."
@@ -455,13 +455,13 @@ regions:
     worldHexes:
       - {q: 5, r: 3}
       - {q: 6, r: 2}
-    sections:
-      - name: "Canyon Approach"
-        sectionHexes:
-          - {q: 5, r: 3}
-      - name: "Serpent's Spine"
-        sectionHexes:
-          - {q: 6, r: 2}
+    # sections:
+    #   - name: "Canyon Approach"
+    #     sectionHexes:
+    #       - {q: 5, r: 3}
+    #   - name: "Serpent's Spine"
+    #     sectionHexes:
+    #       - {q: 6, r: 2}
     vegetation:
       - name: "Canyon Vines"
         description: "Tough creepers clinging to sheer rock faces."
@@ -513,13 +513,13 @@ regions:
     worldHexes:
       - {q: 4, r: 2}
       - {q: 4, r: 3}
-    sections:
-      - name: "Fumarole Ridge"
-        sectionHexes:
-          - {q: 4, r: 2}
-      - name: "Geyser Flats"
-        sectionHexes:
-          - {q: 4, r: 3}
+    # sections:
+    #   - name: "Fumarole Ridge"
+    #     sectionHexes:
+    #       - {q: 4, r: 2}
+    #   - name: "Geyser Flats"
+    #     sectionHexes:
+    #       - {q: 4, r: 3}
     vegetation:
       - name: "Ashgrass"
         description: "Coarse grass adapted to ashy soil."
@@ -571,13 +571,13 @@ regions:
     worldHexes:
       - {q: 5, r: -2}
       - {q: 6, r: -2}
-    sections:
-      - name: "Glacial Ridge"
-        sectionHexes:
-          - {q: 5, r: -2}
-      - name: "Snowdrift Basin"
-        sectionHexes:
-          - {q: 6, r: -2}
+    # sections:
+    #   - name: "Glacial Ridge"
+    #     sectionHexes:
+    #       - {q: 5, r: -2}
+    #   - name: "Snowdrift Basin"
+    #     sectionHexes:
+    #       - {q: 6, r: -2}
     vegetation:
       - name: "Icebloom Pine"
         description: "Sturdy pines layered in rime, adapted to freezing winds."
@@ -620,6 +620,10 @@ regions:
         description: "A lone merchant found near rare geothermal pools."
         size: "Various"
         attitude: "Welcoming"
+
+
+
+
 
 
 
