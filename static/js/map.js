@@ -203,7 +203,7 @@ function drawRegionView(region) {
  * @param {Object} clickedHex - the axial coords {q, r} for the hex that was clicked
  */
 function drawHexDetailView(region, clickedHex) {
-    currentView = "section"; // Or "detail", whichever you prefer
+    currentView = "section"; // We'll call it "section" or "detail"
   
     // Show toggle button, letting user go back to region
     const toggleBtn = document.getElementById("toggleZoomBtn");
@@ -233,17 +233,16 @@ function drawHexDetailView(region, clickedHex) {
   
     svg.appendChild(gDetail);
   
-    // Let's define how big our sub-grid is:
-    const SUB_GRID_RADIUS = 2; // This yields a 5×5 area (center + 2 in each direction)
-    // If you want 7×7, use 3 for SUB_GRID_RADIUS, and so on.
+    // Define how big our sub-hex shape is:
+    // For radius=2, you get 19 sub-hexes in a nice hex shape
+    const SUB_GRID_RADIUS = 4;
   
     // Sub-hex geometry
     const SUB_HEX_SIZE = 10; // smaller hexes
     // We'll need a separate axialToPixel approach for the sub-hex
-  
     function subAxialToPixel(q, r) {
       // pointy-top formula again, but using SUB_HEX_SIZE
-      const x = SUB_HEX_SIZE * SQRT3 * (q + r/2);
+      const x = SUB_HEX_SIZE * SQRT3 * (q + r / 2);
       const y = SUB_HEX_SIZE * (3 / 2) * r;
       return { x, y };
     }
@@ -260,13 +259,15 @@ function drawHexDetailView(region, clickedHex) {
       return points.join(" ");
     }
   
-    // We'll generate sub-hex axial coords in a diamond/circle shape
-    // e.g., for radius=2, q/r range from -2..2, filter by |q + r| <= radius, etc.
-    // But let's keep it simple: create a square from -2..2 for q, r
+    // Build a sub-hex list that forms a hex shape
     let subHexList = [];
     for (let subQ = -SUB_GRID_RADIUS; subQ <= SUB_GRID_RADIUS; subQ++) {
       for (let subR = -SUB_GRID_RADIUS; subR <= SUB_GRID_RADIUS; subR++) {
-        subHexList.push({ q: subQ, r: subR });
+        // Only keep coords that fit a hex shape
+        // i.e. |q| + |r| <= R
+        if (Math.abs(subQ + subR) <= SUB_GRID_RADIUS) {
+          subHexList.push({ q: subQ, r: subR });
+        }
       }
     }
   
@@ -290,7 +291,6 @@ function drawHexDetailView(region, clickedHex) {
     });
   }
   
-
 /**
  * Single toggle button:
  * - If region -> world
