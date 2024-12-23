@@ -1,161 +1,171 @@
-let worldData = null;  // We'll store the YAML->JSON data here
-let currentRegion = null;
+let worldData = null;
+let currentRegionId = null;
+let currentSectionName = null;
 
-// On page load, fetch data and render
+// Hex geometry parameters
+const HEX_SIZE = 20; // base radius for hex
+const SQRT3 = Math.sqrt(3);
+
+// On load, fetch data and draw
 window.addEventListener("DOMContentLoaded", async () => {
   await loadWorldData();
-  renderWorldMap();
+  drawWorldHexes();
 });
 
 async function loadWorldData() {
-  const response = await fetch("/api/map_data");
-  if (!response.ok) {
-    console.error("Error loading world data");
+  const resp = await fetch("/api/map_data");
+  if (!resp.ok) {
+    console.error("Error fetching map data");
     return;
   }
-  worldData = await response.json();
-  // worldData.regions is now an array of region objects
+  worldData = await resp.json();
 }
 
-function renderWorldMap() {
-  const worldView = document.getElementById("world-view");
-  const regionView = document.getElementById("region-view");
-  const sectionView = document.getElementById("section-view");
+// Convert axial coords (q, r) to pixel (x, y) for SVG
+// Reference: https://www.redblobgames.com/grids/hexagons/#coordinates-axial
+function axialToPixel(q, r) {
+  let x = HEX_SIZE * (3/2 * q);
+  let y = HEX_SIZE * (SQRT3 * (r + q/2));
+  return {x, y};
+}
 
-  // Show world view, hide others
-  worldView.style.display = "block";
-  regionView.style.display = "none";
-  sectionView.style.display = "none";
+// Build the polygon points for a single hex (centered at x,y).
+function hexPolygonPoints(cx, cy) {
+  // 6 corners, each 60 degrees apart
+  let points = [];
+  for (let i = 0; i < 6; i++) {
+    let angle = 2 * Math.PI * (i + 0.5) / 6; 
+    // i+0.5 ensures flat-top orientation
+    let px = cx + HEX_SIZE * Math.cos(angle);
+    let py = cy + HEX_SIZE * Math.sin(angle);
+    points.push(`${px},${py}`);
+  }
+  return points.join(" ");
+}
 
-  // Clear any existing content
-  worldView.innerHTML = "";
+// Draw all region hexes on the world map
+function drawWorldHexes() {
+  const svg = document.getElementById("map-svg");
+  // Clear existing
+  svg.innerHTML = "";
 
-  // For each region, create a "hex-like" cell
-  // We'll do a simplistic layout: just in a row or grid
-  // Real hex layout requires more advanced math/positioning.
-  const regions = worldData.regions;
+  // Optionally, place everything in a <g> for easier transforms
+  let worldGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  worldGroup.setAttribute("id", "world-group");
+  svg.appendChild(worldGroup);
 
-  regions.forEach(region => {
-    const cell = document.createElement("div");
-    cell.classList.add("hex-cell");
-    cell.textContent = region.name;
+  // For each region in worldData
+  worldData.regions.forEach(region => {
+    region.worldHexes.forEach(hex => {
+      // Convert axial to pixel
+      const {x, y} = axialToPixel(hex.q, hex.r);
+      // Build a polygon
+      let poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      poly.setAttribute("class", "hex-region");
+      poly.setAttribute("fill", regionColor(region.regionId));
+      poly.setAttribute("points", hexPolygonPoints(x, y));
 
-    // We could interpret region.size/width/height to scale cell
-    // For now, let's just store them as data
-    cell.dataset.regionName = region.name;
+      // On hover, highlight
+      poly.addEventListener("mouseenter", () => {
+        poly.classList.add("hex-hover");
+      });
+      poly.addEventListener("mouseleave", () => {
+        poly.classList.remove("hex-hover");
+      });
 
-    // On click, we "zoom" into that region
-    cell.addEventListener("click", () => {
-      zoomIntoRegion(region);
+      // On click, “zoom” into region
+      poly.addEventListener("click", () => {
+        currentRegionId = region.regionId;
+        drawRegionView(region);
+      });
+
+      worldGroup.appendChild(poly);
     });
-
-    worldView.appendChild(cell);
   });
 }
 
-// Called when user clicks on a region from the world map
-function zoomIntoRegion(region) {
-  currentRegion = region;
-
-  const worldView = document.getElementById("world-view");
-  const regionView = document.getElementById("region-view");
-  const sectionView = document.getElementById("section-view");
-  const regionButton = document.getElementById("regionButton");
-
-  // Hide world map, show region map
-  worldView.style.display = "none";
-  regionView.style.display = "block";
-  sectionView.style.display = "none";
-  regionButton.style.display = "inline-block"; // show the "Back to Region" button for sections
-
-  // Clear regionView
-  regionView.innerHTML = "";
-
-  // Render region info
-  const title = document.createElement("h2");
-  title.textContent = `Region: ${region.name}`;
-  regionView.appendChild(title);
-
-  const desc = document.createElement("p");
-  desc.textContent = region.description;
-  regionView.appendChild(desc);
-
-  // If you have "sections" for each region, you'd do something similar:
-  // region.sections.forEach(...)
-
-  // For demonstration, let's create a grid of region's "width" x "height"
-  // to represent "sections" or sub-areas
-  if (!region.width) region.width = 1;  // fallback
-  if (!region.height) region.height = 1;
-
-  const regionGrid = document.createElement("div");
-  regionGrid.style.display = "inline-block";
-  regionGrid.style.width = "auto";
-  
-  for (let r = 0; r < region.height; r++) {
-    const rowDiv = document.createElement("div");
-    rowDiv.style.whiteSpace = "nowrap";
-
-    for (let c = 0; c < region.width; c++) {
-      const subCell = document.createElement("div");
-      subCell.classList.add("hex-cell");
-      subCell.style.backgroundColor = "#ffe8a8";
-
-      subCell.textContent = `(${r},${c})`;
-      subCell.addEventListener("click", () => {
-        zoomIntoSection(region, r, c);
-      });
-      rowDiv.appendChild(subCell);
-    }
-    regionGrid.appendChild(rowDiv);
-  }
-
-  regionView.appendChild(regionGrid);
+// Example coloring by region id
+function regionColor(regionId) {
+  // Simple deterministic color for demonstration
+  const colorPalette = ["#cce5ff","#ffe5cc","#e5ffcc","#f5ccff","#fff5cc","#ccf0ff"];
+  return colorPalette[regionId % colorPalette.length];
 }
 
-// Called when you click on a specific subCell in the region
-function zoomIntoSection(region, row, col) {
-  const worldView = document.getElementById("world-view");
-  const regionView = document.getElementById("region-view");
-  const sectionView = document.getElementById("section-view");
+// Show the entire region in detail
+function drawRegionView(region) {
+  const svg = document.getElementById("map-svg");
+  svg.innerHTML = "";
 
-  // Hide region map, show section map
-  worldView.style.display = "none";
-  regionView.style.display = "none";
-  sectionView.style.display = "block";
+  // Create a group for region hexes
+  let regionGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  regionGroup.setAttribute("id", "region-group");
+  svg.appendChild(regionGroup);
 
-  sectionView.innerHTML = "";
+  // We can apply a transform scale to “zoom in”
+  // For demonstration, let’s do an arbitrary scale
+  regionGroup.setAttribute("transform", "scale(2.5) translate(0, 0)");
 
-  // Just a placeholder: in reality you'd retrieve data about the section
-  const title = document.createElement("h2");
-  title.textContent = `Section of ${region.name} at row=${row}, col=${col}`;
-  sectionView.appendChild(title);
+  // Draw each hex belonging to this region
+  region.worldHexes.forEach(hex => {
+    const {x, y} = axialToPixel(hex.q, hex.r);
+    let poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    poly.setAttribute("class", "hex-region");
+    poly.setAttribute("fill", regionColor(region.regionId));
+    poly.setAttribute("points", hexPolygonPoints(x, y));
 
-  const desc = document.createElement("p");
-  desc.textContent = `Further details about sub-section could go here.`;
-  sectionView.appendChild(desc);
+    // Click a region hex → go to “section” if it exists
+    poly.addEventListener("click", () => {
+      // We can check which section this hex belongs to
+      let foundSection = region.sections.find(sec =>
+        sec.sectionHexes.some(sh => sh.q === hex.q && sh.r === hex.r)
+      );
+      if (foundSection) {
+        currentSectionName = foundSection.name;
+        drawSectionView(region, foundSection);
+      }
+    });
+
+    regionGroup.appendChild(poly);
+  });
 }
 
-// UI to go back to region-level from a section
-function zoomOutToRegion() {
-  const worldView = document.getElementById("world-view");
-  const regionView = document.getElementById("region-view");
-  const sectionView = document.getElementById("section-view");
+// Show a single section within the region
+function drawSectionView(region, section) {
+  const svg = document.getElementById("map-svg");
+  svg.innerHTML = "";
 
-  worldView.style.display = "none";
-  regionView.style.display = "block";
-  sectionView.style.display = "none";
+  // Let’s do an even bigger scale for the section
+  let sectionGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  sectionGroup.setAttribute("id", "section-group");
+  svg.appendChild(sectionGroup);
+
+  sectionGroup.setAttribute("transform", "scale(4.0) translate(0,0)");
+
+  // Draw only the hexes that belong to the chosen section
+  section.sectionHexes.forEach(hex => {
+    const {x, y} = axialToPixel(hex.q, hex.r);
+    let poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    poly.setAttribute("class", "hex-region");
+    poly.setAttribute("fill", regionColor(region.regionId));
+    poly.setAttribute("points", hexPolygonPoints(x, y));
+    sectionGroup.appendChild(poly);
+  });
 }
 
-// UI to go back to the world map
-function zoomOutToWorld() {
-  const worldView = document.getElementById("world-view");
-  const regionView = document.getElementById("region-view");
-  const sectionView = document.getElementById("section-view");
-  const regionButton = document.getElementById("regionButton");
+// UI Buttons
+function showWorldView() {
+  drawWorldHexes();
+}
 
-  worldView.style.display = "block";
-  regionView.style.display = "none";
-  sectionView.style.display = "none";
-  regionButton.style.display = "none";
+function showRegionView() {
+  if (!currentRegionId) return;
+  const region = worldData.regions.find(r => r.regionId === currentRegionId);
+  drawRegionView(region);
+}
+
+function showSectionView() {
+  if (!currentRegionId || !currentSectionName) return;
+  const region = worldData.regions.find(r => r.regionId === currentRegionId);
+  const section = region.sections.find(sec => sec.name === currentSectionName);
+  drawSectionView(region, section);
 }

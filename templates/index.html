@@ -2,28 +2,24 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Hex Map Prototype</title>
-  <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/style.css') }}">
+  <title>Hex Map with Zoom</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-  <h1>Hex Map Prototype</h1>
-
-  <!-- Container for the entire map interface -->
-  <div id="map-container">
-    <!-- World view container -->
-    <div id="world-view" class="map-view"></div>
-    <!-- Region view container (hidden by default) -->
-    <div id="region-view" class="map-view" style="display: none;"></div>
-    <!-- Section view container (hidden by default) -->
-    <div id="section-view" class="map-view" style="display: none;"></div>
-  </div>
-
-  <!-- Simple controls for zooming in/out -->
+  <h1>Hex Map with Zoom</h1>
+  
+  <!-- Buttons to control zoom levels -->
   <div id="controls">
-    <button onclick="zoomOutToWorld()">World Map</button>
-    <button id="regionButton" style="display: none;" onclick="zoomOutToRegion()">Back to Region</button>
+    <button onclick="showWorldView()">World View</button>
+    <button onclick="showRegionView()">Region View</button>
+    <button onclick="showSectionView()">Section View</button>
   </div>
-
+  
+  <!-- Container for our SVG map -->
+  <div id="map-container">
+    <svg id="map-svg" width="800" height="600"></svg>
+  </div>
+  
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 </body>
 </html>
