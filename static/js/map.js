@@ -203,7 +203,7 @@ function drawRegionView(region) {
  * @param {Object} clickedHex - the axial coords {q, r} for the hex that was clicked
  */
 function drawHexDetailView(region, clickedHex) {
-    currentView = "section"; // We'll call it "section" or "detail"
+    currentView = "section";
   
     // Show toggle button, letting user go back to region
     const toggleBtn = document.getElementById("toggleZoomBtn");
@@ -227,26 +227,19 @@ function drawHexDetailView(region, clickedHex) {
     let gDetail = document.createElementNS("http://www.w3.org/2000/svg", "g");
     gDetail.setAttribute("id", "hex-detail-group");
   
-    // We'll place it roughly in the center, then scale up
-    // so it's nicely visible.
-    gDetail.setAttribute("transform", "translate(200,200) scale(2)");
+    // Place it in the center, scale, then rotate 30° to match the region
+    gDetail.setAttribute("transform", "translate(200,200) scale(2) rotate(30)");
   
     svg.appendChild(gDetail);
   
-    // Define how big our sub-hex shape is:
-    // For radius=2, you get 19 sub-hexes in a nice hex shape
-    const SUB_GRID_RADIUS = 4;
-  
-    // Sub-hex geometry
-    const SUB_HEX_SIZE = 10; // smaller hexes
-    // We'll need a separate axialToPixel approach for the sub-hex
+    // We'll define a sub-hex "radius" so it forms a hex shape
+    const SUB_GRID_RADIUS = 5; // yields 19 sub-hexes
+    const SUB_HEX_SIZE = 10;
     function subAxialToPixel(q, r) {
-      // pointy-top formula again, but using SUB_HEX_SIZE
       const x = SUB_HEX_SIZE * SQRT3 * (q + r / 2);
       const y = SUB_HEX_SIZE * (3 / 2) * r;
       return { x, y };
     }
-  
     function subHexPolygonPoints(cx, cy) {
       let points = [];
       for (let i = 0; i < 6; i++) {
@@ -259,12 +252,10 @@ function drawHexDetailView(region, clickedHex) {
       return points.join(" ");
     }
   
-    // Build a sub-hex list that forms a hex shape
+    // Build sub-hex coords in a proper hex shape
     let subHexList = [];
     for (let subQ = -SUB_GRID_RADIUS; subQ <= SUB_GRID_RADIUS; subQ++) {
       for (let subR = -SUB_GRID_RADIUS; subR <= SUB_GRID_RADIUS; subR++) {
-        // Only keep coords that fit a hex shape
-        // i.e. |q| + |r| <= R
         if (Math.abs(subQ + subR) <= SUB_GRID_RADIUS) {
           subHexList.push({ q: subQ, r: subR });
         }
@@ -279,7 +270,7 @@ function drawHexDetailView(region, clickedHex) {
       poly.setAttribute("points", subHexPolygonPoints(x, y));
       poly.setAttribute("fill", regionColor(region.regionId));
   
-      // On hover, show something if you want:
+      // On hover, show sub-hex coords
       poly.addEventListener("mouseenter", () => {
         hoverLabel.textContent = `Sub-Hex (q=${subHex.q}, r=${subHex.r}) of ${region.name}`;
       });
@@ -290,6 +281,7 @@ function drawHexDetailView(region, clickedHex) {
       gDetail.appendChild(poly);
     });
   }
+  
   
 /**
  * Single toggle button:
