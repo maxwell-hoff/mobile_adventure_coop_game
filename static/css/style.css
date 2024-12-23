@@ -1,0 +1,40 @@
+body {
+    font-family: Arial, sans-serif;
+  }
+  
+  #map-container {
+    width: 80%;
+    margin: 0 auto;
+    border: 1px solid #ccc;
+    position: relative;
+    height: 600px; /* Just an example fixed height */
+    overflow: hidden; /* if we have big content */
+  }
+  
+  .map-view {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: #fafafa; /* Placeholder background */
+  }
+  
+  .hex-cell {
+    width: 60px;
+    height: 60px;
+    background-color: #d2f5d0;
+    margin: 2px;
+    display: inline-block;
+    /* In a real hex layout, you'd use offsets or an SVG approach */
+  }
+  
+  /* Simple overlay for region or section “zoomed” maps */
+  #region-view {
+    background-color: rgba(200,240,255,0.7);
+  }
+  
+  #section-view {
+    background-color: rgba(255,225,200,0.7);
+  }
+  
