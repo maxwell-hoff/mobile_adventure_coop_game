@@ -10,24 +10,18 @@ const SQRT3 = Math.sqrt(3);
 const SVG_WIDTH = 800;
 const SVG_HEIGHT = 600;
 
-/**
- * Axial -> pixel (pointy-top).
- * x = size * sqrt(3) * (q + r/2)
- * y = size * 3/2 * r
- */
+/** Axial -> pixel (pointy-top). */
 function axialToPixel(q, r) {
   const x = HEX_SIZE * SQRT3 * (q + r/2);
   const y = HEX_SIZE * (3 / 2) * r;
   return { x, y };
 }
 
-/**
- * Return 6-corner points for a pointy-top hex centered at (cx, cy).
- */
+/** Return a polygon "points" string for a single hex. */
 function hexPolygonPoints(cx, cy) {
   let points = [];
   for (let i = 0; i < 6; i++) {
-    let angle_deg = 60 * i + 30; // offset 30° for pointy-top
+    let angle_deg = 60 * i + 30;
     let angle_rad = Math.PI / 180 * angle_deg;
     let px = cx + HEX_SIZE * Math.cos(angle_rad);
     let py = cy + HEX_SIZE * Math.sin(angle_rad);
@@ -36,12 +30,52 @@ function hexPolygonPoints(cx, cy) {
   return points.join(" ");
 }
 
-// =========== NEW UTILITY FUNCTIONS FOR BOUNDING BOX ===========
+/** 
+ * For a single hex (q,r), return an array of edges, 
+ * each edge is [ [x1, y1], [x2, y2] ] in pixel coords.
+ */
+function getHexEdges(q, r) {
+  const center = axialToPixel(q, r);
+  let edges = [];
+  let corners = [];
+  // compute 6 corners
+  for (let i = 0; i < 6; i++) {
+    let angle_deg = 60*i + 30;
+    let rad = Math.PI/180 * angle_deg;
+    let px = center.x + HEX_SIZE * Math.cos(rad);
+    let py = center.y + HEX_SIZE * Math.sin(rad);
+    corners.push({ x:px, y:py });
+  }
+  // Each edge is corner[i] -> corner[i+1], wrapping at i=5
+  for (let i = 0; i < 6; i++) {
+    let c1 = corners[i];
+    let c2 = corners[(i+1) % 6];
+    edges.push([[c1.x, c1.y],[c2.x, c2.y]]);
+  }
+  return edges;
+}
+
+/** 
+ * Return axial neighbors for pointy-top in axial coords 
+ * (q+/-1, r?), etc. 
+ */
+function getHexNeighbors(q, r) {
+  // Standard pointy axial neighbors
+  return [
+    {q: q+1, r: r},
+    {q: q-1, r: r},
+    {q: q,   r: r+1},
+    {q: q,   r: r-1},
+    {q: q+1, r: r-1},
+    {q: q-1, r: r+1}
+  ];
+}
+
+// =========== BOUNDING BOX + CENTERING ===========
 
 function getHexBoundingBox(hexList, axialToPixelFn) {
   let minX = Infinity, maxX = -Infinity;
   let minY = Infinity, maxY = -Infinity;
-
   hexList.forEach(({q, r}) => {
     const {x, y} = axialToPixelFn(q, r);
     if (x < minX) minX = x;
@@ -107,7 +141,7 @@ function drawWorldView() {
   const svg = document.getElementById("map-svg");
   svg.innerHTML = ""; // clear existing
 
-  // Re-add hover label (for region name on hover)
+  // Re-add hover label
   const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
   hoverLabel.setAttribute("id", "hoverLabel");
   hoverLabel.setAttribute("x", "400");
@@ -117,92 +151,108 @@ function drawWorldView() {
   hoverLabel.setAttribute("fill", "#222");
   svg.appendChild(hoverLabel);
 
-  // Create a group for the entire world
+  // Group for the entire world
   let gWorld = document.createElementNS("http://www.w3.org/2000/svg", "g");
   gWorld.setAttribute("id", "world-group");
   svg.appendChild(gWorld);
 
-  // We'll store the entire list of hex coords for the bounding box
+  // For bounding box
   let worldHexList = [];
 
-  // For each region, draw hexes
+  // For each region, draw hexes + build perimeter
   worldData.regions.forEach(region => {
-    let sumX = 0, sumY = 0, count = 0;
-    let regionCorners = [];
+    let sumX=0, sumY=0, count=0;
+    // We'll store region's hex coords in a set for quick adjacency check
+    let regionSet = new Set();
+    region.worldHexes.forEach(h => regionSet.add(`${h.q},${h.r}`));
 
+    // 1) Draw each hex
     region.worldHexes.forEach(hex => {
       worldHexList.push(hex);
-
       const { x, y } = axialToPixel(hex.q, hex.r);
-      sumX += x; 
-      sumY += y; 
-      count++;
+      sumX += x; sumY += y; count++;
 
-      // Gather corners for hull
-      let corners = getHexCorners(hex.q, hex.r);
-      regionCorners.push(...corners);
+      // Draw polygon
+      let p = document.createElementNS("http://www.w3.org/2000/svg","polygon");
+      p.setAttribute("class","hex-region");
+      p.setAttribute("points", hexPolygonPoints(x,y));
+      p.setAttribute("fill", regionColor(region.regionId));
 
-      // Draw the actual hex polygon
-      const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-      poly.setAttribute("class", "hex-region");
-      poly.setAttribute("points", hexPolygonPoints(x, y));
-      poly.setAttribute("fill", regionColor(region.regionId));
-
-      // Hover: show region name
-      poly.addEventListener("mouseenter", () => {
-        hoverLabel.textContent = region.name;
-      });
-      poly.addEventListener("mouseleave", () => {
-        hoverLabel.textContent = "";
-      });
-
-      // Click to zoom into region
-      poly.addEventListener("click", () => {
+      p.addEventListener("mouseenter", () => { hoverLabel.textContent = region.name; });
+      p.addEventListener("mouseleave", () => { hoverLabel.textContent = ""; });
+      p.addEventListener("click", () => {
         currentRegion = region;
         drawRegionView(region);
       });
-
-      gWorld.appendChild(poly);
+      gWorld.appendChild(p);
     });
 
-    // Place a label near the center of that region
-    if (count > 0) {
-      const centerX = sumX / count;
-      const centerY = sumY / count;
-
-      const regionLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      regionLabel.setAttribute("x", centerX);
-      regionLabel.setAttribute("y", centerY);
-      regionLabel.setAttribute("text-anchor", "middle");
-      regionLabel.setAttribute("fill", "#333");
-      regionLabel.setAttribute("font-size", "14");
-      regionLabel.textContent = region.name;
-
-      gWorld.appendChild(regionLabel);
+    // 2) Put region label near center
+    if(count>0){
+      let centerX = sumX/count, centerY = sumY/count;
+      let lbl = document.createElementNS("http://www.w3.org/2000/svg","text");
+      lbl.setAttribute("x",centerX);
+      lbl.setAttribute("y",centerY);
+      lbl.setAttribute("text-anchor","middle");
+      lbl.setAttribute("fill","#333");
+      lbl.setAttribute("font-size","10");
+      lbl.textContent = region.name;
+      gWorld.appendChild(lbl);
     }
 
-    // Now compute the hull outline for the region
-    const hull = computeConvexHull(regionCorners);
-    const hullPoints = hull.map(pt => `${pt.x},${pt.y}`).join(" ");
+    // 3) Outline the perimeter edges only
+    // For each hex in region, get its 6 edges in pixel coords
+    // Check if that edge is shared with a neighbor => skip if shared
+    region.worldHexes.forEach(hex => {
+      let edges = getHexEdges(hex.q, hex.r);
+      // For adjacency check
+      let neighbors = getHexNeighbors(hex.q, hex.r);
 
-    let outlinePoly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-    outlinePoly.setAttribute("points", hullPoints);
-    outlinePoly.setAttribute("fill", "none");
-    outlinePoly.setAttribute("stroke", "#000");  // or "red" or ...
-    outlinePoly.setAttribute("stroke-width", "2");
-    outlinePoly.setAttribute("class", "region-outline");
+      edges.forEach(edge => {
+        // edge is [ [x1,y1], [x2,y2] ]
+        // We find the neighbor that would share this edge
+        // We do so by checking if the neighbor is in regionSet
+        // and if the neighbor is the *correct* one for that edge, 
+        // but simpler approach: if *any* neighbor is in regionSet with same edge, skip
+        // We can do a small trick: if that neighbor's coords match the direction.
 
-    // IMPORTANT: Append the outline polygon
-    gWorld.appendChild(outlinePoly);
+        let shared = false;
+        for(let n of neighbors){
+          if(regionSet.has(`${n.q},${n.r}`)){
+            // => that neighbor is in region
+            // Now: does that neighbor actually share this edge in pixel space?
+            // We can compute neighbor's corners and see if it has the same edge
+            let nEdges = getHexEdges(n.q, n.r);
+            // If any nEdge matches our current edge (allowing reversed coords),
+            // then it's shared.
+            if(isEdgeShared(edge, nEdges)){
+              shared = true;
+              break;
+            }
+          }
+        }
+        if(!shared){
+          // draw a line for this edge
+          let line = document.createElementNS("http://www.w3.org/2000/svg","line");
+          line.setAttribute("x1", edge[0][0]);
+          line.setAttribute("y1", edge[0][1]);
+          line.setAttribute("x2", edge[1][0]);
+          line.setAttribute("y2", edge[1][1]);
+          line.setAttribute("stroke","black");
+          line.setAttribute("stroke-width","2");
+          line.setAttribute("class","region-outline");
+          gWorld.appendChild(line);
+        }
+      });
+    });
   });
 
-  // Now center the entire world group
-  // rotation=30 if you want to keep that orientation
+  // center the whole world group
   centerHexGroup(worldHexList, gWorld, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
     scale: 1,
-    // rotation: 30
+    rotation: 0
   });
 }
 
@@ -234,46 +284,66 @@ function drawRegionView(region) {
   gRegion.setAttribute("id", "region-group");
   svg.appendChild(gRegion);
 
-  // We'll store the region's hexes in an array for bounding box
   let regionHexList = [];
+  let regionSet = new Set();
+  region.worldHexes.forEach(h => regionSet.add(`${h.q},${h.r}`));
 
+  // Draw hexes
   region.worldHexes.forEach(hex => {
     regionHexList.push(hex);
+    let {x,y} = axialToPixel(hex.q,hex.r);
 
-    const { x, y } = axialToPixel(hex.q, hex.r);
-
-    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-    poly.setAttribute("class", "hex-region");
-    poly.setAttribute("points", hexPolygonPoints(x, y));
-    poly.setAttribute("fill", regionColor(region.regionId));
-
-    // Hover label
-    poly.addEventListener("mouseenter", () => {
-      hoverLabel.textContent = region.name;
-    });
-    poly.addEventListener("mouseleave", () => {
-      hoverLabel.textContent = "";
-    });
-
-    // Click -> detail view
-    poly.addEventListener("click", () => {
-      drawHexDetailView(region, hex);
-    });
-
+    let poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
+    poly.setAttribute("class","hex-region");
+    poly.setAttribute("points",hexPolygonPoints(x,y));
+    poly.setAttribute("fill",regionColor(region.regionId));
+    poly.addEventListener("mouseenter",()=>{ hoverLabel.textContent=region.name; });
+    poly.addEventListener("mouseleave",()=>{ hoverLabel.textContent=""; });
+    poly.addEventListener("click",()=>{ drawHexDetailView(region,hex); });
     gRegion.appendChild(poly);
   });
 
-  // Now center the region's group
+  // Outline perimeter edges in region view
+  region.worldHexes.forEach(hex => {
+    let edges = getHexEdges(hex.q, hex.r);
+    let neighbors = getHexNeighbors(hex.q, hex.r);
+    edges.forEach(edge=>{
+      let shared=false;
+      for(let n of neighbors){
+        if(regionSet.has(`${n.q},${n.r}`)){
+          // neighbor is in region => check if it shares edge
+          let nEdges = getHexEdges(n.q,n.r);
+          if(isEdgeShared(edge, nEdges)){
+            shared=true; 
+            break;
+          }
+        }
+      }
+      if(!shared){
+        let line = document.createElementNS("http://www.w3.org/2000/svg","line");
+        line.setAttribute("x1",edge[0][0]);
+        line.setAttribute("y1",edge[0][1]);
+        line.setAttribute("x2",edge[1][0]);
+        line.setAttribute("y2",edge[1][1]);
+        line.setAttribute("stroke","black");
+        line.setAttribute("stroke-width","2");
+        line.setAttribute("class","region-outline");
+        gRegion.appendChild(line);
+      }
+    });
+  });
+
+  // center region
   centerHexGroup(regionHexList, gRegion, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
     scale: 2,
-    // rotation: 30
+    rotation: 0
   });
 }
 
 /**
- * NEW SECTION (detail) VIEW
+ * NEW SECTION VIEW
  */
 function drawHexDetailView(region, clickedHex) {
   currentView = "section";
@@ -299,142 +369,135 @@ function drawHexDetailView(region, clickedHex) {
   gDetail.setAttribute("id", "hex-detail-group");
   svg.appendChild(gDetail);
 
-  // Sub-hex geometry
-  const SUB_GRID_RADIUS = 5; // example
+  const SUB_GRID_RADIUS = 5;
   const SUB_HEX_SIZE = 10;
-  function subAxialToPixel(q, r) {
-    const x = SUB_HEX_SIZE * SQRT3 * (q + r / 2);
-    const y = SUB_HEX_SIZE * (3 / 2) * r;
-    return { x, y };
-  }
 
-  function subHexPolygonPoints(cx, cy) {
-    let pts = [];
-    for (let i = 0; i < 6; i++) {
-      let angle_deg = 60 * i + 30;
-      let angle_rad = Math.PI / 180 * angle_deg;
-      let px = cx + SUB_HEX_SIZE * Math.cos(angle_rad);
-      let py = cy + SUB_HEX_SIZE * Math.sin(angle_rad);
+  function subAxialToPixel(q, r){
+    let x = SUB_HEX_SIZE * SQRT3 * (q + r/2);
+    let y = SUB_HEX_SIZE * (3/2)*r;
+    return {x,y};
+  }
+  function subHexPolygonPoints(cx,cy){
+    let pts=[];
+    for(let i=0;i<6;i++){
+      let deg=60*i+30;
+      let rad=Math.PI/180*deg;
+      let px=cx+SUB_HEX_SIZE*Math.cos(rad);
+      let py=cy+SUB_HEX_SIZE*Math.sin(rad);
       pts.push(`${px},${py}`);
     }
     return pts.join(" ");
   }
 
-  // Build a hex-shaped array of sub-hex coords
-  let subHexList = [];
-  for (let q = -SUB_GRID_RADIUS; q <= SUB_GRID_RADIUS; q++) {
-    for (let r = -SUB_GRID_RADIUS; r <= SUB_GRID_RADIUS; r++) {
-      if (Math.abs(q + r) <= SUB_GRID_RADIUS) {
-        subHexList.push({q, r});
+  // build sub-hex coords
+  let subHexList=[];
+  for(let q=-SUB_GRID_RADIUS; q<=SUB_GRID_RADIUS;q++){
+    for(let r=-SUB_GRID_RADIUS; r<=SUB_GRID_RADIUS; r++){
+      if(Math.abs(q+r)<=SUB_GRID_RADIUS){
+        subHexList.push({q,r});
       }
     }
   }
 
-  // Render each small sub-hex
-  subHexList.forEach(subHex => {
-    const {x, y} = subAxialToPixel(subHex.q, subHex.r);
-    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-    poly.setAttribute("class", "hex-region");
-    poly.setAttribute("points", subHexPolygonPoints(x, y));
+  subHexList.forEach(sh=>{
+    let {x,y}= subAxialToPixel(sh.q,sh.r);
+    let poly=document.createElementNS("http://www.w3.org/2000/svg","polygon");
+    poly.setAttribute("class","hex-region");
+    poly.setAttribute("points",subHexPolygonPoints(x,y));
     poly.setAttribute("fill", regionColor(region.regionId));
-
-    poly.addEventListener("mouseenter", () => {
-      hoverLabel.textContent = `Sub-Hex (q=${subHex.q}, r=${subHex.r}) of ${region.name}`;
+    poly.addEventListener("mouseenter",()=>{
+      hoverLabel.textContent=`(q=${sh.q},r=${sh.r}) of ${region.name}`;
     });
-    poly.addEventListener("mouseleave", () => {
-      hoverLabel.textContent = "";
-    });
-
+    poly.addEventListener("mouseleave",()=>{hoverLabel.textContent="";});
     gDetail.appendChild(poly);
   });
 
-  // Now center the sub-hex grid
-  centerHexGroup(subHexList, gDetail, subAxialToPixel, {
-    svgWidth: SVG_WIDTH,
-    svgHeight: SVG_HEIGHT,
-    scale: 2,
-    rotation: 30
+  centerHexGroup(subHexList, gDetail, subAxialToPixel,{
+    svgWidth:SVG_WIDTH,
+    svgHeight:SVG_HEIGHT,
+    scale:2,
+    rotation:0
   });
 }
 
-/**
- * Toggle Zoom:
- * - region -> world
- * - section -> region
- */
-function handleToggleZoom() {
-  if (currentView === "region") {
+/** handle zoom */
+function handleToggleZoom(){
+  if(currentView==="region"){
     drawWorldView();
-  } else if (currentView === "section") {
+  } else if(currentView==="section"){
     drawRegionView(currentRegion);
   }
 }
 
-/** Simple color palette */
-function regionColor(regionId) {
-  const palette = [
-    "#cce5ff", "#ffe5cc", "#e5ffcc",
-    "#f5ccff", "#fff5cc", "#ccf0ff",
-    "#e0cce5", "#eed5cc"
+/** color palette */
+function regionColor(id){
+  let pal = ["#cce5ff","#ffe5cc","#e5ffcc","#f5ccff","#fff5cc","#ccf0ff","#e0cce5","#eed5cc"];
+  return pal[id % pal.length];
+}
+
+// ============== HELPER FOR PERIMETER OUTLINE ==================
+
+/**
+ * Return an array [ [x1,y1],[x2,y2] ] for each of 6 edges in pixel coords.
+ */
+function getHexEdges(q, r){
+  let c = axialToPixel(q,r);
+  let corners=[];
+  for(let i=0;i<6;i++){
+    let deg=60*i+30;
+    let rad=Math.PI/180*deg;
+    let px=c.x+ HEX_SIZE*Math.cos(rad);
+    let py=c.y+ HEX_SIZE*Math.sin(rad);
+    corners.push({x:px,y:py});
+  }
+  let edges=[];
+  for(let i=0;i<6;i++){
+    let c1=corners[i];
+    let c2=corners[(i+1)%6];
+    edges.push([[c1.x,c1.y],[c2.x,c2.y]]);
+  }
+  return edges;
+}
+
+/**
+ * Return axial neighbors for a hex
+ */
+function getHexNeighbors(q,r){
+  return [
+    {q:q+1,r:r},
+    {q:q-1,r:r},
+    {q:q,r:r+1},
+    {q:q,r:r-1},
+    {q:q+1,r:r-1},
+    {q:q-1,r:r+1}
   ];
-  return palette[regionId % palette.length];
 }
 
 /**
- * A small utility to compute the convex hull (Monotone chain).
- * pointsArr should be an array of objects: [{x, y}, {x, y}, ...]
- * Returns hull as an array of {x, y} in CCW order.
+ * Check if a given edge [ [x1,y1],[x2,y2] ] 
+ * appears in neighborEdges (within tolerance). 
+ * We'll consider an edge "the same" if it has the same 2 endpoints 
+ * ignoring order (since reversed is the same edge).
  */
-function computeConvexHull(pointsArr) {
-  // Sort by x, then by y
-  let sorted = [...pointsArr].sort((a, b) =>
-    a.x === b.x ? a.y - b.y : a.x - b.x
-  );
-
-  // Build lower hull
-  let lower = [];
-  for (let pt of sorted) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pt) <= 0) {
-      lower.pop();
+function isEdgeShared(edge, neighborEdges){
+  let [A,B] = edge;
+  for(let nEdge of neighborEdges){
+    let [C,D] = nEdge;
+    // We can do a small epsilon if needed, or direct compare
+    // Check if A==C & B==D or A==D & B==C
+    if(almostEqual(A[0],C[0]) && almostEqual(A[1],C[1]) &&
+       almostEqual(B[0],D[0]) && almostEqual(B[1],D[1])){
+      return true;
     }
-    lower.push(pt);
-  }
-
-  // Build upper hull
-  let upper = [];
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    let pt = sorted[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pt) <= 0) {
-      upper.pop();
+    if(almostEqual(A[0],D[0]) && almostEqual(A[1],D[1]) &&
+       almostEqual(B[0],C[0]) && almostEqual(B[1],C[1])){
+      return true;
     }
-    upper.push(pt);
   }
-
-  // Remove duplicates at the seam
-  upper.pop();
-  lower.pop();
-  return lower.concat(upper);
-
-  function cross(o, a, b) {
-    // cross product of OA x OB
-    return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-  }
+  return false;
 }
 
-/**
- * Return 6 corners in pixel coords for a single hex.
- */
-function getHexCorners(q, r) {
-  // First get the pixel center
-  const { x: cx, y: cy } = axialToPixel(q, r);
-  // Then compute each corner
-  let corners = [];
-  for (let i = 0; i < 6; i++) {
-    let angle_deg = 60 * i + 30;
-    let angle_rad = Math.PI / 180 * angle_deg;
-    let px = cx + HEX_SIZE * Math.cos(angle_rad);
-    let py = cy + HEX_SIZE * Math.sin(angle_rad);
-    corners.push({ x: px, y: py });
-  }
-  return corners;
+// optional small float compare 
+function almostEqual(a,b, eps=0.0001){
+  return Math.abs(a-b)<eps;
 }

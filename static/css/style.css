@@ -29,8 +29,8 @@ body {
   }
   
   .region-outline {
-    stroke: red;
-    stroke-width: 2;
+    stroke: black;
+    stroke-width: 1;
     fill: none;
     pointer-events: none; /* so it doesn't interfere with mouse events, if you want */
   }
