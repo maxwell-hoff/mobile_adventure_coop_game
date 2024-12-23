@@ -7,17 +7,22 @@
 </head>
 <body>
   <h1>Hex Map with Zoom</h1>
-  
-  <!-- Buttons to control zoom levels -->
+
   <div id="controls">
-    <button onclick="showWorldView()">World View</button>
-    <button onclick="showRegionView()">Region View</button>
-    <button onclick="showSectionView()">Section View</button>
+    <!-- This single button toggles between "World View" and "Region View" 
+         depending on current zoom level. Hidden at world level. -->
+    <button id="toggleZoomBtn" style="display:none;" onclick="handleToggleZoom()">
+      <!-- Text set dynamically in JS -->
+    </button>
   </div>
-  
+
   <!-- Container for our SVG map -->
   <div id="map-container">
-    <svg id="map-svg" width="800" height="600"></svg>
+    <svg id="map-svg" width="800" height="600">
+      <!-- We'll place shapes programmatically -->
+      <!-- A text label to show region name on hover -->
+      <text id="hoverLabel" x="400" y="30" text-anchor="middle" font-size="16" fill="#222"></text>
+    </svg>
   </div>
   
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>

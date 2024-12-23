@@ -3,7 +3,7 @@ body {
   }
   
   #map-container {
-    width: 800px;  /* You can make this responsive, if desired */
+    width: 800px;
     height: 600px;
     margin: 0 auto;
     border: 1px solid #ccc;
@@ -11,14 +11,20 @@ body {
   }
   
   .hex-region {
-    /* This class might be used to color polygons or highlight them */
-    fill: #cce5ff; /* default color */
+    fill: #cce5ff;
     stroke: #666;
     stroke-width: 1;
     cursor: pointer;
+    transition: fill 0.15s;
   }
   
-  .hex-hover {
-    fill: #ffd699 !important; /* highlight color on hover */
+  .hex-region:hover {
+    fill: #ffd699;
+  }
+  
+  /* The text label for region name on hover:
+     We'll update it dynamically, but you can style it here. */
+  #hoverLabel {
+    font-weight: bold;
   }
   
