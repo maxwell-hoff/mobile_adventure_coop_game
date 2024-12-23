@@ -6,10 +6,9 @@ let currentSection = null;
 const HEX_SIZE = 30; // radius of each hex
 const SQRT3 = Math.sqrt(3);
 
-// Offsets to prevent top/left clipping on the world map
-// Adjust as needed if you have many negative q/r coordinates or large maps
-const WORLD_OFFSET_X = 100;
-const WORLD_OFFSET_Y = 100;
+// We'll assume the <svg> is 800x600
+const SVG_WIDTH = 800;
+const SVG_HEIGHT = 600;
 
 /**
  * Axial -> pixel (pointy-top).
@@ -37,6 +36,48 @@ function hexPolygonPoints(cx, cy) {
   return points.join(" ");
 }
 
+// =========== NEW UTILITY FUNCTIONS FOR BOUNDING BOX ===========
+
+function getHexBoundingBox(hexList, axialToPixelFn) {
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+
+  hexList.forEach(({q, r}) => {
+    const {x, y} = axialToPixelFn(q, r);
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  });
+  if (hexList.length === 0) {
+    minX = 0; maxX = 0; minY = 0; maxY = 0;
+  }
+  return {minX, maxX, minY, maxY};
+}
+
+function centerHexGroup(hexList, group, axialToPixelFn, {
+  svgWidth = 800,
+  svgHeight = 600,
+  scale = 1,
+  rotation = 0
+} = {}) {
+  const { minX, maxX, minY, maxY } = getHexBoundingBox(hexList, axialToPixelFn);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const targetX = svgWidth / 2;
+  const targetY = svgHeight / 2;
+
+  let transformStr = `
+    translate(${targetX}, ${targetY})
+    scale(${scale})
+    rotate(${rotation})
+    translate(${-centerX}, ${-centerY})
+  `.replace(/\s+/g, ' ');
+  group.setAttribute("transform", transformStr);
+}
+
+// ============================================================
+
 window.addEventListener("DOMContentLoaded", async () => {
   await loadWorldData();
   drawWorldView();
@@ -52,9 +93,7 @@ async function loadWorldData() {
 }
 
 /**
- * WORLD VIEW:
- * - Draw all region hexes in a single group, translated so they aren't clipped.
- * - Also place a region label (text) at the centroid of that region's hexes.
+ * WORLD VIEW
  */
 function drawWorldView() {
   currentView = "world";
@@ -78,18 +117,21 @@ function drawWorldView() {
   hoverLabel.setAttribute("fill", "#222");
   svg.appendChild(hoverLabel);
 
-  // Group for the entire world
+  // Create a group for the entire world
   let gWorld = document.createElementNS("http://www.w3.org/2000/svg", "g");
   gWorld.setAttribute("id", "world-group");
-  // Translate so top-left hex is not clipped
-  gWorld.setAttribute("transform", `translate(${WORLD_OFFSET_X}, ${WORLD_OFFSET_Y})`);
   svg.appendChild(gWorld);
 
-  // For each region, we store coordinates to compute a centroid for labeling
+  // We'll store the entire list of hex coords for the bounding box
+  let worldHexList = [];
+
+  // For each region, draw hexes
   worldData.regions.forEach(region => {
     let sumX = 0, sumY = 0, count = 0;
 
     region.worldHexes.forEach(hex => {
+      worldHexList.push(hex);
+
       const { x, y } = axialToPixel(hex.q, hex.r);
       sumX += x;
       sumY += y;
@@ -118,7 +160,7 @@ function drawWorldView() {
       gWorld.appendChild(poly);
     });
 
-    // Place a label in the average center of the region's hexes
+    // Place a label near the center of that region
     if (count > 0) {
       const centerX = sumX / count;
       const centerY = sumY / count;
@@ -131,16 +173,22 @@ function drawWorldView() {
       regionLabel.setAttribute("font-size", "14");
       regionLabel.textContent = region.name;
 
-      // Optional: region label doesn't handle click, just a label
-      // If you want it clickable, you could do so
-
       gWorld.appendChild(regionLabel);
     }
+  });
+
+  // Now center the entire world group
+  // rotation=30 if you want to keep that orientation
+  centerHexGroup(worldHexList, gWorld, axialToPixel, {
+    svgWidth: SVG_WIDTH,
+    svgHeight: SVG_HEIGHT,
+    scale: 1,
+    // rotation: 30
   });
 }
 
 /**
- * REGION VIEW: Zoom in on one region's hexes.
+ * REGION VIEW
  */
 function drawRegionView(region) {
   currentView = "region";
@@ -165,14 +213,14 @@ function drawRegionView(region) {
 
   let gRegion = document.createElementNS("http://www.w3.org/2000/svg", "g");
   gRegion.setAttribute("id", "region-group");
-
-  // We'll offset similarly so nothing is cut off. 
-  // Then scale up 2x or 3x, as you prefer.
-  gRegion.setAttribute("transform", `translate(100,100) scale(2)`);
-
   svg.appendChild(gRegion);
 
+  // We'll store the region's hexes in an array for bounding box
+  let regionHexList = [];
+
   region.worldHexes.forEach(hex => {
+    regionHexList.push(hex);
+
     const { x, y } = axialToPixel(hex.q, hex.r);
 
     const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
@@ -188,105 +236,112 @@ function drawRegionView(region) {
       hoverLabel.textContent = "";
     });
 
-    // Check if hex belongs to a section
     poly.addEventListener("click", () => {
-        drawHexDetailView(region, hex);
+      drawHexDetailView(region, hex);
     });
 
     gRegion.appendChild(poly);
   });
+
+  // Now center the region's group
+  // e.g. scale=2, rotation=30
+  centerHexGroup(regionHexList, gRegion, axialToPixel, {
+    svgWidth: SVG_WIDTH,
+    svgHeight: SVG_HEIGHT,
+    scale: 2,
+    // rotation: 30
+  });
 }
 
 /**
- * Draw detail for a single hex, subdivided into smaller hexes.
- * @param {Object} region - the region data
- * @param {Object} clickedHex - the axial coords {q, r} for the hex that was clicked
+ * NEW SECTION (detail) VIEW
  */
 function drawHexDetailView(region, clickedHex) {
-    currentView = "section";
-  
-    // Show toggle button, letting user go back to region
-    const toggleBtn = document.getElementById("toggleZoomBtn");
-    toggleBtn.style.display = "inline-block";
-    toggleBtn.textContent = "Region View"; // so we can step back up
-  
-    const svg = document.getElementById("map-svg");
-    svg.innerHTML = "";
-  
-    // Hover label
-    const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    hoverLabel.setAttribute("id", "hoverLabel");
-    hoverLabel.setAttribute("x", "400");
-    hoverLabel.setAttribute("y", "30");
-    hoverLabel.setAttribute("text-anchor", "middle");
-    hoverLabel.setAttribute("font-size", "16");
-    hoverLabel.setAttribute("fill", "#222");
-    svg.appendChild(hoverLabel);
-  
-    // Create a group for the subdivided hex grid
-    let gDetail = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    gDetail.setAttribute("id", "hex-detail-group");
-  
-    // Place it in the center, scale, then rotate 30° to match the region
-    gDetail.setAttribute("transform", "translate(200,200) scale(2) rotate(30)");
-  
-    svg.appendChild(gDetail);
-  
-    // We'll define a sub-hex "radius" so it forms a hex shape
-    const SUB_GRID_RADIUS = 5; // yields 19 sub-hexes
-    const SUB_HEX_SIZE = 10;
-    function subAxialToPixel(q, r) {
-      const x = SUB_HEX_SIZE * SQRT3 * (q + r / 2);
-      const y = SUB_HEX_SIZE * (3 / 2) * r;
-      return { x, y };
-    }
-    function subHexPolygonPoints(cx, cy) {
-      let points = [];
-      for (let i = 0; i < 6; i++) {
-        let angle_deg = 60 * i + 30;
-        let angle_rad = Math.PI / 180 * angle_deg;
-        let px = cx + SUB_HEX_SIZE * Math.cos(angle_rad);
-        let py = cy + SUB_HEX_SIZE * Math.sin(angle_rad);
-        points.push(`${px},${py}`);
-      }
-      return points.join(" ");
-    }
-  
-    // Build sub-hex coords in a proper hex shape
-    let subHexList = [];
-    for (let subQ = -SUB_GRID_RADIUS; subQ <= SUB_GRID_RADIUS; subQ++) {
-      for (let subR = -SUB_GRID_RADIUS; subR <= SUB_GRID_RADIUS; subR++) {
-        if (Math.abs(subQ + subR) <= SUB_GRID_RADIUS) {
-          subHexList.push({ q: subQ, r: subR });
-        }
-      }
-    }
-  
-    // Render each small sub-hex
-    subHexList.forEach(subHex => {
-      const { x, y } = subAxialToPixel(subHex.q, subHex.r);
-      const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-      poly.setAttribute("class", "hex-region");
-      poly.setAttribute("points", subHexPolygonPoints(x, y));
-      poly.setAttribute("fill", regionColor(region.regionId));
-  
-      // On hover, show sub-hex coords
-      poly.addEventListener("mouseenter", () => {
-        hoverLabel.textContent = `Sub-Hex (q=${subHex.q}, r=${subHex.r}) of ${region.name}`;
-      });
-      poly.addEventListener("mouseleave", () => {
-        hoverLabel.textContent = "";
-      });
-  
-      gDetail.appendChild(poly);
-    });
+  currentView = "section";
+
+  const toggleBtn = document.getElementById("toggleZoomBtn");
+  toggleBtn.style.display = "inline-block";
+  toggleBtn.textContent = "Region View";
+
+  const svg = document.getElementById("map-svg");
+  svg.innerHTML = "";
+
+  // Hover label
+  const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  hoverLabel.setAttribute("id", "hoverLabel");
+  hoverLabel.setAttribute("x", "400");
+  hoverLabel.setAttribute("y", "30");
+  hoverLabel.setAttribute("text-anchor", "middle");
+  hoverLabel.setAttribute("font-size", "16");
+  hoverLabel.setAttribute("fill", "#222");
+  svg.appendChild(hoverLabel);
+
+  let gDetail = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  gDetail.setAttribute("id", "hex-detail-group");
+  svg.appendChild(gDetail);
+
+  // Sub-hex geometry
+  const SUB_GRID_RADIUS = 5; // example
+  const SUB_HEX_SIZE = 10;
+  function subAxialToPixel(q, r) {
+    const x = SUB_HEX_SIZE * SQRT3 * (q + r / 2);
+    const y = SUB_HEX_SIZE * (3 / 2) * r;
+    return { x, y };
   }
-  
-  
+
+  function subHexPolygonPoints(cx, cy) {
+    let pts = [];
+    for (let i = 0; i < 6; i++) {
+      let angle_deg = 60 * i + 30;
+      let angle_rad = Math.PI / 180 * angle_deg;
+      let px = cx + SUB_HEX_SIZE * Math.cos(angle_rad);
+      let py = cy + SUB_HEX_SIZE * Math.sin(angle_rad);
+      pts.push(`${px},${py}`);
+    }
+    return pts.join(" ");
+  }
+
+  // Build a hex-shaped array of sub-hex coords
+  let subHexList = [];
+  for (let q = -SUB_GRID_RADIUS; q <= SUB_GRID_RADIUS; q++) {
+    for (let r = -SUB_GRID_RADIUS; r <= SUB_GRID_RADIUS; r++) {
+      if (Math.abs(q + r) <= SUB_GRID_RADIUS) {
+        subHexList.push({q, r});
+      }
+    }
+  }
+
+  // Render each small sub-hex
+  subHexList.forEach(subHex => {
+    const {x, y} = subAxialToPixel(subHex.q, subHex.r);
+    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    poly.setAttribute("class", "hex-region");
+    poly.setAttribute("points", subHexPolygonPoints(x, y));
+    poly.setAttribute("fill", regionColor(region.regionId));
+
+    poly.addEventListener("mouseenter", () => {
+      hoverLabel.textContent = `Sub-Hex (q=${subHex.q}, r=${subHex.r}) of ${region.name}`;
+    });
+    poly.addEventListener("mouseleave", () => {
+      hoverLabel.textContent = "";
+    });
+
+    gDetail.appendChild(poly);
+  });
+
+  // Now center the sub-hex grid
+  centerHexGroup(subHexList, gDetail, subAxialToPixel, {
+    svgWidth: SVG_WIDTH,
+    svgHeight: SVG_HEIGHT,
+    scale: 2,
+    rotation: 30
+  });
+}
+
 /**
- * Single toggle button:
- * - If region -> world
- * - If section -> region
+ * Toggle Zoom:
+ * - region -> world
+ * - section -> region
  */
 function handleToggleZoom() {
   if (currentView === "region") {
@@ -296,12 +351,12 @@ function handleToggleZoom() {
   }
 }
 
-/** Different fill colors per region ID. */
+/** Simple color palette */
 function regionColor(regionId) {
   const palette = [
     "#cce5ff", "#ffe5cc", "#e5ffcc",
     "#f5ccff", "#fff5cc", "#ccf0ff",
-    "#e0cce5", "#eed5cc" // you can add more to vary
+    "#e0cce5", "#eed5cc"
   ];
   return palette[regionId % palette.length];
 }
