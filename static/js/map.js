@@ -187,18 +187,18 @@ function drawWorldView() {
       gWorld.appendChild(p);
     });
 
-    // 2) Put region label near center
-    if(count>0){
-      let centerX = sumX/count, centerY = sumY/count;
-      let lbl = document.createElementNS("http://www.w3.org/2000/svg","text");
-      lbl.setAttribute("x",centerX);
-      lbl.setAttribute("y",centerY);
-      lbl.setAttribute("text-anchor","middle");
-      lbl.setAttribute("fill","#333");
-      lbl.setAttribute("font-size","10");
-      lbl.textContent = region.name;
-      gWorld.appendChild(lbl);
-    }
+    // // 2) Put region label near center
+    // if(count>0){
+    //   let centerX = sumX/count, centerY = sumY/count;
+    //   let lbl = document.createElementNS("http://www.w3.org/2000/svg","text");
+    //   lbl.setAttribute("x",centerX);
+    //   lbl.setAttribute("y",centerY);
+    //   lbl.setAttribute("text-anchor","middle");
+    //   lbl.setAttribute("fill","#333");
+    //   lbl.setAttribute("font-size","10");
+    //   lbl.textContent = region.name;
+    //   gWorld.appendChild(lbl);
+    // }
 
     // 3) Outline the perimeter edges only
     // For each hex in region, get its 6 edges in pixel coords
