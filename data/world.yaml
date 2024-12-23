@@ -1,8 +1,9 @@
 regions:
   - regionId: 1
     name: "Redwood Vale"
-    description: "A sprawling forest of towering redwoods."
-    # List of hexes that Redwood Vale occupies on the world map (axial coords).
+    description: "A sprawling forest of towering redwoods, shrouded in perpetual mist."
+    size: "Large"
+    location: "West of Golden Fields"
     worldHexes:
       - {q: 0, r: 0}
       - {q: 1, r: 0}
@@ -17,25 +18,609 @@ regions:
         sectionHexes:
           - {q: 0, r: 1}
           - {q: 1, r: 1}
+    vegetation:
+      - name: "Redwood Giants"
+        description: "Towering conifers forming the forest canopy."
+        size: "Enormous"
+        density: "Sparse"
+      - name: "Mistbloom Moss"
+        description: "Soft, moisture-loving moss thriving in foggy undergrowth."
+        size: "Small"
+        density: "Moderate"
+      - name: "Moonbell Fungi"
+        description: "Luminescent mushrooms clustering near tree roots."
+        size: "Small"
+        density: "Low"
+    aggressors:
+      - name: "Redwood Spiders"
+        description: "Venomous arachnids nesting high in redwood canopies."
+        threat_level: "Medium"
+        size: "Medium"
+        density: "Low"
+      - name: "Crested Stagbeetles"
+        description: "Armored insects that swarm intruders when disturbed."
+        threat_level: "Medium"
+        size: "Small"
+        density: "High"
+      - name: "Shadow Foxes"
+        description: "Stealthy predators capable of brief camouflage."
+        threat_level: "Low"
+        size: "Small"
+        density: "Moderate"
+    friendlies:
+      - name: "Wandering Druid"
+        description: "Caretaker of the forest who heals injured creatures."
+        size: "Medium"
+        attitude: "Helpful"
+      - name: "Timberwise Owlkin"
+        description: "Sapient owl-like beings offering cryptic guidance."
+        size: "Small"
+        attitude: "Guarded"
+      - name: "Woodcutter Troupe"
+        description: "Nomadic group carefully harvesting fallen timber."
+        size: "Various"
+        attitude: "Neutral"
 
   - regionId: 2
     name: "Golden Fields"
-    description: "Rolling plains of tall grass and farmland."
-    # Placed east of Redwood Vale in axial coords.
+    description: "Rolling plains of tall grass and golden wheat, dotted with small hamlets."
+    size: "Large"
+    location: "East of Redwood Vale, north of Misty Hills"
     worldHexes:
       - {q: 2, r: 0}
       - {q: 3, r: 0}
+      - {q: 4, r: 0}
       - {q: 2, r: 1}
       - {q: 3, r: 1}
+      - {q: 4, r: 1}
     sections:
       - name: "Wheatcrest"
         sectionHexes:
           - {q: 2, r: 0}
           - {q: 3, r: 0}
+          - {q: 4, r: 0}
       - name: "Pasturelands"
         sectionHexes:
           - {q: 2, r: 1}
           - {q: 3, r: 1}
+          - {q: 4, r: 1}
+    vegetation:
+      - name: "Wheatrise Grass"
+        description: "Staple cereal grass that grows abundantly."
+        size: "Small"
+        density: "High"
+      - name: "Sunbloom Flowers"
+        description: "Bright yellow blossoms that turn toward the sun."
+        size: "Small"
+        density: "Moderate"
+      - name: "Meadow Thistle"
+        description: "Spiny wildflowers that attract pollinators."
+        size: "Small"
+        density: "Low"
+    aggressors:
+      - name: "Field Vultures"
+        description: "Large carrion birds that can attack vulnerable travelers."
+        threat_level: "Low"
+        size: "Medium"
+        density: "Moderate"
+      - name: "Stampede Bisons"
+        description: "Normally docile but can trample if startled."
+        threat_level: "Medium"
+        size: "Large"
+        density: "Low"
+      - name: "Grain Thieves"
+        description: "Rogue bandits preying on farmsteads."
+        threat_level: "Medium"
+        size: "Various"
+        density: "Low"
+    friendlies:
+      - name: "Traveling Merchants"
+        description: "Traders offering goods and local produce."
+        size: "Various"
+        attitude: "Friendly"
+      - name: "Harvest Clerics"
+        description: "Priests who bless crops and aid farmers."
+        size: "Medium"
+        attitude: "Helpful"
+      - name: "Plains Shepherds"
+        description: "Tend flocks and often guide travelers across the fields."
+        size: "Various"
+        attitude: "Welcoming"
+
+  - regionId: 3
+    name: "Misty Hills"
+    description: "A cluster of low, fog-drenched hills where echoes carry for miles."
+    size: "Medium"
+    location: "South of Golden Fields"
+    worldHexes:
+      - {q: 2, r: 2}
+      - {q: 3, r: 2}
+      - {q: 2, r: 3}
+    sections:
+      - name: "Fogcrest Pass"
+        sectionHexes:
+          - {q: 2, r: 2}
+      - name: "Lowland Echoes"
+        sectionHexes:
+          - {q: 3, r: 2}
+          - {q: 2, r: 3}
+    vegetation:
+      - name: "Fogfern"
+        description: "Fern that thrives in damp, low-light conditions."
+        size: "Small"
+        density: "Moderate"
+      - name: "Twilight Shrubs"
+        description: "Bushes bearing dark purple berries at dusk."
+        size: "Small"
+        density: "Low"
+      - name: "Hilltop Heather"
+        description: "Soft, lilac-hued flowers covering the slopes."
+        size: "Small"
+        density: "Abundant"
+    aggressors:
+      - name: "Hill Wraiths"
+        description: "Spectral entities forming in thick fog."
+        threat_level: "High"
+        size: "Medium"
+        density: "Low"
+      - name: "Rockback Boars"
+        description: "Tough hide boars that charge intruders."
+        threat_level: "Medium"
+        size: "Medium"
+        density: "Moderate"
+      - name: "Echo Screechers"
+        description: "Nocturnal avian creatures with disorienting cries."
+        threat_level: "Low"
+        size: "Small"
+        density: "Low"
+    friendlies:
+      - name: "Hilltop Hermit"
+        description: "Reclusive sage offering cryptic advice."
+        size: "Medium"
+        attitude: "Neutral"
+      - name: "Berry Gatherers"
+        description: "Locals collecting rare berries for trade."
+        size: "Various"
+        attitude: "Friendly"
+      - name: "Fogbound Minstrels"
+        description: "Traveling bards adept at navigating the mists."
+        size: "Medium"
+        attitude: "Helpful"
+
+  - regionId: 4
+    name: "Silverwater Marsh"
+    description: "An expansive wetland full of reflective pools and glimmering moonlight."
+    size: "Large"
+    location: "South of Redwood Vale"
+    worldHexes:
+      - {q: -1, r: 2}
+      - {q: 0, r: 2}
+      - {q: -1, r: 3}
+      - {q: 0, r: 3}
+      - {q: -1, r: 4}
+      - {q: 0, r: 4}
+    sections:
+      - name: "Shimmering Pools"
+        sectionHexes:
+          - {q: -1, r: 2}
+          - {q: 0, r: 2}
+          - {q: -1, r: 3}
+      - name: "Moonlit Reeds"
+        sectionHexes:
+          - {q: 0, r: 3}
+          - {q: -1, r: 4}
+          - {q: 0, r: 4}
+    vegetation:
+      - name: "Mirrorscale Lilies"
+        description: "Lily pads shimmering like polished silver."
+        size: "Small"
+        density: "Moderate"
+      - name: "Reedwillow Clumps"
+        description: "Thin, tall reeds swaying gracefully on muddy banks."
+        size: "Medium"
+        density: "Abundant"
+      - name: "Glintmoss"
+        description: "Tiny moss flecked with bioluminescent specks."
+        size: "Tiny"
+        density: "Sparse"
+    aggressors:
+      - name: "Bog Serpents"
+        description: "Large constrictors lurking beneath still waters."
+        threat_level: "High"
+        size: "Large"
+        density: "Low"
+      - name: "Fenlurkers"
+        description: "Amphibious humanoids ambushing from the reeds."
+        threat_level: "Medium"
+        size: "Medium"
+        density: "Moderate"
+      - name: "Mud Fiends"
+        description: "Gooey creatures that drag prey into sinking mud."
+        threat_level: "Medium"
+        size: "Varies"
+        density: "Low"
+    friendlies:
+      - name: "Marshlight Gatherers"
+        description: "Collectors of glowing marsh plants for alchemy."
+        size: "Various"
+        attitude: "Friendly"
+      - name: "Swamp Witches"
+        description: "Reclusive spellcasters with deep knowledge of healing herbs."
+        size: "Medium"
+        attitude: "Cautious"
+      - name: "Silver Herons"
+        description: "Intelligent birds said to guide lost travelers."
+        size: "Medium"
+        attitude: "Neutral"
+
+  - regionId: 5
+    name: "Crimson Desert"
+    description: "Waves of red sand under a scorching sun, with craggy outcrops to the east."
+    size: "Large"
+    location: "Far southeast, beyond Silverwater Marsh"
+    worldHexes:
+      - {q: 3, r: 3}
+      - {q: 4, r: 3}
+      - {q: 5, r: 3}
+      - {q: 3, r: 4}
+      - {q: 4, r: 4}
+      - {q: 5, r: 4}
+      - {q: 3, r: 5}
+      - {q: 4, r: 5}
+    sections:
+      - name: "Scorched Dunes"
+        sectionHexes:
+          - {q: 3, r: 3}
+          - {q: 4, r: 3}
+          - {q: 5, r: 3}
+          - {q: 3, r: 4}
+      - name: "Sunbaked Pass"
+        sectionHexes:
+          - {q: 4, r: 4}
+          - {q: 5, r: 4}
+          - {q: 3, r: 5}
+          - {q: 4, r: 5}
+    vegetation:
+      - name: "Redscale Cacti"
+        description: "Tall, spined cactus storing crimson-hued water."
+        size: "Medium"
+        density: "Sparse"
+      - name: "Dustbloom Shrubs"
+        description: "Hardy shrubs producing pale orange blossoms."
+        size: "Small"
+        density: "Low"
+      - name: "Glassgrass Tufts"
+        description: "Sharp-edged grass that glints in sunlight."
+        size: "Tiny"
+        density: "Moderate"
+    aggressors:
+      - name: "Sandstalker Scorpions"
+        description: "Venomous scorpions that burrow beneath dunes."
+        threat_level: "High"
+        size: "Small"
+        density: "Moderate"
+      - name: "Crag Lions"
+        description: "Fierce felines blending with rocky outcrops."
+        threat_level: "Medium"
+        size: "Large"
+        density: "Low"
+      - name: "Desert Raiders"
+        description: "Nomadic bandits attacking wanderers for supplies."
+        threat_level: "High"
+        size: "Various"
+        density: "Low"
+    friendlies:
+      - name: "Oasis Traders"
+        description: "Traveling merchants stationed around hidden water sources."
+        size: "Various"
+        attitude: "Friendly"
+      - name: "Sandskiff Nomads"
+        description: "Drift across dunes using wind-powered sleds."
+        size: "Various"
+        attitude: "Neutral"
+      - name: "Desert Mystic"
+        description: "A solitary sage known for potent visions under the sun."
+        size: "Medium"
+        attitude: "Guarded"
+
+  - regionId: 6
+    name: "Thornbriar Thicket"
+    description: "A bramble-laden forest, nearly impassable without careful navigation."
+    size: "Medium"
+    location: "East of Misty Hills"
+    worldHexes:
+      - {q: 4, r: 2}
+      - {q: 5, r: 2}
+      - {q: 4, r: 1}
+    sections:
+      - name: "Bramble Maze"
+        sectionHexes:
+          - {q: 4, r: 2}
+      - name: "Thornpatch Clearing"
+        sectionHexes:
+          - {q: 5, r: 2}
+          - {q: 4, r: 1}
+    vegetation:
+      - name: "Bramble Vines"
+        description: "Spiky vines forming natural barriers."
+        size: "Medium"
+        density: "High"
+      - name: "Bloodpetal Roses"
+        description: "Deep red roses with razor-sharp thorns."
+        size: "Small"
+        density: "Moderate"
+      - name: "Thicket Moss"
+        description: "Threadlike moss weaving through bramble roots."
+        size: "Tiny"
+        density: "Abundant"
+    aggressors:
+      - name: "Thornsnout Boars"
+        description: "Irritable boars with spiked snouts."
+        threat_level: "Medium"
+        size: "Medium"
+        density: "Moderate"
+      - name: "Briarcats"
+        description: "Stealthy felines adept at weaving through vines."
+        threat_level: "Low"
+        size: "Small"
+        density: "Moderate"
+      - name: "Rosemaw Creepers"
+        description: "Semi-sentient vines that ensnare unsuspecting prey."
+        threat_level: "High"
+        size: "Varies"
+        density: "Low"
+    friendlies:
+      - name: "Bramble Rangers"
+        description: "Locals skilled in cutting safe paths through the thicket."
+        size: "Various"
+        attitude: "Helpful"
+      - name: "Herbalist Coven"
+        description: "Gatherers of rare thorn-laden herbs for potent potions."
+        size: "Various"
+        attitude: "Neutral"
+      - name: "Wasp Whisperer"
+        description: "A solitary wanderer controlling giant wasps for pollination."
+        size: "Medium"
+        attitude: "Cautious"
+
+  - regionId: 7
+    name: "Cloudtop Peaks"
+    description: "High mountains crowned with perpetual clouds, rumored to house hidden valleys."
+    size: "Large"
+    location: "Northeast of Thornbriar Thicket"
+    worldHexes:
+      - {q: 6, r: -1}
+      - {q: 5, r: 0}
+      - {q: 6, r: 0}
+      - {q: 7, r: 0}
+      - {q: 6, r: 1}
+    sections:
+      - name: "Skyreach Crags"
+        sectionHexes:
+          - {q: 6, r: -1}
+          - {q: 5, r: 0}
+      - name: "Hotspring Terraces"
+        sectionHexes:
+          - {q: 6, r: 0}
+          - {q: 7, r: 0}
+          - {q: 6, r: 1}
+    vegetation:
+      - name: "Skybloom Edelweiss"
+        description: "Delicate flower thriving on cliff ledges."
+        size: "Small"
+        density: "Low"
+      - name: "Peak Pine"
+        description: "Short, resilient pine enduring harsh winds."
+        size: "Medium"
+        density: "Sparse"
+      - name: "Frostveil Lichen"
+        description: "Fuzzy lichen covering exposed rock faces."
+        size: "Tiny"
+        density: "Moderate"
+    aggressors:
+      - name: "Cliff Harpies"
+        description: "Winged predators ambushing from high ledges."
+        threat_level: "High"
+        size: "Medium"
+        density: "Low"
+      - name: "Mountain Yeti"
+        description: "Reclusive humanoids attacking if territory is threatened."
+        threat_level: "Medium"
+        size: "Large"
+        density: "Low"
+      - name: "Frost Eels"
+        description: "Slim creatures nesting in ice tunnels, biting intruders."
+        threat_level: "Low"
+        size: "Small"
+        density: "Moderate"
+    friendlies:
+      - name: "Sky Shepherds"
+        description: "Guides adept at safe mountain passage."
+        size: "Various"
+        attitude: "Helpful"
+      - name: "Hotspring Hermits"
+        description: "Reside near hidden thermal pools, offering healing knowledge."
+        size: "Medium"
+        attitude: "Guarded"
+      - name: "Summit Pilgrims"
+        description: "Travelers seeking enlightenment atop the peaks."
+        size: "Various"
+        attitude: "Peaceful"
+
+  - regionId: 8
+    name: "Serpent’s Pass"
+    description: "A winding canyon route overshadowed by looming rock walls."
+    size: "Small"
+    location: "Between Crimson Desert and Cloudtop Peaks"
+    worldHexes:
+      - {q: 5, r: 3}
+      - {q: 6, r: 2}
+    sections:
+      - name: "Canyon Approach"
+        sectionHexes:
+          - {q: 5, r: 3}
+      - name: "Serpent's Spine"
+        sectionHexes:
+          - {q: 6, r: 2}
+    vegetation:
+      - name: "Canyon Vines"
+        description: "Tough creepers clinging to sheer rock faces."
+        size: "Small"
+        density: "Moderate"
+      - name: "Dustbloom Cacti"
+        description: "Pale cacti sprouting in shadowed crags."
+        size: "Small"
+        density: "Sparse"
+      - name: "Stonemist Algae"
+        description: "A damp, slick growth found in narrow crevices."
+        size: "Tiny"
+        density: "Low"
+    aggressors:
+      - name: "Ridge Adders"
+        description: "Venomous snakes hiding among rocky ledges."
+        threat_level: "High"
+        size: "Small"
+        density: "Moderate"
+      - name: "Canyon Vultures"
+        description: "Large scavengers, aggressive if cornered."
+        threat_level: "Low"
+        size: "Medium"
+        density: "Low"
+      - name: "Pass Marauders"
+        description: "Bandits preying on travelers forced through the canyon."
+        threat_level: "Medium"
+        size: "Various"
+        density: "Low"
+    friendlies:
+      - name: "Rockclimb Guides"
+        description: "Locals helping navigate treacherous canyon paths."
+        size: "Various"
+        attitude: "Helpful"
+      - name: "Waterbear Nomads"
+        description: "Trade essential water for goods within the pass."
+        size: "Various"
+        attitude: "Neutral"
+      - name: "Chasm Prophet"
+        description: "An eccentric seer who dwells on a narrow ledge, offering cryptic prophecies."
+        size: "Medium"
+        attitude: "Mysterious"
+
+  - regionId: 9
+    name: "Ashen Foothills"
+    description: "Grey rocky hills dusted with volcanic ash, home to fumaroles and geysers."
+    size: "Medium"
+    location: "North of Crimson Desert"
+    worldHexes:
+      - {q: 4, r: 2}
+      - {q: 4, r: 3}
+    sections:
+      - name: "Fumarole Ridge"
+        sectionHexes:
+          - {q: 4, r: 2}
+      - name: "Geyser Flats"
+        sectionHexes:
+          - {q: 4, r: 3}
+    vegetation:
+      - name: "Ashgrass"
+        description: "Coarse grass adapted to ashy soil."
+        size: "Small"
+        density: "Moderate"
+      - name: "Smoldershroom"
+        description: "Mushrooms thriving near warm vents."
+        size: "Small"
+        density: "Low"
+      - name: "Scaldroot Bush"
+        description: "A hardy shrub with roots tapping volcanic heat."
+        size: "Medium"
+        density: "Sparse"
+    aggressors:
+      - name: "Fumarole Salamanders"
+        description: "Fire-resistant amphibians that spit scalding vapor."
+        threat_level: "Medium"
+        size: "Small"
+        density: "Moderate"
+      - name: "Ash Gargoyles"
+        description: "Stone-like creatures stirring from rocky ledges."
+        threat_level: "High"
+        size: "Large"
+        density: "Low"
+      - name: "Volcanic Wraiths"
+        description: "Restless spirits drawn to geothermal energies."
+        threat_level: "High"
+        size: "Medium"
+        density: "Low"
+    friendlies:
+      - name: "Geothermal Miners"
+        description: "Extract rare minerals from hot springs."
+        size: "Various"
+        attitude: "Neutral"
+      - name: "Ashwalkers"
+        description: "Nomads immune to fumes, guiding travelers safely."
+        size: "Various"
+        attitude: "Helpful"
+      - name: "Fumarole Scholars"
+        description: "Study geological phenomena for magical research."
+        size: "Medium"
+        attitude: "Curious"
+
+  - regionId: 10
+    name: "Frostglade Tundra"
+    description: "Vast rolling icefields, dotted by frost-covered pines and hidden hot springs."
+    size: "Small"
+    location: "Far north, beyond Cloudtop Peaks"
+    worldHexes:
+      - {q: 5, r: -2}
+      - {q: 6, r: -2}
+    sections:
+      - name: "Glacial Ridge"
+        sectionHexes:
+          - {q: 5, r: -2}
+      - name: "Snowdrift Basin"
+        sectionHexes:
+          - {q: 6, r: -2}
+    vegetation:
+      - name: "Icebloom Pine"
+        description: "Sturdy pines layered in rime, adapted to freezing winds."
+        size: "Medium"
+        density: "Sparse"
+      - name: "Polar Moss"
+        description: "Hardy moss forming thick mats across ice-laden rocks."
+        size: "Tiny"
+        density: "Moderate"
+      - name: "Frostferns"
+        description: "Delicate ferns that shimmer under glacial sunlight."
+        size: "Small"
+        density: "Low"
+    aggressors:
+      - name: "Snow Stalkers"
+        description: "Wolves adapted to tundra camouflage."
+        threat_level: "Medium"
+        size: "Medium"
+        density: "Moderate"
+      - name: "Icebound Elementals"
+        description: "Animate shards of ice defending frigid domains."
+        threat_level: "High"
+        size: "Various"
+        density: "Low"
+      - name: "Storm Crows"
+        description: "Enormous birds riding arctic winds, attacking in flocks."
+        threat_level: "Low"
+        size: "Small"
+        density: "High"
+    friendlies:
+      - name: "Tundra Nomads"
+        description: "Roving clans skilled in survival on icefields."
+        size: "Various"
+        attitude: "Neutral"
+      - name: "Glacier Mystic"
+        description: "An enigmatic hermit rumored to foresee icy cataclysms."
+        size: "Medium"
+        attitude: "Guarded"
+      - name: "Hot Spring Trader"
+        description: "A lone merchant found near rare geothermal pools."
+        size: "Various"
+        attitude: "Welcoming"
+
 
 
 # regions:
