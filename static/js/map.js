@@ -129,17 +129,19 @@ function drawWorldView() {
   worldData.regions.forEach(region => {
     let sumX = 0, sumY = 0, count = 0;
     let regionCorners = [];
-  
+
     region.worldHexes.forEach(hex => {
       worldHexList.push(hex);
-  
+
       const { x, y } = axialToPixel(hex.q, hex.r);
-      sumX += x; sumY += y; count++;
-  
+      sumX += x; 
+      sumY += y; 
+      count++;
+
       // Gather corners for hull
       let corners = getHexCorners(hex.q, hex.r);
       regionCorners.push(...corners);
-  
+
       // Draw the actual hex polygon
       const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
       poly.setAttribute("class", "hex-region");
@@ -175,7 +177,10 @@ function drawWorldView() {
       regionLabel.setAttribute("fill", "#333");
       regionLabel.setAttribute("font-size", "14");
       regionLabel.textContent = region.name;
-    
+
+      gWorld.appendChild(regionLabel);
+    }
+
     // Now compute the hull outline for the region
     const hull = computeConvexHull(regionCorners);
     const hullPoints = hull.map(pt => `${pt.x},${pt.y}`).join(" ");
@@ -183,12 +188,12 @@ function drawWorldView() {
     let outlinePoly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
     outlinePoly.setAttribute("points", hullPoints);
     outlinePoly.setAttribute("fill", "none");
-    outlinePoly.setAttribute("stroke", "#000");
+    outlinePoly.setAttribute("stroke", "#000");  // or "red" or ...
     outlinePoly.setAttribute("stroke-width", "2");
     outlinePoly.setAttribute("class", "region-outline");
 
-      gWorld.appendChild(regionLabel);
-    }
+    // IMPORTANT: Append the outline polygon
+    gWorld.appendChild(outlinePoly);
   });
 
   // Now center the entire world group
@@ -250,6 +255,7 @@ function drawRegionView(region) {
       hoverLabel.textContent = "";
     });
 
+    // Click -> detail view
     poly.addEventListener("click", () => {
       drawHexDetailView(region, hex);
     });
@@ -258,7 +264,6 @@ function drawRegionView(region) {
   });
 
   // Now center the region's group
-  // e.g. scale=2, rotation=30
   centerHexGroup(regionHexList, gRegion, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
@@ -375,60 +380,61 @@ function regionColor(regionId) {
   return palette[regionId % palette.length];
 }
 
-
 /**
  * A small utility to compute the convex hull (Monotone chain).
  * pointsArr should be an array of objects: [{x, y}, {x, y}, ...]
  * Returns hull as an array of {x, y} in CCW order.
  */
 function computeConvexHull(pointsArr) {
-    // Sort by x, then by y
-    let sorted = [...pointsArr].sort((a, b) => 
-       a.x === b.x ? a.y - b.y : a.x - b.x
-    );
-  
-    // Build lower hull
-    let lower = [];
-    for (let pt of sorted) {
-      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pt) <= 0) {
-        lower.pop();
-      }
-      lower.push(pt);
-    }
-  
-    // Build upper hull
-    let upper = [];
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      let pt = sorted[i];
-      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pt) <= 0) {
-        upper.pop();
-      }
-      upper.push(pt);
-    }
-  
-    upper.pop();
-    lower.pop();
-    return lower.concat(upper);
-  
-    function cross(o, a, b) {
-      // cross product of OA x OB
-      return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-    }
-  }
-  
+  // Sort by x, then by y
+  let sorted = [...pointsArr].sort((a, b) =>
+    a.x === b.x ? a.y - b.y : a.x - b.x
+  );
 
-  function getHexCorners(q, r) {
-    // First get the pixel center
-    const { x: cx, y: cy } = axialToPixel(q, r);
-    // Then compute each corner
-    let corners = [];
-    for (let i = 0; i < 6; i++) {
-      let angle_deg = 60 * i + 30;
-      let angle_rad = Math.PI / 180 * angle_deg;
-      let px = cx + HEX_SIZE * Math.cos(angle_rad);
-      let py = cy + HEX_SIZE * Math.sin(angle_rad);
-      corners.push({ x: px, y: py });
+  // Build lower hull
+  let lower = [];
+  for (let pt of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pt) <= 0) {
+      lower.pop();
     }
-    return corners;
+    lower.push(pt);
   }
-  
+
+  // Build upper hull
+  let upper = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    let pt = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pt) <= 0) {
+      upper.pop();
+    }
+    upper.push(pt);
+  }
+
+  // Remove duplicates at the seam
+  upper.pop();
+  lower.pop();
+  return lower.concat(upper);
+
+  function cross(o, a, b) {
+    // cross product of OA x OB
+    return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  }
+}
+
+/**
+ * Return 6 corners in pixel coords for a single hex.
+ */
+function getHexCorners(q, r) {
+  // First get the pixel center
+  const { x: cx, y: cy } = axialToPixel(q, r);
+  // Then compute each corner
+  let corners = [];
+  for (let i = 0; i < 6; i++) {
+    let angle_deg = 60 * i + 30;
+    let angle_rad = Math.PI / 180 * angle_deg;
+    let px = cx + HEX_SIZE * Math.cos(angle_rad);
+    let py = cy + HEX_SIZE * Math.sin(angle_rad);
+    corners.push({ x: px, y: py });
+  }
+  return corners;
+}
