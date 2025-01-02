@@ -303,6 +303,25 @@ function drawRegionView(region) {
     gRegion.appendChild(poly);
   });
 
+  // In drawRegionView, after we build each hex polygon:
+  poly.addEventListener("click", () => {
+    currentRegion = region;
+    // check if there's a puzzle scenario for this hex
+    let puzzle = findPuzzleScenario(region, { q: hex.q, r: hex.r });
+    drawHexDetailView(region, hex, puzzle);
+  });
+
+  // We'll define a helper:
+  function findPuzzleScenario(region, clickedHex) {
+    if (!region.puzzleScenarios) return null;
+    for (let sc of region.puzzleScenarios) {
+      if (sc.triggerHex.q === clickedHex.q && sc.triggerHex.r === clickedHex.r) {
+        return sc; // found the matching scenario
+      }
+    }
+    return null;
+  }
+
   // Outline perimeter edges in region view
   region.worldHexes.forEach(hex => {
     let edges = getHexEdges(hex.q, hex.r);
@@ -412,6 +431,14 @@ function drawHexDetailView(region, clickedHex) {
     gDetail.appendChild(poly);
   });
 
+  // If puzzleScenario is non-null, do puzzle logic:
+  if (puzzleScenario) {
+    drawPuzzleScenario(gDetail, puzzleScenario);
+  } else {
+    // do your default sub-hex or "drawDefaultSubGrid"
+    drawDefaultSubGrid(gDetail, region, clickedHex, hoverLabel);
+  }
+
   centerHexGroup(subHexList, gDetail, subAxialToPixel,{
     svgWidth:SVG_WIDTH,
     svgHeight:SVG_HEIGHT,
@@ -419,6 +446,130 @@ function drawHexDetailView(region, clickedHex) {
     rotation:0
   });
 }
+
+function drawPuzzleScenario(gDetail, scenario) {
+  const SUB_GRID_RADIUS = scenario.subGridRadius || 3;  // fallback if missing
+  const SUB_HEX_SIZE = 30;
+
+  const blockedSet = new Set(
+    scenario.blockedHexes.map(b => `${b.q},${b.r}`)
+  );
+
+  // Build a map from (q,r) -> piece info
+  let pieceMap = new Map();
+  (scenario.pieces || []).forEach(p => {
+    pieceMap.set(`${p.q},${p.r}`, p);
+  });
+
+  // Build sub-hex coords
+  let subHexList = [];
+  for (let q = -SUB_GRID_RADIUS; q <= SUB_GRID_RADIUS; q++) {
+    for (let r = -SUB_GRID_RADIUS; r <= SUB_GRID_RADIUS; r++) {
+      if (Math.abs(q + r) <= SUB_GRID_RADIUS) {
+        subHexList.push({q, r});
+      }
+    }
+  }
+
+  // We'll define local axialToPixel for puzzle
+  function puzzleAxialToPixel(q, r){
+    let x = SUB_HEX_SIZE * SQRT3 * (q + r/2);
+    let y = SUB_HEX_SIZE * (3/2)*r;
+    return {x,y};
+  }
+  function puzzleHexPoints(cx, cy){
+    let pts=[];
+    for(let i=0;i<6;i++){
+      let deg=60*i+30;
+      let rad=Math.PI/180*deg;
+      let px=cx + SUB_HEX_SIZE*Math.cos(rad);
+      let py=cx + SUB_HEX_SIZE*Math.sin(rad);
+      pts.push(`${px},${py}`);
+    }
+    return pts.join(" ");
+  }
+
+  // Draw each sub-hex
+  subHexList.forEach(sh => {
+    let {x,y} = puzzleAxialToPixel(sh.q, sh.r);
+
+    let poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
+    poly.setAttribute("stroke","#666");
+    poly.setAttribute("stroke-width","1");
+    poly.setAttribute("points", puzzleHexPoints(x,y));
+
+    const key = `${sh.q},${sh.r}`;
+    if (blockedSet.has(key)) {
+      poly.setAttribute("fill","lightgray");
+    } else {
+      if (pieceMap.has(key)) {
+        let piece = pieceMap.get(key);
+        poly.setAttribute("fill", piece.color || "#f0f0f0");
+
+        // add text label for piece
+        let t = document.createElementNS("http://www.w3.org/2000/svg","text");
+        t.setAttribute("x", x);
+        t.setAttribute("y", y+5);
+        t.setAttribute("text-anchor","middle");
+        t.setAttribute("font-size","14");
+        t.setAttribute("fill","#fff");
+        t.textContent = piece.label || piece.name.substr(0,1);
+        gDetail.appendChild(t);
+      } else {
+        poly.setAttribute("fill","#fafafa");
+      }
+    }
+
+    gDetail.appendChild(poly);
+  });
+
+  // center them
+  centerHexGroup(subHexList, gDetail, puzzleAxialToPixel, {
+    svgWidth: SVG_WIDTH,
+    svgHeight: SVG_HEIGHT,
+    scale: 1.5,
+    rotation: 0
+  });
+
+  // optional puzzle legend
+  addPuzzleLegend(gDetail, scenario);
+}
+
+function addPuzzleLegend(gDetail, scenario){
+  const legendX=50, legendY=70;
+  // We'll gather unique piece types from scenario
+  let uniqueTypes = new Map();
+  (scenario.pieces||[]).forEach(p=>{
+    if(!uniqueTypes.has(p.name)){
+      uniqueTypes.set(p.name, { color:p.color, label:p.label });
+    }
+  });
+
+  // Also add "Blocked Hex" to the legend
+  uniqueTypes.set("Blocked", { color:"lightgray", label:"Blocked"});
+
+  let i=0;
+  uniqueTypes.forEach((val, key)=>{
+    let boxY = legendY + i*20;
+    i++;
+    let rect = document.createElementNS("http://www.w3.org/2000/svg","rect");
+    rect.setAttribute("x", legendX);
+    rect.setAttribute("y", boxY);
+    rect.setAttribute("width","15");
+    rect.setAttribute("height","15");
+    rect.setAttribute("fill", val.color||"#ccc");
+    gDetail.appendChild(rect);
+
+    let txt = document.createElementNS("http://www.w3.org/2000/svg","text");
+    txt.setAttribute("x", legendX+20);
+    txt.setAttribute("y", boxY+12);
+    txt.setAttribute("font-size","14");
+    txt.setAttribute("fill","#222");
+    txt.textContent = `${key} (${val.label})`;
+    gDetail.appendChild(txt);
+  });
+}
+
 
 /** handle zoom */
 function handleToggleZoom(){
