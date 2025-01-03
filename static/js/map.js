@@ -5,6 +5,7 @@ let currentRegion = null;
 let currentSection = null;
 let isSelectingHex = false;
 let currentHexSelector = null;
+let pieceSelections = new Map(); // Make this global
 
 const HEX_SIZE = 30; // radius of each hex
 const SQRT3 = Math.sqrt(3);
@@ -455,16 +456,10 @@ function drawHexDetailView(region, clickedHex) {
     // Add click handler for hex selection
     poly.addEventListener("click", () => {
       if (isSelectingHex && currentHexSelector) {
-        // Find the piece that's selecting by looking through all pieces
-        const pieceLabelMatch = Array.from(pieceSelections.entries())
-          .find(([label, selection]) => {
-            // Match the piece whose hex selector is currently active
-            const hexSelect = document.querySelector(`[data-piece-label="${label}"]`);
-            return hexSelect === currentHexSelector;
-          });
+        const pieceLabel = currentHexSelector.getAttribute("data-piece-label");
+        const selection = pieceSelections.get(pieceLabel);
         
-        if (pieceLabelMatch) {
-          const [pieceLabel, selection] = pieceLabelMatch;
+        if (selection) {
           selection.targetHex = { q: sh.q, r: sh.r };
           currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
           currentHexSelector.classList.remove("selecting");
@@ -539,12 +534,10 @@ function drawHexDetailView(region, clickedHex) {
 function setupPlayerControls(scenario) {
   const playerPiecesList = document.getElementById("player-pieces");
   playerPiecesList.innerHTML = ""; // Clear existing
+  pieceSelections.clear(); // Clear the global map
 
   // Filter for player pieces
   const playerPieces = scenario.pieces.filter(p => p.side === "player");
-
-  // Keep track of all piece selections to update description
-  const pieceSelections = new Map(); // Map<piece label, {class, action, description, targetHex}>
 
   function updateActionDescriptions() {
     const actionDesc = document.getElementById("action-description");
