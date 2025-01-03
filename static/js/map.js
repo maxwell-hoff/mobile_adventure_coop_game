@@ -7,6 +7,7 @@ let isSelectingHex = false;
 let currentHexSelector = null;
 let pieceSelections = new Map(); // Make this global
 let puzzleScenario = null;
+let battleLog = [];
 
 const HEX_SIZE = 30; // radius of each hex
 const SQRT3 = Math.sqrt(3);
@@ -462,24 +463,44 @@ function drawHexDetailView(region, clickedHex) {
         const pieceLabel = currentHexSelector.getAttribute("data-piece-label");
         const selection = pieceSelections.get(pieceLabel);
         
-        // Check if the target hex is occupied
-        const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
-        
-        // Only allow selection if the hex is not occupied and is in range
-        if (selection && !isOccupied && poly.classList.contains("in-range")) {
-          selection.targetHex = { q: sh.q, r: sh.r };
-          currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
-          currentHexSelector.classList.remove("selecting");
-          isSelectingHex = false;
-          currentHexSelector = null;
+        if (selection.action === 'move') {
+          const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+          if (selection && !isOccupied && poly.classList.contains("in-range")) {
+            selection.targetHex = { q: sh.q, r: sh.r };
+            currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+            currentHexSelector.classList.remove("selecting");
+            isSelectingHex = false;
+            currentHexSelector = null;
+            
+            // Clear all move range highlights
+            document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+              hex.classList.remove("in-range");
+            });
+            
+            updateActionDescriptions();
+            validateTurnCompletion();
+          }
+        } else if (selection.action === 'attack') {
+          // Find target piece at this location
+          const targetPiece = puzzleScenario.pieces.find(p => 
+            p.q === sh.q && p.r === sh.r && p.side !== 'player'
+          );
           
-          // Clear all move range highlights
-          document.querySelectorAll(".hex-region.in-range").forEach(hex => {
-            hex.classList.remove("in-range");
-          });
-          
-          updateActionDescriptions();
-          validateTurnCompletion();
+          if (targetPiece && poly.classList.contains("in-range")) {
+            selection.targetHex = { q: sh.q, r: sh.r };
+            currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+            currentHexSelector.classList.remove("selecting");
+            isSelectingHex = false;
+            currentHexSelector = null;
+            
+            // Clear all range highlights
+            document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+              hex.classList.remove("in-range");
+            });
+            
+            updateActionDescriptions();
+            validateTurnCompletion();
+          }
         }
       }
     });
@@ -797,23 +818,30 @@ function setupPlayerControls(scenario) {
       return;
     }
 
-    // Update piece positions based on selections
+    // Process moves and attacks
     pieceSelections.forEach((selection, pieceLabel) => {
+      const piece = scenario.pieces.find(p => p.label === pieceLabel);
+      
       if (selection.action === 'move' && selection.targetHex) {
-        // Find the piece in the scenario
-        const piece = scenario.pieces.find(p => p.label === pieceLabel);
-        if (piece) {
-          // Update piece position
-          piece.q = selection.targetHex.q;
-          piece.r = selection.targetHex.r;
+        piece.q = selection.targetHex.q;
+        piece.r = selection.targetHex.r;
+      } else if (selection.action === 'attack' && selection.targetHex) {
+        // Find and remove the target piece
+        const targetIndex = scenario.pieces.findIndex(p => 
+          p.q === selection.targetHex.q && 
+          p.r === selection.targetHex.r && 
+          p.side !== 'player'
+        );
+        
+        if (targetIndex !== -1) {
+          const removedPiece = scenario.pieces[targetIndex];
+          scenario.pieces.splice(targetIndex, 1);
+          addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label})`);
         }
       }
     });
 
-    // Clear all selections
     pieceSelections.clear();
-
-    // Redraw the view to show updated positions
     drawHexDetailView(currentRegion, currentSection);
   });
 
@@ -963,3 +991,14 @@ window.addEventListener("DOMContentLoaded", () => {
   updateButtonStyles();
   // ... existing DOMContentLoaded code ...
 });
+
+// Add this function to handle logging
+function addBattleLog(message) {
+    battleLog.push(message);
+    const logEntries = document.getElementById("log-entries");
+    const entry = document.createElement("div");
+    entry.textContent = message;
+    entry.style.marginBottom = "5px";
+    logEntries.appendChild(entry);
+    logEntries.scrollTop = logEntries.scrollHeight;
+}

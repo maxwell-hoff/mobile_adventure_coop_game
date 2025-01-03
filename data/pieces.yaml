@@ -5,6 +5,9 @@ classes:
       move:
         range: 2
         description: "Move up to 2 hexes in any direction"
+      attack:
+        range: 3
+        description: "Cast a dark bolt at an enemy within 3 hexes"
 
   Sorcerer:
     description: "A versatile magic user specializing in elemental spells"
@@ -12,6 +15,9 @@ classes:
       move:
         range: 2
         description: "Move up to 2 hexes in any direction"
+      attack:
+        range: 4
+        description: "Launch an elemental blast at an enemy within 4 hexes"
 
   Priest:
     description: "A holy warrior with healing and protective abilities"
@@ -19,6 +25,9 @@ classes:
       move:
         range: 1
         description: "Move up to 1 hex in any direction"
+      attack:
+        range: 2
+        description: "Smite an enemy within 2 hexes"
 
   Guardian:
     description: "A stalwart defender with heavy armor"
@@ -26,6 +35,9 @@ classes:
       move:
         range: 1
         description: "Move up to 1 hex in any direction"
+      attack:
+        range: 1
+        description: "Strike an adjacent enemy"
 
   BloodWarden:
     description: "A fearsome commander who draws power from life force"
@@ -33,10 +45,16 @@ classes:
       move:
         range: 1
         description: "Move up to 1 hex in any direction"
+      attack:
+        range: 2
+        description: "Drain life force from an enemy within 2 hexes"
 
   Hunter:
     description: "A skilled tracker with exceptional mobility"
     actions:
       move:
         range: 3
-        description: "Move up to 3 hexes in any direction" 
+        description: "Move up to 3 hexes in any direction"
+      attack:
+        range: 3
+        description: "Fire an arrow at an enemy within 3 hexes" 

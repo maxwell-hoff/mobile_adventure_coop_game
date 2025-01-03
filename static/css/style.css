@@ -173,3 +173,18 @@ body {
   .hex-select:hover {
     border-color: #999;
   }
+
+  #battle-log {
+    border: 1px solid #ddd;
+    margin-top: 20px;
+  }
+
+  #log-entries {
+    font-family: monospace;
+    padding: 10px;
+  }
+
+  .hex-region.in-range.attack {
+    fill: rgba(255, 0, 0, 0.2);
+    stroke: rgba(255, 0, 0, 0.5);
+  }
