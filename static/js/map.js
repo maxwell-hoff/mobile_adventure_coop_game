@@ -744,8 +744,16 @@ function setupPlayerControls(scenario) {
 
 // Helper function to show movement range
 function showMoveRange(centerQ, centerR, range, parentGroup) {
-  // Remove any existing range indicators
-  clearMoveRange();
+  // Only clear move-range class, not in-range class
+  const rangeHexes = document.getElementsByClassName("move-range");
+  while (rangeHexes.length > 0) {
+    rangeHexes[0].remove();
+  }
+  
+  // Create a set of occupied positions
+  const occupiedPositions = new Set(
+    puzzleScenario.pieces.map(p => `${p.q},${p.r}`)
+  );
   
   // For each hex within range
   for (let q = -range; q <= range; q++) {
@@ -755,8 +763,10 @@ function showMoveRange(centerQ, centerR, range, parentGroup) {
         const targetQ = centerQ + q;
         const targetR = centerR + r;
         
-        // Don't highlight the piece's own hex
-        if (q === 0 && r === 0) continue;
+        // Don't highlight if:
+        // 1. It's the piece's own hex
+        // 2. The hex is occupied by any piece
+        if (q === 0 && r === 0 || occupiedPositions.has(`${targetQ},${targetR}`)) continue;
         
         const {x,y} = subAxialToPixel(targetQ, targetR);
         
@@ -775,15 +785,11 @@ function showMoveRange(centerQ, centerR, range, parentGroup) {
 
 // Helper function to clear movement range
 function clearMoveRange() {
+  // Only clear move-range class, not in-range class
   const rangeHexes = document.getElementsByClassName("move-range");
   while (rangeHexes.length > 0) {
     rangeHexes[0].remove();
   }
-  
-  // Also clear in-range highlights
-  document.querySelectorAll(".hex-region.in-range").forEach(hex => {
-    hex.classList.remove("in-range");
-  });
 }
 
 // Add this new function for showing move range during selection
