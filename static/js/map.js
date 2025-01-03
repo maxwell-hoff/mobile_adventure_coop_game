@@ -467,6 +467,12 @@ function drawHexDetailView(region, clickedHex) {
           currentHexSelector.classList.remove("selecting");
           isSelectingHex = false;
           currentHexSelector = null;
+          
+          // Clear all move range highlights
+          document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+            hex.classList.remove("in-range");
+          });
+          
           updateActionDescriptions();
         }
       }
