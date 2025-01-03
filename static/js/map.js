@@ -461,7 +461,11 @@ function drawHexDetailView(region, clickedHex) {
         const pieceLabel = currentHexSelector.getAttribute("data-piece-label");
         const selection = pieceSelections.get(pieceLabel);
         
-        if (selection) {
+        // Check if the target hex is occupied
+        const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+        
+        // Only allow selection if the hex is not occupied
+        if (selection && !isOccupied) {
           selection.targetHex = { q: sh.q, r: sh.r };
           currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
           currentHexSelector.classList.remove("selecting");
@@ -681,6 +685,11 @@ function setupPlayerControls(scenario) {
       if (piece && pieceClass && pieceClass.actions.move) {
         const range = pieceClass.actions.move.range;
         
+        // Create a set of occupied positions
+        const occupiedPositions = new Set(
+          scenario.pieces.map(p => `${p.q},${p.r}`)
+        );
+        
         // For each hex within range
         for (let q = -range; q <= range; q++) {
           for (let r = -range; r <= range; r++) {
@@ -689,8 +698,10 @@ function setupPlayerControls(scenario) {
               const targetQ = piece.q + q;
               const targetR = piece.r + r;
               
-              // Don't highlight the piece's own hex
-              if (q === 0 && r === 0) continue;
+              // Don't highlight if:
+              // 1. It's the piece's own hex
+              // 2. The hex is occupied by any piece
+              if (q === 0 && r === 0 || occupiedPositions.has(`${targetQ},${targetR}`)) continue;
               
               // Find and highlight the hex
               const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
