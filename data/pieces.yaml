@@ -3,20 +3,20 @@ classes:
     description: "A powerful spellcaster who manipulates dark energies"
     actions:
       move:
-        range: 2
+        range: 1
         description: "Move up to 2 hexes in any direction"
       attack:
-        range: 3
+        range: 2
         description: "Cast a dark bolt at an enemy within 3 hexes"
 
   Sorcerer:
     description: "A versatile magic user specializing in elemental spells"
     actions:
       move:
-        range: 2
+        range: 1
         description: "Move up to 2 hexes in any direction"
       attack:
-        range: 4
+        range: 3
         description: "Launch an elemental blast at an enemy within 4 hexes"
 
   Priest:
@@ -25,9 +25,9 @@ classes:
       move:
         range: 1
         description: "Move up to 1 hex in any direction"
-      attack:
-        range: 2
-        description: "Smite an enemy within 2 hexes"
+      # attack:
+      #   range: 2
+      #   description: "Smite an enemy within 2 hexes"
 
   Guardian:
     description: "A stalwart defender with heavy armor"
@@ -46,15 +46,15 @@ classes:
         range: 1
         description: "Move up to 1 hex in any direction"
       attack:
-        range: 2
+        range: 100
         description: "Drain life force from an enemy within 2 hexes"
 
   Hunter:
     description: "A skilled tracker with exceptional mobility"
     actions:
       move:
-        range: 3
+        range: 1
         description: "Move up to 3 hexes in any direction"
       attack:
-        range: 3
+        range: 2
         description: "Fire an arrow at an enemy within 3 hexes" 
