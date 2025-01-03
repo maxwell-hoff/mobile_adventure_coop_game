@@ -6,6 +6,7 @@ let currentSection = null;
 let isSelectingHex = false;
 let currentHexSelector = null;
 let pieceSelections = new Map(); // Make this global
+let puzzleScenario = null;
 
 const HEX_SIZE = 30; // radius of each hex
 const SQRT3 = Math.sqrt(3);
@@ -397,7 +398,7 @@ function drawHexDetailView(region, clickedHex) {
   }
 
   // Find matching puzzle scenario for this hex
-  let puzzleScenario = null;
+  puzzleScenario = null;  // Reset the global variable
   if (region.puzzleScenarios) {
     puzzleScenario = region.puzzleScenarios.find(ps => 
       ps.triggerHex.q === clickedHex.q && ps.triggerHex.r === clickedHex.r
