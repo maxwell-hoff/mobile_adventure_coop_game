@@ -512,12 +512,41 @@ function drawHexDetailView(region, clickedHex) {
 // New function to set up player controls
 function setupPlayerControls(scenario) {
   const playerPiecesList = document.getElementById("player-pieces");
+  const pieceDescriptionsDiv = document.querySelector(".piece-descriptions");
   playerPiecesList.innerHTML = ""; // Clear existing
+  pieceDescriptionsDiv.innerHTML = ""; // Clear existing
 
   // Filter for player pieces
   const playerPieces = scenario.pieces.filter(p => p.side === "player");
 
-  // Create list items for each player piece
+  // First, add piece descriptions
+  playerPieces.forEach(piece => {
+    const pieceClass = piecesData.classes[piece.class];
+    const descDiv = document.createElement("div");
+    descDiv.className = "piece-description";
+    
+    const colorSpan = document.createElement("span");
+    colorSpan.className = "piece-color";
+    colorSpan.style.backgroundColor = piece.color;
+    
+    const infoDiv = document.createElement("div");
+    infoDiv.className = "piece-info";
+    
+    const classDiv = document.createElement("div");
+    classDiv.className = "piece-class";
+    classDiv.textContent = `${piece.class} (${piece.label})`;
+    
+    const descriptionDiv = document.createElement("div");
+    descriptionDiv.textContent = pieceClass.description;
+    
+    infoDiv.appendChild(classDiv);
+    infoDiv.appendChild(descriptionDiv);
+    descDiv.appendChild(colorSpan);
+    descDiv.appendChild(infoDiv);
+    pieceDescriptionsDiv.appendChild(descDiv);
+  });
+
+  // Then create action selection list
   playerPieces.forEach(piece => {
     const li = document.createElement("li");
     li.className = "piece-item";
@@ -545,6 +574,12 @@ function setupPlayerControls(scenario) {
     defaultOption.value = "";
     defaultOption.textContent = "Select an action...";
     select.appendChild(defaultOption);
+
+    // Add pass option
+    const passOption = document.createElement("option");
+    passOption.value = "pass";
+    passOption.textContent = "Pass";
+    select.appendChild(passOption);
     
     // Get piece class data and add its actions
     const pieceClass = piecesData.classes[piece.class];
@@ -561,7 +596,9 @@ function setupPlayerControls(scenario) {
     select.addEventListener("change", (e) => {
       const actionName = e.target.value;
       const actionDesc = document.getElementById("action-description");
-      if (actionName && pieceClass.actions[actionName]) {
+      if (actionName === "pass") {
+        actionDesc.textContent = "Skip this piece's turn.";
+      } else if (actionName && pieceClass.actions[actionName]) {
         actionDesc.textContent = pieceClass.actions[actionName].description;
       } else {
         actionDesc.textContent = "";
@@ -577,6 +614,13 @@ function setupPlayerControls(scenario) {
   new Sortable(playerPiecesList, {
     animation: 150,
     ghostClass: 'sortable-ghost'
+  });
+
+  // Set up complete turn button handler
+  const completeTurnBtn = document.getElementById("complete-turn");
+  completeTurnBtn.addEventListener("click", () => {
+    // This will be implemented later
+    console.log("Turn completed!");
   });
 }
 

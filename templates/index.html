@@ -30,10 +30,14 @@
   <!-- New container for player piece controls -->
   <div id="player-controls" style="display: none;">
     <h3>Player Pieces</h3>
-    <div id="action-description" class="action-description"></div>
+    <div class="piece-descriptions">
+      <!-- Piece descriptions will be added here dynamically -->
+    </div>
     <ul id="player-pieces" class="player-pieces">
       <!-- Pieces will be added here dynamically -->
     </ul>
+    <div id="action-description" class="action-description"></div>
+    <button id="complete-turn" class="complete-turn-btn">Complete Turn</button>
   </div>
   
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
