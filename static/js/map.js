@@ -347,6 +347,7 @@ function drawRegionView(region) {
  */
 function drawHexDetailView(region, clickedHex) {
   currentView = "section";
+  currentSection = clickedHex;
 
   const toggleBtn = document.getElementById("toggleZoomBtn");
   toggleBtn.style.display = "inline-block";
@@ -389,28 +390,82 @@ function drawHexDetailView(region, clickedHex) {
     return pts.join(" ");
   }
 
+  // Find matching puzzle scenario for this hex
+  let puzzleScenario = null;
+  if (region.puzzleScenarios) {
+    puzzleScenario = region.puzzleScenarios.find(ps => 
+      ps.triggerHex.q === clickedHex.q && ps.triggerHex.r === clickedHex.r
+    );
+  }
+
+  // If we found a puzzle scenario, use its radius and blocked hexes
+  const gridRadius = puzzleScenario ? puzzleScenario.subGridRadius : SUB_GRID_RADIUS;
+
   // build sub-hex coords
   let subHexList=[];
-  for(let q=-SUB_GRID_RADIUS; q<=SUB_GRID_RADIUS;q++){
-    for(let r=-SUB_GRID_RADIUS; r<=SUB_GRID_RADIUS; r++){
-      if(Math.abs(q+r)<=SUB_GRID_RADIUS){
+  for(let q=-gridRadius; q<=gridRadius;q++){
+    for(let r=-gridRadius; r<=gridRadius; r++){
+      if(Math.abs(q+r)<=gridRadius){
         subHexList.push({q,r});
       }
     }
   }
 
+  // Create set of blocked hexes for quick lookup
+  const blockedHexes = new Set();
+  if (puzzleScenario && puzzleScenario.blockedHexes) {
+    puzzleScenario.blockedHexes.forEach(h => {
+      blockedHexes.add(`${h.q},${h.r}`);
+    });
+  }
+
+  // Draw the hexes
   subHexList.forEach(sh=>{
     let {x,y}= subAxialToPixel(sh.q,sh.r);
     let poly=document.createElementNS("http://www.w3.org/2000/svg","polygon");
     poly.setAttribute("class","hex-region");
     poly.setAttribute("points",subHexPolygonPoints(x,y));
-    poly.setAttribute("fill", regionColor(region.regionId));
+    
+    // If hex is blocked in puzzle scenario, make it darker
+    if (blockedHexes.has(`${sh.q},${sh.r}`)) {
+      poly.setAttribute("fill", "#666");
+    } else {
+      poly.setAttribute("fill", regionColor(region.regionId));
+    }
+    
     poly.addEventListener("mouseenter",()=>{
       hoverLabel.textContent=`(q=${sh.q},r=${sh.r}) of ${region.name}`;
     });
     poly.addEventListener("mouseleave",()=>{hoverLabel.textContent="";});
     gDetail.appendChild(poly);
   });
+
+  // Draw pieces if we have a puzzle scenario
+  if (puzzleScenario && puzzleScenario.pieces) {
+    puzzleScenario.pieces.forEach(piece => {
+      const {x,y} = subAxialToPixel(piece.q, piece.r);
+      
+      // Add piece circle
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", x);
+      circle.setAttribute("cy", y);
+      circle.setAttribute("r", SUB_HEX_SIZE * 0.6);
+      circle.setAttribute("fill", piece.color || "#000");
+      gDetail.appendChild(circle);
+
+      // Add piece label
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.setAttribute("x", x);
+      text.setAttribute("y", y);
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("dominant-baseline", "middle");
+      text.setAttribute("fill", "#fff");
+      text.setAttribute("font-size", SUB_HEX_SIZE);
+      text.setAttribute("pointer-events", "none");
+      text.textContent = piece.label;
+      gDetail.appendChild(text);
+    });
+  }
 
   centerHexGroup(subHexList, gDetail, subAxialToPixel,{
     svgWidth:SVG_WIDTH,
