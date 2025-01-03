@@ -22,6 +22,18 @@ body {
     fill: #ffd699;
   }
   
+  .hex-region.highlighted {
+    fill: #ffb366;
+    stroke: #ff8000;
+    stroke-width: 2;
+  }
+  
+  .hex-region.in-range {
+    fill: rgba(144, 238, 144, 0.4);  /* light green */
+    stroke: #228B22;  /* forest green */
+    stroke-width: 2;
+  }
+  
   /* The text label for region name on hover:
      We'll update it dynamically, but you can style it here. */
   #hoverLabel {

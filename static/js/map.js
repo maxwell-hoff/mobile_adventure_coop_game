@@ -440,6 +440,8 @@ function drawHexDetailView(region, clickedHex) {
     let poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
     poly.setAttribute("class","hex-region");
     poly.setAttribute("points",subHexPolygonPoints(x,y));
+    poly.setAttribute("data-q", sh.q);
+    poly.setAttribute("data-r", sh.r);
     
     // If hex is blocked in puzzle scenario, make it darker
     if (blockedHexes.has(`${sh.q},${sh.r}`)) {
@@ -602,6 +604,24 @@ function setupPlayerControls(scenario) {
     hexSelect.textContent = "Click to select hex";
     hexSelect.setAttribute("data-piece-label", piece.label);
     
+    // Add hover handlers for hex highlighting
+    hexSelect.addEventListener("mouseenter", () => {
+      const selection = pieceSelections.get(piece.label);
+      if (selection && selection.targetHex) {
+        const hex = document.querySelector(`polygon[data-q="${selection.targetHex.q}"][data-r="${selection.targetHex.r}"]`);
+        if (hex) {
+          hex.classList.add("highlighted");
+        }
+      }
+    });
+
+    hexSelect.addEventListener("mouseleave", () => {
+      // Remove highlight from all hexes
+      document.querySelectorAll(".hex-region.highlighted").forEach(hex => {
+        hex.classList.remove("highlighted");
+      });
+    });
+
     // Initialize piece selection tracking
     pieceSelections.set(piece.label, {
       class: piece.class,
@@ -635,6 +655,7 @@ function setupPlayerControls(scenario) {
       // Clear any existing hex selection mode
       if (currentHexSelector) {
         currentHexSelector.classList.remove("selecting");
+        clearMoveRange();
       }
       
       // Enter hex selection mode
@@ -642,6 +663,18 @@ function setupPlayerControls(scenario) {
       currentHexSelector = hexSelect;
       hexSelect.classList.add("selecting");
       hexSelect.textContent = "Selecting...";
+
+      // Show move range for the piece
+      const pieceLabel = hexSelect.getAttribute("data-piece-label");
+      const selection = pieceSelections.get(pieceLabel);
+      const pieceClass = piecesData.classes[selection.class];
+      
+      // Find the piece's current position
+      const piece = scenario.pieces.find(p => p.label === pieceLabel);
+      if (piece && pieceClass && pieceClass.actions.move) {
+        // Show move range with the in-range class
+        showMoveRangeForSelection(piece.q, piece.r, pieceClass.actions.move.range, gDetail);
+      }
     });
 
     // Initially hide hex select
@@ -708,6 +741,37 @@ function clearMoveRange() {
   const rangeHexes = document.getElementsByClassName("move-range");
   while (rangeHexes.length > 0) {
     rangeHexes[0].remove();
+  }
+  
+  // Also clear in-range highlights
+  document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+    hex.classList.remove("in-range");
+  });
+}
+
+// Add this new function for showing move range during selection
+function showMoveRangeForSelection(centerQ, centerR, range, parentGroup) {
+  // Remove any existing range indicators
+  clearMoveRange();
+  
+  // For each hex within range
+  for (let q = -range; q <= range; q++) {
+    for (let r = -range; r <= range; r++) {
+      // Check if hex is within range (using axial distance)
+      if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * range) {
+        const targetQ = centerQ + q;
+        const targetR = centerR + r;
+        
+        // Don't highlight the piece's own hex
+        if (q === 0 && r === 0) continue;
+        
+        // Find the hex at these coordinates
+        const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+        if (hex) {
+          hex.classList.add("in-range");
+        }
+      }
+    }
   }
 }
 
