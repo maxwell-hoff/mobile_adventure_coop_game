@@ -568,6 +568,17 @@ function setupPlayerControls(scenario) {
     actionDesc.innerHTML = descriptions.length > 0 ? descriptions.join('<br><br>') : "";
   }
 
+  function validateTurnCompletion() {
+    let isValid = true;
+    pieceSelections.forEach((selection) => {
+      // If a move action is selected but no target hex, turn is invalid
+      if (selection.action === 'move' && !selection.targetHex) {
+        isValid = false;
+      }
+    });
+    completeTurnBtn.disabled = !isValid;
+  }
+
   // Create action selection list
   playerPieces.forEach(piece => {
     const li = document.createElement("li");
@@ -654,10 +665,15 @@ function setupPlayerControls(scenario) {
       } else if (actionName && pieceClass.actions[actionName]) {
         selection.action = actionName;
         selection.description = pieceClass.actions[actionName].description;
+        selection.targetHex = null; // Reset target when action changes
         hexSelect.style.display = actionName === "move" ? "block" : "none";
+        if (actionName === "move") {
+          hexSelect.textContent = "Click to select hex";
+        }
       }
       
       updateActionDescriptions();
+      validateTurnCompletion(); // Add validation check
     });
 
     // Handle hex selection
@@ -712,6 +728,7 @@ function setupPlayerControls(scenario) {
           }
         }
       }
+      validateTurnCompletion(); // Add validation check
     });
 
     // Initially hide hex select
@@ -729,12 +746,36 @@ function setupPlayerControls(scenario) {
     ghostClass: 'sortable-ghost'
   });
 
-  // Set up complete turn button handler
+  // Set up complete turn button handler with piece movement
   const completeTurnBtn = document.getElementById("complete-turn");
   completeTurnBtn.addEventListener("click", () => {
-    // This will be implemented later
-    console.log("Turn completed!");
+    // Only proceed if all moves are valid
+    if (completeTurnBtn.disabled) {
+      return;
+    }
+
+    // Update piece positions based on selections
+    pieceSelections.forEach((selection, pieceLabel) => {
+      if (selection.action === 'move' && selection.targetHex) {
+        // Find the piece in the scenario
+        const piece = scenario.pieces.find(p => p.label === pieceLabel);
+        if (piece) {
+          // Update piece position
+          piece.q = selection.targetHex.q;
+          piece.r = selection.targetHex.r;
+        }
+      }
+    });
+
+    // Clear all selections
+    pieceSelections.clear();
+
+    // Redraw the view to show updated positions
+    drawHexDetailView(currentRegion, currentSection);
   });
+
+  // Initial validation
+  validateTurnCompletion();
 
   // Initial update of descriptions
   updateActionDescriptions();
@@ -861,3 +902,21 @@ function isEdgeShared(edge, neighborEdges){
 function almostEqual(a,b, eps=0.0001){
   return Math.abs(a-b)<eps;
 }
+
+// Update the CSS for the disabled button state
+function updateButtonStyles() {
+  const style = document.createElement('style');
+  style.textContent = `
+    .complete-turn-btn:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Call this when the page loads
+window.addEventListener("DOMContentLoaded", () => {
+  updateButtonStyles();
+  // ... existing DOMContentLoaded code ...
+});
