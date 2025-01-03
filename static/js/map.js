@@ -652,10 +652,13 @@ function setupPlayerControls(scenario) {
 
     // Handle hex selection
     hexSelect.addEventListener("click", () => {
-      // Clear any existing hex selection mode
+      // Clear any existing hex selection mode and ranges
       if (currentHexSelector) {
         currentHexSelector.classList.remove("selecting");
-        clearMoveRange();
+        // Clear any existing range indicators
+        document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+          hex.classList.remove("in-range");
+        });
       }
       
       // Enter hex selection mode
@@ -664,16 +667,33 @@ function setupPlayerControls(scenario) {
       hexSelect.classList.add("selecting");
       hexSelect.textContent = "Selecting...";
 
-      // Show move range for the piece
+      // Find the piece's current position and show its move range
       const pieceLabel = hexSelect.getAttribute("data-piece-label");
-      const selection = pieceSelections.get(pieceLabel);
-      const pieceClass = piecesData.classes[selection.class];
-      
-      // Find the piece's current position
       const piece = scenario.pieces.find(p => p.label === pieceLabel);
+      const pieceClass = piecesData.classes[piece.class];
+      
       if (piece && pieceClass && pieceClass.actions.move) {
-        // Show move range with the in-range class
-        showMoveRangeForSelection(piece.q, piece.r, pieceClass.actions.move.range, gDetail);
+        const range = pieceClass.actions.move.range;
+        
+        // For each hex within range
+        for (let q = -range; q <= range; q++) {
+          for (let r = -range; r <= range; r++) {
+            // Check if hex is within range (using axial distance)
+            if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * range) {
+              const targetQ = piece.q + q;
+              const targetR = piece.r + r;
+              
+              // Don't highlight the piece's own hex
+              if (q === 0 && r === 0) continue;
+              
+              // Find and highlight the hex
+              const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+              if (hex) {
+                hex.classList.add("in-range");
+              }
+            }
+          }
+        }
       }
     });
 
