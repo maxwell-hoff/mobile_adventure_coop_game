@@ -512,41 +512,28 @@ function drawHexDetailView(region, clickedHex) {
 // New function to set up player controls
 function setupPlayerControls(scenario) {
   const playerPiecesList = document.getElementById("player-pieces");
-  const pieceDescriptionsDiv = document.querySelector(".piece-descriptions");
   playerPiecesList.innerHTML = ""; // Clear existing
-  pieceDescriptionsDiv.innerHTML = ""; // Clear existing
 
   // Filter for player pieces
   const playerPieces = scenario.pieces.filter(p => p.side === "player");
 
-  // First, add piece descriptions
-  playerPieces.forEach(piece => {
-    const pieceClass = piecesData.classes[piece.class];
-    const descDiv = document.createElement("div");
-    descDiv.className = "piece-description";
-    
-    const colorSpan = document.createElement("span");
-    colorSpan.className = "piece-color";
-    colorSpan.style.backgroundColor = piece.color;
-    
-    const infoDiv = document.createElement("div");
-    infoDiv.className = "piece-info";
-    
-    const classDiv = document.createElement("div");
-    classDiv.className = "piece-class";
-    classDiv.textContent = `${piece.class} (${piece.label})`;
-    
-    const descriptionDiv = document.createElement("div");
-    descriptionDiv.textContent = pieceClass.description;
-    
-    infoDiv.appendChild(classDiv);
-    infoDiv.appendChild(descriptionDiv);
-    descDiv.appendChild(colorSpan);
-    descDiv.appendChild(infoDiv);
-    pieceDescriptionsDiv.appendChild(descDiv);
-  });
+  // Keep track of all piece selections to update description
+  const pieceSelections = new Map(); // Map<piece label, {class, action, description}>
 
-  // Then create action selection list
+  function updateActionDescriptions() {
+    const actionDesc = document.getElementById("action-description");
+    const descriptions = [];
+    
+    pieceSelections.forEach((selection, pieceLabel) => {
+      if (selection.action && selection.action !== "pass") {
+        descriptions.push(`${selection.class} (${pieceLabel}): ${selection.description}`);
+      }
+    });
+    
+    actionDesc.textContent = descriptions.join('\n');
+  }
+
+  // Create action selection list
   playerPieces.forEach(piece => {
     const li = document.createElement("li");
     li.className = "piece-item";
@@ -569,13 +556,7 @@ function setupPlayerControls(scenario) {
     const select = document.createElement("select");
     select.className = "action-select";
     
-    // Add default option
-    const defaultOption = document.createElement("option");
-    defaultOption.value = "";
-    defaultOption.textContent = "Select an action...";
-    select.appendChild(defaultOption);
-
-    // Add pass option
+    // Add pass option first (default)
     const passOption = document.createElement("option");
     passOption.value = "pass";
     passOption.textContent = "Pass";
@@ -592,17 +573,27 @@ function setupPlayerControls(scenario) {
       });
     }
     
+    // Initialize piece selection tracking
+    pieceSelections.set(piece.label, {
+      class: piece.class,
+      action: "pass",
+      description: ""
+    });
+
     // Handle action selection
     select.addEventListener("change", (e) => {
       const actionName = e.target.value;
-      const actionDesc = document.getElementById("action-description");
+      const selection = pieceSelections.get(piece.label);
+      
       if (actionName === "pass") {
-        actionDesc.textContent = "Skip this piece's turn.";
+        selection.action = "pass";
+        selection.description = "";
       } else if (actionName && pieceClass.actions[actionName]) {
-        actionDesc.textContent = pieceClass.actions[actionName].description;
-      } else {
-        actionDesc.textContent = "";
+        selection.action = actionName;
+        selection.description = pieceClass.actions[actionName].description;
       }
+      
+      updateActionDescriptions();
     });
     
     li.appendChild(labelDiv);
@@ -622,6 +613,9 @@ function setupPlayerControls(scenario) {
     // This will be implemented later
     console.log("Turn completed!");
   });
+
+  // Initial update of descriptions
+  updateActionDescriptions();
 }
 
 // Helper function to show movement range
