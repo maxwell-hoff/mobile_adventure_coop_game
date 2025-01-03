@@ -530,7 +530,8 @@ function setupPlayerControls(scenario) {
       }
     });
     
-    actionDesc.textContent = descriptions.join('\n');
+    // Use <br> tags for line breaks in HTML
+    actionDesc.innerHTML = descriptions.length > 0 ? descriptions.join('<br><br>') : "";
   }
 
   // Create action selection list
