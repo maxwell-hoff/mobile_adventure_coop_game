@@ -34,3 +34,62 @@ body {
     fill: none;
     pointer-events: none; /* so it doesn't interfere with mouse events, if you want */
   }
+  
+  /* New styles for player controls */
+  #player-controls {
+    width: 800px;
+    margin: 20px auto;
+    padding: 20px;
+    background: #f5f5f5;
+    border-radius: 8px;
+  }
+  
+  .player-pieces {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  
+  .piece-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    margin: 5px 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: move;
+  }
+  
+  .piece-item:hover {
+    background: #f9f9f9;
+  }
+  
+  .piece-label {
+    display: flex;
+    align-items: center;
+    margin-right: 20px;
+  }
+  
+  .piece-color {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    margin-right: 10px;
+  }
+  
+  .action-select {
+    flex: 1;
+    padding: 5px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+  
+  .action-description {
+    margin: 10px 0;
+    padding: 10px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    min-height: 20px;
+  }

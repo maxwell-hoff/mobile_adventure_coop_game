@@ -71,21 +71,21 @@ regions:
           - { q: -1, r: 0 }
         # piece placements
         pieces:
-          - { name: "Warlock",  label: "W", color: "#556b2f",
+          - { class: "Warlock",  label: "W", color: "#556b2f",
               side: "player",  q: -2,  r: 1 }
-          - { name: "Sorcerer", label: "S", color: "#556b2f",
+          - { class: "Sorcerer", label: "S", color: "#556b2f",
               side: "player",  q: 1,  r: 2 }
-          - { name: "Priest",   label: "P", color: "#556b2f",
+          - { class: "Priest",   label: "P", color: "#556b2f",
               side: "player",  q: -1,  r: 1 }
-          - { name: "Guardian", label: "G", color: "#dc143c",
+          - { class: "Guardian", label: "G", color: "#dc143c",
               side: "enemy",   q: 1,  r: -3 }
-          - { name: "Guardian", label: "G", color: "#dc143c",
+          - { class: "Guardian", label: "G", color: "#dc143c",
               side: "enemy",   q: 0,  r: -2 }
-          - { name: "Priest",   label: "P", color: "#dc143c",
+          - { class: "Priest",   label: "P", color: "#dc143c",
               side: "enemy",   q: 0, r: -3 }
-          - { name: "BloodWarden", label: "BW", color: "#dc143c",
+          - { class: "BloodWarden", label: "BW", color: "#dc143c",
               side: "enemy",   q: 3, r: -3 }
-          - { name: "Hunter",   label: "H", color: "#dc143c",
+          - { class: "Hunter",   label: "H", color: "#dc143c",
               side: "enemy",   q: -3,  r: 0 }
 
   - regionId: 2

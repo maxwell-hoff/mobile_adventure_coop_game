@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <title>Hex Map with Zoom</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- Add Sortable.js for drag-and-drop -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 </head>
 <body>
   <h1>Hex Map with Zoom</h1>
@@ -23,6 +25,15 @@
       <!-- A text label to show region name on hover -->
       <text id="hoverLabel" x="400" y="30" text-anchor="middle" font-size="16" fill="#222"></text>
     </svg>
+  </div>
+
+  <!-- New container for player piece controls -->
+  <div id="player-controls" style="display: none;">
+    <h3>Player Pieces</h3>
+    <div id="action-description" class="action-description"></div>
+    <ul id="player-pieces" class="player-pieces">
+      <!-- Pieces will be added here dynamically -->
+    </ul>
   </div>
   
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>

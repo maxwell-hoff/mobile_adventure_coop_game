@@ -1,4 +1,5 @@
 let worldData = null;
+let piecesData = null;
 let currentView = "world"; // "world", "region", or "section"
 let currentRegion = null;
 let currentSection = null;
@@ -123,7 +124,9 @@ async function loadWorldData() {
     console.error("Failed to load world data");
     return;
   }
-  worldData = await resp.json();
+  const data = await resp.json();
+  worldData = data.world;
+  piecesData = data.pieces;
 }
 
 /**
@@ -398,6 +401,15 @@ function drawHexDetailView(region, clickedHex) {
     );
   }
 
+  // Show/hide player controls based on whether this is a puzzle scenario
+  const playerControls = document.getElementById("player-controls");
+  if (puzzleScenario) {
+    playerControls.style.display = "block";
+    setupPlayerControls(puzzleScenario);
+  } else {
+    playerControls.style.display = "none";
+  }
+
   // If we found a puzzle scenario, use its radius and blocked hexes
   const gridRadius = puzzleScenario ? puzzleScenario.subGridRadius : SUB_GRID_RADIUS;
 
@@ -451,6 +463,28 @@ function drawHexDetailView(region, clickedHex) {
       circle.setAttribute("cy", y);
       circle.setAttribute("r", SUB_HEX_SIZE * 0.6);
       circle.setAttribute("fill", piece.color || "#000");
+      
+      // Add hover behavior to show movement range
+      circle.addEventListener("mouseenter", () => {
+        // Get piece class data
+        const pieceClass = piecesData.classes[piece.class];
+        if (pieceClass && pieceClass.actions.move) {
+          const moveRange = pieceClass.actions.move.range;
+          
+          // Show movement range
+          showMoveRange(piece.q, piece.r, moveRange, gDetail);
+          
+          // Update hover label
+          hoverLabel.textContent = `${piece.class} (${piece.side}) - Move Range: ${moveRange}`;
+        }
+      });
+      
+      circle.addEventListener("mouseleave", () => {
+        // Clear movement range indicators
+        clearMoveRange();
+        hoverLabel.textContent = "";
+      });
+      
       gDetail.appendChild(circle);
 
       // Add piece label
@@ -473,6 +507,116 @@ function drawHexDetailView(region, clickedHex) {
     scale:2,
     rotation:0
   });
+}
+
+// New function to set up player controls
+function setupPlayerControls(scenario) {
+  const playerPiecesList = document.getElementById("player-pieces");
+  playerPiecesList.innerHTML = ""; // Clear existing
+
+  // Filter for player pieces
+  const playerPieces = scenario.pieces.filter(p => p.side === "player");
+
+  // Create list items for each player piece
+  playerPieces.forEach(piece => {
+    const li = document.createElement("li");
+    li.className = "piece-item";
+    
+    // Create piece label with color circle
+    const labelDiv = document.createElement("div");
+    labelDiv.className = "piece-label";
+    
+    const colorSpan = document.createElement("span");
+    colorSpan.className = "piece-color";
+    colorSpan.style.backgroundColor = piece.color;
+    
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = `${piece.class} (${piece.label})`;
+    
+    labelDiv.appendChild(colorSpan);
+    labelDiv.appendChild(labelSpan);
+    
+    // Create action select dropdown
+    const select = document.createElement("select");
+    select.className = "action-select";
+    
+    // Add default option
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "Select an action...";
+    select.appendChild(defaultOption);
+    
+    // Get piece class data and add its actions
+    const pieceClass = piecesData.classes[piece.class];
+    if (pieceClass && pieceClass.actions) {
+      Object.entries(pieceClass.actions).forEach(([actionName, actionData]) => {
+        const option = document.createElement("option");
+        option.value = actionName;
+        option.textContent = actionName.charAt(0).toUpperCase() + actionName.slice(1);
+        select.appendChild(option);
+      });
+    }
+    
+    // Handle action selection
+    select.addEventListener("change", (e) => {
+      const actionName = e.target.value;
+      const actionDesc = document.getElementById("action-description");
+      if (actionName && pieceClass.actions[actionName]) {
+        actionDesc.textContent = pieceClass.actions[actionName].description;
+      } else {
+        actionDesc.textContent = "";
+      }
+    });
+    
+    li.appendChild(labelDiv);
+    li.appendChild(select);
+    playerPiecesList.appendChild(li);
+  });
+
+  // Initialize Sortable for drag-and-drop
+  new Sortable(playerPiecesList, {
+    animation: 150,
+    ghostClass: 'sortable-ghost'
+  });
+}
+
+// Helper function to show movement range
+function showMoveRange(centerQ, centerR, range, parentGroup) {
+  // Remove any existing range indicators
+  clearMoveRange();
+  
+  // For each hex within range
+  for (let q = -range; q <= range; q++) {
+    for (let r = -range; r <= range; r++) {
+      // Check if hex is within range (using axial distance)
+      if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * range) {
+        const targetQ = centerQ + q;
+        const targetR = centerR + r;
+        
+        // Don't highlight the piece's own hex
+        if (q === 0 && r === 0) continue;
+        
+        const {x,y} = subAxialToPixel(targetQ, targetR);
+        
+        // Create range indicator
+        const rangeHex = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        rangeHex.setAttribute("points", subHexPolygonPoints(x,y));
+        rangeHex.setAttribute("class", "move-range");
+        rangeHex.setAttribute("fill", "rgba(255,255,0,0.2)");
+        rangeHex.setAttribute("stroke", "rgba(255,255,0,0.5)");
+        rangeHex.setAttribute("stroke-width", "1");
+        parentGroup.insertBefore(rangeHex, parentGroup.firstChild); // Add behind pieces
+      }
+    }
+  }
+}
+
+// Helper function to clear movement range
+function clearMoveRange() {
+  const rangeHexes = document.getElementsByClassName("move-range");
+  while (rangeHexes.length > 0) {
+    rangeHexes[0].remove();
+  }
 }
 
 /** handle zoom */
