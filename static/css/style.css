@@ -106,10 +106,11 @@ body {
   }
   
   .action-select {
-    flex: 1;
+    flex: 0 1 150px;
     padding: 5px;
     border: 1px solid #ddd;
     border-radius: 4px;
+    margin-right: 10px;
   }
   
   .action-description {
@@ -141,4 +142,22 @@ body {
 
   .complete-turn-btn:active {
     background: #3d8b40;
+  }
+
+  .hex-select {
+    flex: 0 1 100px;
+    padding: 5px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+  }
+
+  .hex-select.selecting {
+    background: #e6f3ff;
+    border-color: #0066cc;
+  }
+
+  .hex-select:hover {
+    border-color: #999;
   }

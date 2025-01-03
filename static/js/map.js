@@ -3,6 +3,8 @@ let piecesData = null;
 let currentView = "world"; // "world", "region", or "section"
 let currentRegion = null;
 let currentSection = null;
+let isSelectingHex = false;
+let currentHexSelector = null;
 
 const HEX_SIZE = 30; // radius of each hex
 const SQRT3 = Math.sqrt(3);
@@ -432,9 +434,9 @@ function drawHexDetailView(region, clickedHex) {
   }
 
   // Draw the hexes
-  subHexList.forEach(sh=>{
-    let {x,y}= subAxialToPixel(sh.q,sh.r);
-    let poly=document.createElementNS("http://www.w3.org/2000/svg","polygon");
+  subHexList.forEach(sh => {
+    let {x,y} = subAxialToPixel(sh.q,sh.r);
+    let poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
     poly.setAttribute("class","hex-region");
     poly.setAttribute("points",subHexPolygonPoints(x,y));
     
@@ -449,6 +451,30 @@ function drawHexDetailView(region, clickedHex) {
       hoverLabel.textContent=`(q=${sh.q},r=${sh.r}) of ${region.name}`;
     });
     poly.addEventListener("mouseleave",()=>{hoverLabel.textContent="";});
+
+    // Add click handler for hex selection
+    poly.addEventListener("click", () => {
+      if (isSelectingHex && currentHexSelector) {
+        // Find the piece that's selecting by looking through all pieces
+        const pieceLabelMatch = Array.from(pieceSelections.entries())
+          .find(([label, selection]) => {
+            // Match the piece whose hex selector is currently active
+            const hexSelect = document.querySelector(`[data-piece-label="${label}"]`);
+            return hexSelect === currentHexSelector;
+          });
+        
+        if (pieceLabelMatch) {
+          const [pieceLabel, selection] = pieceLabelMatch;
+          selection.targetHex = { q: sh.q, r: sh.r };
+          currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+          currentHexSelector.classList.remove("selecting");
+          isSelectingHex = false;
+          currentHexSelector = null;
+          updateActionDescriptions();
+        }
+      }
+    });
+
     gDetail.appendChild(poly);
   });
 
@@ -518,7 +544,7 @@ function setupPlayerControls(scenario) {
   const playerPieces = scenario.pieces.filter(p => p.side === "player");
 
   // Keep track of all piece selections to update description
-  const pieceSelections = new Map(); // Map<piece label, {class, action, description}>
+  const pieceSelections = new Map(); // Map<piece label, {class, action, description, targetHex}>
 
   function updateActionDescriptions() {
     const actionDesc = document.getElementById("action-description");
@@ -526,11 +552,14 @@ function setupPlayerControls(scenario) {
     
     pieceSelections.forEach((selection, pieceLabel) => {
       if (selection.action && selection.action !== "pass") {
-        descriptions.push(`${selection.class} (${pieceLabel}): ${selection.description}`);
+        let desc = `${selection.class} (${pieceLabel}): ${selection.description}`;
+        if (selection.targetHex) {
+          desc += ` to hex (${selection.targetHex.q}, ${selection.targetHex.r})`;
+        }
+        descriptions.push(desc);
       }
     });
     
-    // Use <br> tags for line breaks in HTML
     actionDesc.innerHTML = descriptions.length > 0 ? descriptions.join('<br><br>') : "";
   }
 
@@ -573,12 +602,19 @@ function setupPlayerControls(scenario) {
         select.appendChild(option);
       });
     }
+
+    // Create hex selection text box
+    const hexSelect = document.createElement("div");
+    hexSelect.className = "hex-select";
+    hexSelect.textContent = "Click to select hex";
+    hexSelect.setAttribute("data-piece-label", piece.label);
     
     // Initialize piece selection tracking
     pieceSelections.set(piece.label, {
       class: piece.class,
       action: "pass",
-      description: ""
+      description: "",
+      targetHex: null
     });
 
     // Handle action selection
@@ -589,16 +625,38 @@ function setupPlayerControls(scenario) {
       if (actionName === "pass") {
         selection.action = "pass";
         selection.description = "";
+        selection.targetHex = null;
+        hexSelect.textContent = "Click to select hex";
+        hexSelect.style.display = "none";
       } else if (actionName && pieceClass.actions[actionName]) {
         selection.action = actionName;
         selection.description = pieceClass.actions[actionName].description;
+        hexSelect.style.display = actionName === "move" ? "block" : "none";
       }
       
       updateActionDescriptions();
     });
+
+    // Handle hex selection
+    hexSelect.addEventListener("click", () => {
+      // Clear any existing hex selection mode
+      if (currentHexSelector) {
+        currentHexSelector.classList.remove("selecting");
+      }
+      
+      // Enter hex selection mode
+      isSelectingHex = true;
+      currentHexSelector = hexSelect;
+      hexSelect.classList.add("selecting");
+      hexSelect.textContent = "Selecting...";
+    });
+
+    // Initially hide hex select
+    hexSelect.style.display = "none";
     
     li.appendChild(labelDiv);
     li.appendChild(select);
+    li.appendChild(hexSelect);
     playerPiecesList.appendChild(li);
   });
 
@@ -617,6 +675,8 @@ function setupPlayerControls(scenario) {
 
   // Initial update of descriptions
   updateActionDescriptions();
+  
+  return pieceSelections; // Return this so we can use it in hex click handlers
 }
 
 // Helper function to show movement range
@@ -672,44 +732,6 @@ function regionColor(id){
   let pal = ["#cce5ff","#ffe5cc","#e5ffcc","#f5ccff","#fff5cc","#ccf0ff","#e0cce5","#eed5cc"];
   return pal[id % pal.length];
 }
-
-// ============== HELPER FOR PERIMETER OUTLINE ==================
-
-// /**
-//  * Return an array [ [x1,y1],[x2,y2] ] for each of 6 edges in pixel coords.
-//  */
-// function getHexEdges(q, r){
-//   let c = axialToPixel(q,r);
-//   let corners=[];
-//   for(let i=0;i<6;i++){
-//     let deg=60*i+30;
-//     let rad=Math.PI/180*deg;
-//     let px=c.x+ HEX_SIZE*Math.cos(rad);
-//     let py=c.y+ HEX_SIZE*Math.sin(rad);
-//     corners.push({x:px,y:py});
-//   }
-//   let edges=[];
-//   for(let i=0;i<6;i++){
-//     let c1=corners[i];
-//     let c2=corners[(i+1)%6];
-//     edges.push([[c1.x,c1.y],[c2.x,c2.y]]);
-//   }
-//   return edges;
-// }
-
-// /**
-//  * Return axial neighbors for a hex
-//  */
-// function getHexNeighbors(q,r){
-//   return [
-//     {q:q+1,r:r},
-//     {q:q-1,r:r},
-//     {q:q,r:r+1},
-//     {q:q,r:r-1},
-//     {q:q+1,r:r-1},
-//     {q:q-1,r:r+1}
-//   ];
-// }
 
 /**
  * Check if a given edge [ [x1,y1],[x2,y2] ] 
