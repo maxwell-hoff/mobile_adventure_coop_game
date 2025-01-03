@@ -464,8 +464,8 @@ function drawHexDetailView(region, clickedHex) {
         // Check if the target hex is occupied
         const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
         
-        // Only allow selection if the hex is not occupied
-        if (selection && !isOccupied) {
+        // Only allow selection if the hex is not occupied and is in range
+        if (selection && !isOccupied && poly.classList.contains("in-range")) {
           selection.targetHex = { q: sh.q, r: sh.r };
           currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
           currentHexSelector.classList.remove("selecting");
@@ -478,6 +478,7 @@ function drawHexDetailView(region, clickedHex) {
           });
           
           updateActionDescriptions();
+          validateTurnCompletion();
         }
       }
     });
@@ -542,6 +543,74 @@ function drawHexDetailView(region, clickedHex) {
   });
 }
 
+// Move this outside of setupPlayerControls to make it globally accessible
+function updateActionDescriptions() {
+    const actionDesc = document.getElementById("action-description");
+    const descriptions = [];
+    
+    pieceSelections.forEach((selection, pieceLabel) => {
+        if (selection.action && selection.action !== "pass") {
+            let desc = `${selection.class} (${pieceLabel}): ${selection.description}`;
+            if (selection.targetHex) {
+                desc += ` to hex (${selection.targetHex.q}, ${selection.targetHex.r})`;
+            }
+            descriptions.push(desc);
+        }
+    });
+    
+    actionDesc.innerHTML = descriptions.length > 0 ? descriptions.join('<br><br>') : "";
+}
+
+// Move validateTurnCompletion outside of setupPlayerControls to make it globally accessible
+function validateTurnCompletion() {
+    let isValid = true;
+    console.log("Validating turn completion...");
+    
+    pieceSelections.forEach((selection, pieceLabel) => {
+        console.log(`Checking ${pieceLabel}:`, selection);
+        
+        if (selection.action === 'move') {
+            if (!selection.targetHex) {
+                console.log(`${pieceLabel} has no target hex`);
+                isValid = false;
+            } else {
+                const piece = puzzleScenario.pieces.find(p => p.label === pieceLabel);
+                if (piece) {
+                    const dx = Math.abs(selection.targetHex.q - piece.q);
+                    const dy = Math.abs(selection.targetHex.r - piece.r);
+                    const dz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
+                    const distance = Math.max(dx, dy, dz);
+                    
+                    const pieceClass = piecesData.classes[piece.class];
+                    const moveRange = pieceClass.actions.move.range;
+                    
+                    console.log(`${pieceLabel} distance: ${distance}, range: ${moveRange}`);
+                    
+                    if (distance > moveRange) {
+                        console.log(`${pieceLabel} target is out of range`);
+                        isValid = false;
+                    }
+                    
+                    const isOccupied = puzzleScenario.pieces.some(p => 
+                        p.q === selection.targetHex.q && p.r === selection.targetHex.r
+                    );
+                    if (isOccupied) {
+                        console.log(`${pieceLabel} target hex is occupied`);
+                        isValid = false;
+                    }
+                }
+            }
+        }
+    });
+    
+    console.log("Turn validation result:", isValid);
+    
+    const completeTurnBtn = document.getElementById("complete-turn");
+    if (completeTurnBtn) {
+        completeTurnBtn.disabled = !isValid;
+    }
+}
+
 // New function to set up player controls
 function setupPlayerControls(scenario) {
   const playerPiecesList = document.getElementById("player-pieces");
@@ -550,34 +619,6 @@ function setupPlayerControls(scenario) {
 
   // Filter for player pieces
   const playerPieces = scenario.pieces.filter(p => p.side === "player");
-
-  function updateActionDescriptions() {
-    const actionDesc = document.getElementById("action-description");
-    const descriptions = [];
-    
-    pieceSelections.forEach((selection, pieceLabel) => {
-      if (selection.action && selection.action !== "pass") {
-        let desc = `${selection.class} (${pieceLabel}): ${selection.description}`;
-        if (selection.targetHex) {
-          desc += ` to hex (${selection.targetHex.q}, ${selection.targetHex.r})`;
-        }
-        descriptions.push(desc);
-      }
-    });
-    
-    actionDesc.innerHTML = descriptions.length > 0 ? descriptions.join('<br><br>') : "";
-  }
-
-  function validateTurnCompletion() {
-    let isValid = true;
-    pieceSelections.forEach((selection) => {
-      // If a move action is selected but no target hex, turn is invalid
-      if (selection.action === 'move' && !selection.targetHex) {
-        isValid = false;
-      }
-    });
-    completeTurnBtn.disabled = !isValid;
-  }
 
   // Create action selection list
   playerPieces.forEach(piece => {
@@ -681,6 +722,7 @@ function setupPlayerControls(scenario) {
       // Clear any existing hex selection mode and ranges
       if (currentHexSelector) {
         currentHexSelector.classList.remove("selecting");
+        currentHexSelector.textContent = "Click to select hex";
         // Clear any existing range indicators
         document.querySelectorAll(".hex-region.in-range").forEach(hex => {
           hex.classList.remove("in-range");
