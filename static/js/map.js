@@ -1295,26 +1295,16 @@ function showPieceActionRange(piece, pieceClass, actionName) {
               }
             }
           }
-        } else if (actionData.action_type === 'single_target_attack') {
+        } else if (actionData.action_type === 'single_target_attack' || 
+                   actionData.action_type === 'multi_target_attack' || 
+                   actionData.action_type === 'dark_bolt') {
+          // For player pieces, highlight enemy pieces as targets
           // For enemy pieces, highlight player pieces as targets
-          const hasPlayer = puzzleScenario.pieces.some(p => 
-            p.q === targetQ && p.r === targetR && p.side === 'player'
+          const hasValidTarget = puzzleScenario.pieces.some(p => 
+            p.q === targetQ && p.r === targetR && p.side !== piece.side
           );
           
-          if (hasPlayer) {
-            const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-            if (hex) {
-              hex.classList.add("in-range");
-              hex.classList.add("attack");
-            }
-          }
-        } else if (actionData.action_type === 'multi_target_attack') {
-          // For enemy pieces, highlight player pieces as targets
-          const hasPlayer = puzzleScenario.pieces.some(p => 
-            p.q === targetQ && p.r === targetR && p.side === 'player'
-          );
-          
-          if (hasPlayer) {
+          if (hasValidTarget) {
             const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
             if (hex) {
               hex.classList.add("in-range");
@@ -1325,11 +1315,12 @@ function showPieceActionRange(piece, pieceClass, actionName) {
           const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
           if (hex) {
             hex.classList.add("in-range");
+            // For player pieces, highlight hexes with enemy pieces
             // For enemy pieces, highlight hexes with player pieces
-            const hasPlayer = puzzleScenario.pieces.some(p => 
-              p.q === targetQ && p.r === targetR && p.side === 'player'
+            const hasValidTarget = puzzleScenario.pieces.some(p => 
+              p.q === targetQ && p.r === targetR && p.side !== piece.side
             );
-            if (hasPlayer) {
+            if (hasValidTarget) {
               hex.classList.add("attack");
             }
           }
