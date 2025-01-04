@@ -198,8 +198,17 @@ body {
   .hex-region.blocked {
     fill: #000000 !important;
     cursor: not-allowed;
+    stroke: #000000 !important;
+    stroke-width: 1 !important;
   }
 
-  .hex-region.blocked:hover {
+  .hex-region.blocked:hover,
+  .hex-region.blocked.highlighted,
+  .hex-region.blocked.in-range,
+  .hex-region.blocked.aoe-preview,
+  .hex-region.blocked.attack,
+  .hex-region.blocked.move-range {
     fill: #000000 !important;
+    stroke: #000000 !important;
+    stroke-width: 1 !important;
   }
