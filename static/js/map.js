@@ -653,6 +653,7 @@ function drawHexDetailView(region, clickedHex) {
       circle.setAttribute("cy", y);
       circle.setAttribute("r", SUB_HEX_SIZE * 0.6);
       circle.setAttribute("fill", piece.color || "#000");
+      circle.setAttribute("pointer-events", "none"); // Make circle ignore pointer events
       
       // Add hover behavior to show movement range
       circle.addEventListener("mouseenter", () => {
@@ -685,7 +686,7 @@ function drawHexDetailView(region, clickedHex) {
       text.setAttribute("dominant-baseline", "middle");
       text.setAttribute("fill", "#fff");
       text.setAttribute("font-size", SUB_HEX_SIZE);
-      text.setAttribute("pointer-events", "none");
+      text.setAttribute("pointer-events", "none"); // Make text ignore pointer events
       text.textContent = piece.label;
       gDetail.appendChild(text);
     });
