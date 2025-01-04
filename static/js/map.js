@@ -185,9 +185,24 @@ function drawWorldView() {
       p.setAttribute("class","hex-region");
       p.setAttribute("points", hexPolygonPoints(x,y));
       p.setAttribute("fill", regionColor(region.regionId));
+      p.setAttribute("data-region-id", region.regionId);
 
-      p.addEventListener("mouseenter", () => { hoverLabel.textContent = region.name; });
-      p.addEventListener("mouseleave", () => { hoverLabel.textContent = ""; });
+      p.addEventListener("mouseenter", () => { 
+        hoverLabel.textContent = region.name;
+        // Highlight all hexes in this region
+        document.querySelectorAll(`polygon[data-region-id="${region.regionId}"]`).forEach(hex => {
+          hex.classList.add("highlighted");
+        });
+      });
+      
+      p.addEventListener("mouseleave", () => { 
+        hoverLabel.textContent = "";
+        // Remove highlight from all hexes in this region
+        document.querySelectorAll(`polygon[data-region-id="${region.regionId}"]`).forEach(hex => {
+          hex.classList.remove("highlighted");
+        });
+      });
+      
       p.addEventListener("click", () => {
         currentRegion = region;
         drawRegionView(region);
