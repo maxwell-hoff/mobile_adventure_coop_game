@@ -69,6 +69,9 @@ regions:
           - { q: 0, r: 2 }
           - { q: 1, r: 1 }
           - { q: -1, r: 0 }
+          - { q: -5, r: 0 }
+          - { q: -4, r: -1 }
+          - { q: -4, r: 0 }
         # piece placements
         pieces:
           - { class: "Warlock",  label: "W", color: "#556b2f",
