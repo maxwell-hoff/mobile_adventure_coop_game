@@ -909,9 +909,20 @@ function setupPlayerControls(scenario) {
         selection.action = actionName;
         selection.description = actionData.description;
         selection.targetHex = null; // Reset target when action changes
-        hexSelect.style.display = ["move", "attack"].includes(actionData.action_type) ? "block" : "none";
+        selection.targetHexes = null; // Reset multi-target list
+        selection.affectedHexes = null; // Reset AOE affected hexes
+
+        // Show hex selector for any action that needs target selection
+        const needsTargetSelection = ['move', 'single_target_attack', 'multi_target_attack', 'aoe'].includes(actionData.action_type);
+        hexSelect.style.display = needsTargetSelection ? "block" : "none";
         hexSelect.textContent = "Click to select hex";
       }
+      
+      // Clear any existing range indicators
+      document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+        hex.classList.remove("in-range");
+        hex.classList.remove("attack");
+      });
       
       updateActionDescriptions();
       validateTurnCompletion();
