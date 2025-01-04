@@ -812,6 +812,53 @@ function validateTurnCompletion() {
                 }
                 break;
                 
+            case 'swap_position':
+                if (!selection.targetHex) {
+                    console.log(`${pieceLabel} has no target hex`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check distance
+                const swapDx = Math.abs(selection.targetHex.q - piece.q);
+                const swapDy = Math.abs(selection.targetHex.r - piece.r);
+                const swapDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
+                const swapDistance = Math.max(swapDx, swapDy, swapDz);
+                
+                if (swapDistance > actionData.range) {
+                    console.log(`${pieceLabel} swap target is out of range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if target hex has a piece to swap with
+                const targetPiece = puzzleScenario.pieces.find(p => 
+                    p.q === selection.targetHex.q && 
+                    p.r === selection.targetHex.r && 
+                    p !== piece
+                );
+                
+                if (!targetPiece) {
+                    console.log(`${pieceLabel} target hex has no piece to swap with`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check ally_only constraint
+                if (actionData.ally_only && targetPiece.side !== piece.side) {
+                    console.log(`${pieceLabel} can only swap with allies`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if target hex is blocked
+                const swapTargetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
+                if (blockedHexes.has(swapTargetKey)) {
+                    console.log(`${pieceLabel} swap target hex is blocked`);
+                    isValid = false;
+                }
+                break;
+                
             case 'single_target_attack':
                 if (!selection.targetHex) {
                     console.log(`${pieceLabel} has no target hex`);
@@ -1206,6 +1253,27 @@ function showPieceActionRange(piece, pieceClass, actionName) {
               hex.classList.add("in-range");
             }
           }
+        } else if (actionData.action_type === 'swap_position') {
+          // Only highlight hexes with valid swap targets
+          const targetPiece = puzzleScenario.pieces.find(p => 
+            p.q === targetQ && p.r === targetR && p !== piece
+          );
+          
+          if (targetPiece) {
+            // Check if we can swap with this piece based on ally_only flag
+            const canSwap = !actionData.ally_only || targetPiece.side === piece.side;
+            
+            if (canSwap) {
+              const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+              if (hex) {
+                hex.classList.add("in-range");
+                // Add attack class for enemy swaps to make them visually distinct
+                if (targetPiece.side !== piece.side) {
+                  hex.classList.add("attack");
+                }
+              }
+            }
+          }
         } else if (actionData.action_type === 'single_target_attack') {
           // For enemy pieces, highlight player pieces as targets
           const hasPlayer = puzzleScenario.pieces.some(p => 
@@ -1350,7 +1418,7 @@ function setupPlayerControls(scenario) {
         selection.affectedHexes = null; // Reset AOE affected hexes
 
         // Show hex selector for any action that needs target selection
-        const needsTargetSelection = ['move', 'single_target_attack', 'multi_target_attack', 'aoe'].includes(actionData.action_type);
+        const needsTargetSelection = ['move', 'swap_position', 'single_target_attack', 'multi_target_attack', 'aoe'].includes(actionData.action_type);
         hexSelect.style.display = needsTargetSelection ? "block" : "none";
         hexSelect.textContent = "Click to select hex";
       }
@@ -1441,6 +1509,30 @@ function setupPlayerControls(scenario) {
             piece.q = selection.targetHex.q;
             piece.r = selection.targetHex.r;
             addBattleLog(`${piece.class} (${pieceLabel}) moved to (${selection.targetHex.q}, ${selection.targetHex.r})`);
+          }
+          break;
+
+        case 'swap_position':
+          if (selection.targetHex) {
+            const targetPiece = scenario.pieces.find(p => 
+              p.q === selection.targetHex.q && 
+              p.r === selection.targetHex.r && 
+              p !== piece
+            );
+            
+            if (targetPiece) {
+              // Store original positions
+              const originalQ = piece.q;
+              const originalR = piece.r;
+              
+              // Swap positions
+              piece.q = targetPiece.q;
+              piece.r = targetPiece.r;
+              targetPiece.q = originalQ;
+              targetPiece.r = originalR;
+              
+              addBattleLog(`${piece.class} (${pieceLabel}) swapped positions with ${targetPiece.class} (${targetPiece.label})`);
+            }
           }
           break;
 

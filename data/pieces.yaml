@@ -45,6 +45,13 @@ classes:
         attack_type: "magic"
         max_num_targets: 1
         description: "Launch an elemental blast at an enemy within 4 hexes"
+      temporal_rift:
+        action_type: "swap_position"
+        range: 4
+        attack_type: "magic"
+        max_num_targets: 1
+        ally_only: False
+        description: "Swap positions with an ally or enemy within 4 hexes"
 
   Priest:
     description: "A holy guardian with healing and protective abilities"
