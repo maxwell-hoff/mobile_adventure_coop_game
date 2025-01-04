@@ -1485,6 +1485,34 @@ function setupEnemyPiecesDisplay(scenario) {
     const pieceClass = piecesData.classes[piece.class];
     const infoSection = createPieceInfoSection(piece, pieceClass);
     
+    // Add hover handlers for the entire enemy piece item
+    li.addEventListener("mouseenter", () => {
+      // Show range for the first action by default
+      const firstAction = Object.keys(pieceClass.actions)[0];
+      if (firstAction) {
+        showPieceActionRange(piece, pieceClass, firstAction);
+      }
+    });
+
+    li.addEventListener("mouseleave", () => {
+      // Clear all range indicators
+      document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+        hex.classList.remove("in-range");
+        hex.classList.remove("attack");
+      });
+    });
+
+    // Add hover handlers for each action in the info section
+    Object.keys(pieceClass.actions).forEach(actionName => {
+      const actionItem = infoSection.querySelector(`[data-action="${actionName}"]`);
+      if (actionItem) {
+        actionItem.addEventListener("mouseenter", (e) => {
+          e.stopPropagation(); // Prevent triggering the li's mouseenter
+          showPieceActionRange(piece, pieceClass, actionName);
+        });
+      }
+    });
+    
     // Add expand button click handler
     expandButton.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1496,4 +1524,85 @@ function setupEnemyPiecesDisplay(scenario) {
     li.appendChild(infoSection);
     enemyPiecesList.appendChild(li);
   });
+}
+
+// Add this new function to show piece range and targets
+function showPieceActionRange(piece, pieceClass, actionName) {
+  // Clear any existing highlights first
+  document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+    hex.classList.remove("in-range");
+    hex.classList.remove("attack");
+  });
+
+  const actionData = pieceClass.actions[actionName];
+  if (!actionData || !actionData.range) return;
+
+  const range = actionData.range;
+  console.log("Showing range for", piece.class, "action:", actionName, "range:", range);
+
+  // For each hex within range
+  for (let q = -range; q <= range; q++) {
+    for (let r = -range; r <= range; r++) {
+      if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * range) {
+        const targetQ = piece.q + q;
+        const targetR = piece.r + r;
+        
+        // Skip if target hex is blocked
+        const targetKey = `${targetQ},${targetR}`;
+        if (blockedHexes.has(targetKey)) continue;
+
+        if (actionData.action_type === 'move') {
+          // Don't highlight if occupied
+          const isOccupied = puzzleScenario.pieces.some(p => 
+            p.q === targetQ && p.r === targetR
+          );
+          
+          if (!isOccupied && !(q === 0 && r === 0)) {
+            const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+            if (hex) {
+              hex.classList.add("in-range");
+            }
+          }
+        } else if (actionData.action_type === 'single_target_attack') {
+          // For enemy pieces, highlight player pieces as targets
+          const hasPlayer = puzzleScenario.pieces.some(p => 
+            p.q === targetQ && p.r === targetR && p.side === 'player'
+          );
+          
+          if (hasPlayer) {
+            const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+            if (hex) {
+              hex.classList.add("in-range");
+              hex.classList.add("attack");
+            }
+          }
+        } else if (actionData.action_type === 'multi_target_attack') {
+          // For enemy pieces, highlight player pieces as targets
+          const hasPlayer = puzzleScenario.pieces.some(p => 
+            p.q === targetQ && p.r === targetR && p.side === 'player'
+          );
+          
+          if (hasPlayer) {
+            const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+            if (hex) {
+              hex.classList.add("in-range");
+              hex.classList.add("attack");
+            }
+          }
+        } else if (actionData.action_type === 'aoe') {
+          const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+          if (hex) {
+            hex.classList.add("in-range");
+            // For enemy pieces, highlight hexes with player pieces
+            const hasPlayer = puzzleScenario.pieces.some(p => 
+              p.q === targetQ && p.r === targetR && p.side === 'player'
+            );
+            if (hasPlayer) {
+              hex.classList.add("attack");
+            }
+          }
+        }
+      }
+    }
+  }
 }
