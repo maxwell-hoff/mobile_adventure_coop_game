@@ -8,6 +8,7 @@ let currentHexSelector = null;
 let pieceSelections = new Map(); // Make this global
 let puzzleScenario = null;
 let battleLog = [];
+let blockedHexes = new Set(); // Add this global variable
 
 const HEX_SIZE = 30; // radius of each hex
 const SQRT3 = Math.sqrt(3);
@@ -443,8 +444,8 @@ function drawHexDetailView(region, clickedHex) {
     }
   }
 
-  // Create set of blocked hexes for quick lookup
-  const blockedHexes = new Set();
+  // Reset and populate blocked hexes
+  blockedHexes.clear(); // Clear previous blocked hexes
   if (puzzleScenario && puzzleScenario.blockedHexes) {
     puzzleScenario.blockedHexes.forEach(h => {
       const key = `${h.q},${h.r}`;
