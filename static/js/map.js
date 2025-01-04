@@ -424,11 +424,15 @@ function drawHexDetailView(region, clickedHex) {
 
   // Show/hide player controls based on whether this is a puzzle scenario
   const playerControls = document.getElementById("player-controls");
+  const enemyControls = document.getElementById("enemy-controls");
   if (puzzleScenario) {
     playerControls.style.display = "block";
+    enemyControls.style.display = "block";
     setupPlayerControls(puzzleScenario);
+    setupEnemyPiecesDisplay(puzzleScenario);
   } else {
     playerControls.style.display = "none";
+    enemyControls.style.display = "none";
   }
 
   // If we found a puzzle scenario, use its radius and blocked hexes
@@ -1441,4 +1445,55 @@ function addBattleLog(message) {
     entry.style.marginBottom = "5px";
     logEntries.appendChild(entry);
     logEntries.scrollTop = logEntries.scrollHeight;
+}
+
+// Add this new function to setup enemy pieces display
+function setupEnemyPiecesDisplay(scenario) {
+  const enemyPiecesList = document.getElementById("enemy-pieces");
+  enemyPiecesList.innerHTML = ""; // Clear existing
+  
+  // Filter for enemy pieces
+  const enemyPieces = scenario.pieces.filter(p => p.side === "enemy");
+  
+  // Create display for each enemy piece
+  enemyPieces.forEach(piece => {
+    const li = document.createElement("li");
+    li.className = "enemy-piece-item";
+    
+    // Create piece label with color circle
+    const labelDiv = document.createElement("div");
+    labelDiv.className = "piece-label";
+    
+    const colorSpan = document.createElement("span");
+    colorSpan.className = "piece-color";
+    colorSpan.style.backgroundColor = piece.color;
+    
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = `${piece.class} (${piece.label})`;
+    
+    // Add expand button
+    const expandButton = document.createElement("button");
+    expandButton.className = "piece-info-button";
+    expandButton.textContent = "ℹ️";
+    expandButton.title = "Show piece information";
+    
+    labelDiv.appendChild(colorSpan);
+    labelDiv.appendChild(labelSpan);
+    labelDiv.appendChild(expandButton);
+    
+    // Get piece class data and create info section
+    const pieceClass = piecesData.classes[piece.class];
+    const infoSection = createPieceInfoSection(piece, pieceClass);
+    
+    // Add expand button click handler
+    expandButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      infoSection.classList.toggle("visible");
+      expandButton.textContent = infoSection.classList.contains("visible") ? "🔼" : "ℹ️";
+    });
+    
+    li.appendChild(labelDiv);
+    li.appendChild(infoSection);
+    enemyPiecesList.appendChild(li);
+  });
 }

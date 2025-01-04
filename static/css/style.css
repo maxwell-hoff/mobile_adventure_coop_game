@@ -274,3 +274,27 @@ body {
     color: #666;
     font-size: 13px;
   }
+
+  #enemy-controls {
+    width: 800px;
+    margin: 20px auto;
+    padding: 20px;
+    background: #f5f5f5;
+    border-radius: 8px;
+  }
+
+  .enemy-pieces {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .enemy-piece-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    margin: 5px 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
