@@ -900,7 +900,58 @@ function validateTurnCompletion() {
     }
 }
 
-// New function to set up player controls
+// New function to create piece info section
+function createPieceInfoSection(piece, pieceClass) {
+  const infoSection = document.createElement("div");
+  infoSection.className = "piece-info-section";
+  
+  // Add class name and description
+  const title = document.createElement("h4");
+  title.textContent = piece.class;
+  infoSection.appendChild(title);
+  
+  if (pieceClass.description) {
+    const desc = document.createElement("div");
+    desc.className = "description";
+    desc.textContent = pieceClass.description;
+    infoSection.appendChild(desc);
+  }
+  
+  // Add list of actions
+  const actionList = document.createElement("ul");
+  actionList.className = "action-list";
+  
+  Object.entries(pieceClass.actions).forEach(([actionName, actionData]) => {
+    const actionItem = document.createElement("li");
+    actionItem.className = "action-item";
+    
+    const actionTitle = document.createElement("div");
+    actionTitle.className = "action-name";
+    actionTitle.textContent = actionName.charAt(0).toUpperCase() + actionName.slice(1);
+    actionItem.appendChild(actionTitle);
+    
+    const actionAttributes = document.createElement("div");
+    actionAttributes.className = "action-attributes";
+    
+    // Add all relevant attributes
+    const attributes = [];
+    if (actionData.action_type) attributes.push(`Type: ${actionData.action_type}`);
+    if (actionData.range) attributes.push(`Range: ${actionData.range}`);
+    if (actionData.description) attributes.push(actionData.description);
+    if (actionData.max_num_targets) attributes.push(`Max Targets: ${actionData.max_num_targets}`);
+    if (actionData.radius) attributes.push(`Radius: ${actionData.radius}`);
+    
+    actionAttributes.textContent = attributes.join(" • ");
+    actionItem.appendChild(actionAttributes);
+    
+    actionList.appendChild(actionItem);
+  });
+  
+  infoSection.appendChild(actionList);
+  return infoSection;
+}
+
+// Update setupPlayerControls to include the expand button and info section
 function setupPlayerControls(scenario) {
   const playerPiecesList = document.getElementById("player-pieces");
   playerPiecesList.innerHTML = ""; // Clear existing
@@ -925,8 +976,15 @@ function setupPlayerControls(scenario) {
     const labelSpan = document.createElement("span");
     labelSpan.textContent = `${piece.class} (${piece.label})`;
     
+    // Add expand button
+    const expandButton = document.createElement("button");
+    expandButton.className = "piece-info-button";
+    expandButton.textContent = "ℹ️";
+    expandButton.title = "Show piece information";
+    
     labelDiv.appendChild(colorSpan);
     labelDiv.appendChild(labelSpan);
+    labelDiv.appendChild(expandButton);
     
     // Create action select dropdown
     const select = document.createElement("select");
@@ -955,22 +1013,14 @@ function setupPlayerControls(scenario) {
     hexSelect.textContent = "Click to select hex";
     hexSelect.setAttribute("data-piece-label", piece.label);
     
-    // Add hover handlers for hex highlighting
-    hexSelect.addEventListener("mouseenter", () => {
-      const selection = pieceSelections.get(piece.label);
-      if (selection && selection.targetHex) {
-        const hex = document.querySelector(`polygon[data-q="${selection.targetHex.q}"][data-r="${selection.targetHex.r}"]`);
-        if (hex) {
-          hex.classList.add("highlighted");
-        }
-      }
-    });
-
-    hexSelect.addEventListener("mouseleave", () => {
-      // Remove highlight from all hexes
-      document.querySelectorAll(".hex-region.highlighted").forEach(hex => {
-        hex.classList.remove("highlighted");
-      });
+    // Create and add info section
+    const infoSection = createPieceInfoSection(piece, pieceClass);
+    
+    // Add expand button click handler
+    expandButton.addEventListener("click", (e) => {
+      e.stopPropagation(); // Prevent piece item click
+      infoSection.classList.toggle("visible");
+      expandButton.textContent = infoSection.classList.contains("visible") ? "🔼" : "ℹ️";
     });
 
     // Initialize piece selection tracking
@@ -1016,106 +1066,13 @@ function setupPlayerControls(scenario) {
       validateTurnCompletion();
     });
 
-    // Update the hex selection click handler
-    hexSelect.addEventListener("click", () => {
-      // Clear any existing hex selection mode and ranges
-      if (currentHexSelector) {
-        currentHexSelector.classList.remove("selecting");
-        currentHexSelector.textContent = "Click to select hex";
-        document.querySelectorAll(".hex-region.in-range").forEach(hex => {
-          hex.classList.remove("in-range");
-          hex.classList.remove("attack");
-        });
-      }
-      
-      // Enter hex selection mode
-      isSelectingHex = true;
-      currentHexSelector = hexSelect;
-      hexSelect.classList.add("selecting");
-      hexSelect.textContent = "Selecting...";
-
-      // Find the piece's current position and show range
-      const pieceLabel = hexSelect.getAttribute("data-piece-label");
-      const piece = scenario.pieces.find(p => p.label === pieceLabel);
-      const pieceClass = piecesData.classes[piece.class];
-      const selection = pieceSelections.get(pieceLabel);
-      const actionData = pieceClass.actions[selection.action];
-      
-      if (piece && pieceClass && actionData) {
-        const range = actionData.range;
-        
-        // For each hex within range
-        for (let q = -range; q <= range; q++) {
-          for (let r = -range; r <= range; r++) {
-            if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * range) {
-              const targetQ = piece.q + q;
-              const targetR = piece.r + r;
-              
-              if (actionData.action_type === 'move') {
-                // Don't highlight if occupied
-                const isOccupied = scenario.pieces.some(p => 
-                  p.q === targetQ && p.r === targetR
-                );
-                
-                if (!isOccupied && !(q === 0 && r === 0)) {
-                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-                  if (hex) {
-                    hex.classList.add("in-range");
-                  }
-                }
-              } else if (actionData.action_type === 'single_target_attack') {
-                // Only highlight hexes with enemy pieces
-                const hasEnemy = scenario.pieces.some(p => 
-                  p.q === targetQ && p.r === targetR && p.side !== 'player'
-                );
-                
-                if (hasEnemy) {
-                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-                  if (hex) {
-                    hex.classList.add("in-range");
-                    hex.classList.add("attack");
-                  }
-                }
-              } else if (actionData.action_type === 'multi_target_attack') {
-                // Highlight all hexes with enemy pieces
-                const hasEnemy = scenario.pieces.some(p => 
-                  p.q === targetQ && p.r === targetR && p.side !== 'player'
-                );
-                
-                if (hasEnemy) {
-                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-                  if (hex) {
-                    hex.classList.add("in-range");
-                    hex.classList.add("attack");
-                  }
-                }
-              } else if (actionData.action_type === 'aoe') {
-                // Highlight all hexes within range as potential center points
-                const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-                if (hex) {
-                  hex.classList.add("in-range");
-                  // If hex contains an enemy, also mark it as an attack hex
-                  const hasEnemy = scenario.pieces.some(p => 
-                    p.q === targetQ && p.r === targetR && p.side !== 'player'
-                  );
-                  if (hasEnemy) {
-                    hex.classList.add("attack");
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-      validateTurnCompletion();
-    });
-
     // Initially hide hex select
     hexSelect.style.display = "none";
     
     li.appendChild(labelDiv);
     li.appendChild(select);
     li.appendChild(hexSelect);
+    li.appendChild(infoSection);
     playerPiecesList.appendChild(li);
   });
 

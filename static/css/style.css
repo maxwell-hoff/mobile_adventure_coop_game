@@ -212,3 +212,65 @@ body {
     stroke: #000000 !important;
     stroke-width: 1 !important;
   }
+
+  .piece-info-button {
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    margin-left: 10px;
+    font-size: 12px;
+  }
+
+  .piece-info-button:hover {
+    background: #e0e0e0;
+  }
+
+  .piece-info-section {
+    display: none;
+    margin-top: 10px;
+    padding: 10px;
+    background: #f8f8f8;
+    border-radius: 4px;
+    font-size: 14px;
+    width: 100%;
+  }
+
+  .piece-info-section.visible {
+    display: block;
+  }
+
+  .piece-info-section h4 {
+    margin: 0 0 8px 0;
+    color: #444;
+  }
+
+  .piece-info-section .description {
+    margin-bottom: 10px;
+    color: #666;
+  }
+
+  .action-list {
+    list-style: none;
+    padding: 0;
+  }
+
+  .action-item {
+    margin-bottom: 8px;
+    padding: 8px;
+    background: white;
+    border: 1px solid #eee;
+    border-radius: 4px;
+  }
+
+  .action-name {
+    font-weight: bold;
+    color: #333;
+  }
+
+  .action-attributes {
+    margin-top: 4px;
+    color: #666;
+    font-size: 13px;
+  }
