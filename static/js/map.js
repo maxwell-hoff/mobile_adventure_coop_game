@@ -1069,6 +1069,126 @@ function setupPlayerControls(scenario) {
     // Initially hide hex select
     hexSelect.style.display = "none";
     
+    // Add hover handlers for hex highlighting
+    hexSelect.addEventListener("mouseenter", () => {
+      const selection = pieceSelections.get(piece.label);
+      if (selection && selection.targetHex) {
+        const hex = document.querySelector(`polygon[data-q="${selection.targetHex.q}"][data-r="${selection.targetHex.r}"]`);
+        if (hex) {
+          hex.classList.add("highlighted");
+        }
+      }
+    });
+
+    hexSelect.addEventListener("mouseleave", () => {
+      // Remove highlight from all hexes
+      document.querySelectorAll(".hex-region.highlighted").forEach(hex => {
+        hex.classList.remove("highlighted");
+      });
+    });
+
+    // Add hex selection click handler
+    hexSelect.addEventListener("click", () => {
+      console.log("Hex selection clicked"); // Debug log
+      
+      // Clear any existing hex selection mode and ranges
+      if (currentHexSelector) {
+        console.log("Clearing previous selection"); // Debug log
+        currentHexSelector.classList.remove("selecting");
+        currentHexSelector.textContent = "Click to select hex";
+        document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+          hex.classList.remove("in-range");
+          hex.classList.remove("attack");
+        });
+      }
+      
+      // Enter hex selection mode
+      isSelectingHex = true;
+      currentHexSelector = hexSelect;
+      hexSelect.classList.add("selecting");
+      hexSelect.textContent = "Selecting...";
+
+      // Find the piece's current position and show range
+      const pieceLabel = hexSelect.getAttribute("data-piece-label");
+      console.log("Selected piece:", pieceLabel); // Debug log
+      
+      const piece = scenario.pieces.find(p => p.label === pieceLabel);
+      const pieceClass = piecesData.classes[piece.class];
+      const selection = pieceSelections.get(pieceLabel);
+      const actionData = pieceClass.actions[selection.action];
+      
+      console.log("Piece data:", { piece, action: selection.action, actionData }); // Debug log
+      
+      if (piece && pieceClass && actionData) {
+        const range = actionData.range;
+        console.log("Showing range:", range); // Debug log
+        
+        // For each hex within range
+        for (let q = -range; q <= range; q++) {
+          for (let r = -range; r <= range; r++) {
+            if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * range) {
+              const targetQ = piece.q + q;
+              const targetR = piece.r + r;
+              
+              if (actionData.action_type === 'move') {
+                // Don't highlight if occupied
+                const isOccupied = scenario.pieces.some(p => 
+                  p.q === targetQ && p.r === targetR
+                );
+                
+                if (!isOccupied && !(q === 0 && r === 0)) {
+                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+                  if (hex) {
+                    hex.classList.add("in-range");
+                  }
+                }
+              } else if (actionData.action_type === 'single_target_attack') {
+                // Only highlight hexes with enemy pieces
+                const hasEnemy = scenario.pieces.some(p => 
+                  p.q === targetQ && p.r === targetR && p.side !== 'player'
+                );
+                
+                if (hasEnemy) {
+                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+                  if (hex) {
+                    hex.classList.add("in-range");
+                    hex.classList.add("attack");
+                  }
+                }
+              } else if (actionData.action_type === 'multi_target_attack') {
+                // Highlight all hexes with enemy pieces
+                const hasEnemy = scenario.pieces.some(p => 
+                  p.q === targetQ && p.r === targetR && p.side !== 'player'
+                );
+                
+                if (hasEnemy) {
+                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+                  if (hex) {
+                    hex.classList.add("in-range");
+                    hex.classList.add("attack");
+                  }
+                }
+              } else if (actionData.action_type === 'aoe') {
+                // Highlight all hexes within range as potential center points
+                const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+                if (hex) {
+                  hex.classList.add("in-range");
+                  // If hex contains an enemy, also mark it as an attack hex
+                  const hasEnemy = scenario.pieces.some(p => 
+                    p.q === targetQ && p.r === targetR && p.side !== 'player'
+                  );
+                  if (hasEnemy) {
+                    hex.classList.add("attack");
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      validateTurnCompletion();
+    });
+    
     li.appendChild(labelDiv);
     li.appendChild(select);
     li.appendChild(hexSelect);
