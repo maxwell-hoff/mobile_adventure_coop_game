@@ -3,9 +3,11 @@ classes:
     description: "A powerful spellcaster who manipulates dark energies"
     actions:
       move:
+        action_type: "move"
         range: 1
-        description: "Move up to 2 hexes in any direction"
-      attack:
+        description: "Move 1 hex in any direction"
+      dark_bolt:
+        action_type: "attack"
         range: 2
         description: "Cast a dark bolt at an enemy within 3 hexes"
 
@@ -13,9 +15,11 @@ classes:
     description: "A versatile magic user specializing in elemental spells"
     actions:
       move:
+        action_type: "move"
         range: 1
         description: "Move up to 2 hexes in any direction"
-      attack:
+      elemental_blast:
+        action_type: "attack"
         range: 3
         description: "Launch an elemental blast at an enemy within 4 hexes"
 
@@ -23,9 +27,11 @@ classes:
     description: "A holy warrior with healing and protective abilities"
     actions:
       move:
+        action_type: "move"
         range: 1
         description: "Move up to 1 hex in any direction"
-      # attack:
+      # holy_smite:
+      #   action_type: "attack"
       #   range: 2
       #   description: "Smite an enemy within 2 hexes"
 
@@ -33,9 +39,11 @@ classes:
     description: "A stalwart defender with heavy armor"
     actions:
       move:
+        action_type: "move"
         range: 1
         description: "Move up to 1 hex in any direction"
-      attack:
+      shield_bash:
+        action_type: "attack"
         range: 1
         description: "Strike an adjacent enemy"
 
@@ -43,9 +51,11 @@ classes:
     description: "A fearsome commander who draws power from life force"
     actions:
       move:
+        action_type: "move"
         range: 1
         description: "Move up to 1 hex in any direction"
-      attack:
+      life_drain:
+        action_type: "attack"
         range: 100
         description: "Drain life force from an enemy within 2 hexes"
 
@@ -53,8 +63,10 @@ classes:
     description: "A skilled tracker with exceptional mobility"
     actions:
       move:
+        action_type: "move"
         range: 1
         description: "Move up to 3 hexes in any direction"
-      attack:
+      precise_shot:
+        action_type: "attack"
         range: 2
         description: "Fire an arrow at an enemy within 3 hexes" 
