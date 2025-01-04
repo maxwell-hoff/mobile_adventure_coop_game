@@ -12,12 +12,18 @@ classes:
       #   attack_type: "magic"
       #   max_num_targets: 1
       #   description: "Cast a dark bolt at an enemy within 3 hexes"
+      # dark_bolt:
+      #   action_type: "multi_target_attack"
+      #   range: 4
+      #   attack_type: "physical"
+      #   max_num_targets: 2
+      #   description: "Fire an arrow at an enemy within 3 hexes" 
       dark_bolt:
-        action_type: "multi_target_attack"
-        range: 4
+        action_type: "aoe"
+        range: 1
         attack_type: "physical"
-        max_num_targets: 2
-        description: "Fire an arrow at an enemy within 3 hexes" 
+        radius: 1
+        description: "Strike all adjacent enemies"
 
   Sorcerer:
     description: "A versatile magic user specializing in elemental spells"
