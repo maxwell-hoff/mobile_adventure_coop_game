@@ -7,10 +7,9 @@ classes:
         range: 1
         description: "Move 1 hex in any direction"
       dark_bolt:
-        action_type: "attack"
+        action_type: "single_target_attack"
         range: 2
         attack_type: "magic"
-        attack_on_environment: False
         max_num_targets: 1
         description: "Cast a dark bolt at an enemy within 3 hexes"
 
@@ -22,10 +21,9 @@ classes:
         range: 1
         description: "Move up to 2 hexes in any direction"
       elemental_blast:
-        action_type: "attack"
+        action_type: "single_target_attack"
         range: 3
         attack_type: "magic"
-        attack_on_environment: False
         max_num_targets: 1
         description: "Launch an elemental blast at an enemy within 4 hexes"
 
@@ -48,12 +46,11 @@ classes:
         action_type: "move"
         range: 1
         description: "Move up to 1 hex in any direction"
-      jab:
-        action_type: "attack"
-        range: 1
+      sweep:
+        action_type: "aoe"
+        range: 0
         attack_type: "physical"
-        attack_on_environment: True
-        max_num_targets: 6
+        radius: 1
         description: "Strike all adjacent enemies"
 
   BloodWarden:
@@ -64,11 +61,10 @@ classes:
         range: 1
         description: "Move up to 1 hex in any direction"
       life_drain:
-        action_type: "attack"
+        action_type: "aoe"
         range: 100
         attack_type: "magic"
-        attack_on_environment: True
-        max_num_targets: 100
+        radius: 100
         description: "Drain life from all enemies on grid"
 
   Hunter:
@@ -79,9 +75,8 @@ classes:
         range: 1
         description: "Move up to 3 hexes in any direction"
       precise_shot:
-        action_type: "attack"
+        action_type: "multi_target_attack"
         range: 2
         attack_type: "physical"
-        attack_on_environment: True
         max_num_targets: 2
         description: "Fire an arrow at an enemy within 3 hexes" 
