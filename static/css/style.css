@@ -194,3 +194,12 @@ body {
     font-family: monospace;
     padding: 10px;
   }
+
+  .hex-region.blocked {
+    fill: #000000 !important;
+    cursor: not-allowed;
+  }
+
+  .hex-region.blocked:hover {
+    fill: #000000 !important;
+  }

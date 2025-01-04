@@ -447,7 +447,9 @@ function drawHexDetailView(region, clickedHex) {
   const blockedHexes = new Set();
   if (puzzleScenario && puzzleScenario.blockedHexes) {
     puzzleScenario.blockedHexes.forEach(h => {
-      blockedHexes.add(`${h.q},${h.r}`);
+      const key = `${h.q},${h.r}`;
+      blockedHexes.add(key);
+      console.log("Added blocked hex:", key); // Debug log
     });
   }
 
@@ -460,9 +462,12 @@ function drawHexDetailView(region, clickedHex) {
     poly.setAttribute("data-q", sh.q);
     poly.setAttribute("data-r", sh.r);
     
-    // If hex is blocked in puzzle scenario, make it darker
-    if (blockedHexes.has(`${sh.q},${sh.r}`)) {
-      poly.setAttribute("fill", "#666");
+    const hexKey = `${sh.q},${sh.r}`;
+    // If hex is blocked in puzzle scenario, make it black
+    if (blockedHexes.has(hexKey)) {
+      console.log("Coloring hex black:", hexKey); // Debug log
+      poly.setAttribute("fill", "#000000");
+      poly.setAttribute("class", "hex-region blocked"); // Add blocked class
     } else {
       poly.setAttribute("fill", regionColor(region.regionId));
     }
