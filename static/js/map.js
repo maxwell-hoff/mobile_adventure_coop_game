@@ -508,6 +508,27 @@ function drawHexDetailView(region, clickedHex) {
               updateActionDescriptions();
               validateTurnCompletion();
             }
+          } else if (actionData.action_type === 'swap_position') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && p.r === sh.r && 
+              (!actionData.ally_only || p.side === selection.side)
+            );
+            
+            if (targetPiece && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              
+              document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("attack");
+              });
+              
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
           } else if (actionData.action_type === 'single_target_attack') {
             const targetPiece = puzzleScenario.pieces.find(p => 
               p.q === sh.q && p.r === sh.r && p.side !== 'player'
