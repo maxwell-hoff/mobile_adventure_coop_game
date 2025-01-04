@@ -778,6 +778,14 @@ function validateTurnCompletion() {
                     break;
                 }
                 
+                // Check if target hex is blocked
+                const targetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
+                if (blockedHexes.has(targetKey)) {
+                    console.log(`${pieceLabel} target hex is blocked`);
+                    isValid = false;
+                    break;
+                }
+                
                 // Check distance
                 const dx = Math.abs(selection.targetHex.q - piece.q);
                 const dy = Math.abs(selection.targetHex.r - piece.r);
