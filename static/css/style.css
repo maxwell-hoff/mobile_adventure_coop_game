@@ -34,6 +34,17 @@ body {
     stroke-width: 2;
   }
   
+  .hex-region.aoe-preview {
+    fill: rgba(255, 192, 203, 0.4);  /* light pink */
+    stroke: #FF69B4;  /* hot pink */
+    stroke-width: 2;
+  }
+  
+  .hex-region.attack {
+    fill: rgba(255, 0, 0, 0.2);
+    stroke: rgba(255, 0, 0, 0.5);
+  }
+  
   /* The text label for region name on hover:
      We'll update it dynamically, but you can style it here. */
   #hoverLabel {
@@ -182,9 +193,4 @@ body {
   #log-entries {
     font-family: monospace;
     padding: 10px;
-  }
-
-  .hex-region.in-range.attack {
-    fill: rgba(255, 0, 0, 0.2);
-    stroke: rgba(255, 0, 0, 0.5);
   }

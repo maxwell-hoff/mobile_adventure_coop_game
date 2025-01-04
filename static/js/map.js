@@ -581,6 +581,64 @@ function drawHexDetailView(region, clickedHex) {
       }
     });
 
+    // Add hover behavior for AOE preview during hex selection
+    poly.addEventListener("mouseenter", () => {
+      if (isSelectingHex && currentHexSelector) {
+        const pieceLabel = currentHexSelector.getAttribute("data-piece-label");
+        const selection = pieceSelections.get(pieceLabel);
+        
+        if (selection) {
+          const pieceClass = piecesData.classes[selection.class];
+          const actionData = pieceClass.actions[selection.action];
+          
+          if (actionData.action_type === 'aoe' && poly.classList.contains("in-range")) {
+            const q = parseInt(poly.getAttribute("data-q"));
+            const r = parseInt(poly.getAttribute("data-r"));
+            
+            // Calculate and highlight affected hexes
+            const radius = actionData.radius;
+            for (let dq = -radius; dq <= radius; dq++) {
+              for (let dr = -radius; dr <= radius; dr++) {
+                if (Math.abs(dq) + Math.abs(dr) + Math.abs(-dq-dr) <= 2 * radius) {
+                  const affectedQ = q + dq;
+                  const affectedR = r + dr;
+                  
+                  const affectedHex = document.querySelector(`polygon[data-q="${affectedQ}"][data-r="${affectedR}"]`);
+                  if (affectedHex) {
+                    affectedHex.classList.add("aoe-preview");
+                    
+                    // If hex contains an enemy, also mark it as an attack hex
+                    const hasEnemy = puzzleScenario.pieces.some(p => 
+                      p.q === affectedQ && p.r === affectedR && p.side !== 'player'
+                    );
+                    if (hasEnemy) {
+                      affectedHex.classList.add("attack");
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Original hover behavior for hex coordinates
+      const q = poly.getAttribute("data-q");
+      const r = poly.getAttribute("data-r");
+      hoverLabel.textContent = `(q=${q},r=${r}) of ${currentRegion.name}`;
+    });
+
+    poly.addEventListener("mouseleave", () => {
+      // Clear AOE preview
+      document.querySelectorAll(".hex-region.aoe-preview").forEach(hex => {
+        hex.classList.remove("aoe-preview");
+        hex.classList.remove("attack");
+      });
+      
+      // Original behavior to clear hover label
+      hoverLabel.textContent = "";
+    });
+
     gDetail.appendChild(poly);
   });
 
