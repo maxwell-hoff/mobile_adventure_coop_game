@@ -9,6 +9,9 @@ classes:
       dark_bolt:
         action_type: "attack"
         range: 2
+        attack_type: "magic"
+        attack_on_environment: False
+        max_num_targets: 1
         description: "Cast a dark bolt at an enemy within 3 hexes"
 
   Sorcerer:
@@ -21,10 +24,13 @@ classes:
       elemental_blast:
         action_type: "attack"
         range: 3
+        attack_type: "magic"
+        attack_on_environment: False
+        max_num_targets: 1
         description: "Launch an elemental blast at an enemy within 4 hexes"
 
   Priest:
-    description: "A holy warrior with healing and protective abilities"
+    description: "A holy guardian with healing and protective abilities"
     actions:
       move:
         action_type: "move"
@@ -42,10 +48,13 @@ classes:
         action_type: "move"
         range: 1
         description: "Move up to 1 hex in any direction"
-      shield_bash:
+      jab:
         action_type: "attack"
         range: 1
-        description: "Strike an adjacent enemy"
+        attack_type: "physical"
+        attack_on_environment: True
+        max_num_targets: 6
+        description: "Strike all adjacent enemies"
 
   BloodWarden:
     description: "A fearsome commander who draws power from life force"
@@ -57,7 +66,10 @@ classes:
       life_drain:
         action_type: "attack"
         range: 100
-        description: "Drain life force from an enemy within 2 hexes"
+        attack_type: "magic"
+        attack_on_environment: True
+        max_num_targets: 100
+        description: "Drain life from all enemies on grid"
 
   Hunter:
     description: "A skilled tracker with exceptional mobility"
@@ -69,4 +81,7 @@ classes:
       precise_shot:
         action_type: "attack"
         range: 2
+        attack_type: "physical"
+        attack_on_environment: True
+        max_num_targets: 2
         description: "Fire an arrow at an enemy within 3 hexes" 
