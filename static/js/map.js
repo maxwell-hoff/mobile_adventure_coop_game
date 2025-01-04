@@ -904,7 +904,7 @@ function validateTurnCompletion() {
     }
 }
 
-// New function to create piece info section
+// Update createPieceInfoSection to add hover handlers for each action
 function createPieceInfoSection(piece, pieceClass) {
   const infoSection = document.createElement("div");
   infoSection.className = "piece-info-section";
@@ -928,6 +928,7 @@ function createPieceInfoSection(piece, pieceClass) {
   Object.entries(pieceClass.actions).forEach(([actionName, actionData]) => {
     const actionItem = document.createElement("li");
     actionItem.className = "action-item";
+    actionItem.setAttribute("data-action", actionName);
     
     const actionTitle = document.createElement("div");
     actionTitle.className = "action-name";
@@ -947,6 +948,19 @@ function createPieceInfoSection(piece, pieceClass) {
     
     actionAttributes.textContent = attributes.join(" • ");
     actionItem.appendChild(actionAttributes);
+
+    // Add hover handlers for the action item
+    actionItem.addEventListener("mouseenter", () => {
+      showPieceActionRange(piece, pieceClass, actionName);
+    });
+
+    actionItem.addEventListener("mouseleave", () => {
+      // Clear all range indicators
+      document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+        hex.classList.remove("in-range");
+        hex.classList.remove("attack");
+      });
+    });
     
     actionList.appendChild(actionItem);
   });
@@ -955,19 +969,18 @@ function createPieceInfoSection(piece, pieceClass) {
   return infoSection;
 }
 
-// Update setupPlayerControls to include the expand button and info section
-function setupPlayerControls(scenario) {
-  const playerPiecesList = document.getElementById("player-pieces");
-  playerPiecesList.innerHTML = ""; // Clear existing
-  pieceSelections.clear(); // Clear the global map
-
-  // Filter for player pieces
-  const playerPieces = scenario.pieces.filter(p => p.side === "player");
-
-  // Create action selection list
-  playerPieces.forEach(piece => {
+// Update setupEnemyPiecesDisplay to remove piece-level hover
+function setupEnemyPiecesDisplay(scenario) {
+  const enemyPiecesList = document.getElementById("enemy-pieces");
+  enemyPiecesList.innerHTML = ""; // Clear existing
+  
+  // Filter for enemy pieces
+  const enemyPieces = scenario.pieces.filter(p => p.side === "enemy");
+  
+  // Create display for each enemy piece
+  enemyPieces.forEach(piece => {
     const li = document.createElement("li");
-    li.className = "piece-item";
+    li.className = "enemy-piece-item";
     
     // Create piece label with color circle
     const labelDiv = document.createElement("div");
@@ -990,312 +1003,21 @@ function setupPlayerControls(scenario) {
     labelDiv.appendChild(labelSpan);
     labelDiv.appendChild(expandButton);
     
-    // Create action select dropdown
-    const select = document.createElement("select");
-    select.className = "action-select";
-    
-    // Add pass option first (default)
-    const passOption = document.createElement("option");
-    passOption.value = "pass";
-    passOption.textContent = "Pass";
-    select.appendChild(passOption);
-    
-    // Get piece class data and add its actions
+    // Get piece class data and create info section
     const pieceClass = piecesData.classes[piece.class];
-    if (pieceClass && pieceClass.actions) {
-      Object.entries(pieceClass.actions).forEach(([actionName, actionData]) => {
-        const option = document.createElement("option");
-        option.value = actionName;
-        option.textContent = actionName.charAt(0).toUpperCase() + actionName.slice(1);
-        select.appendChild(option);
-      });
-    }
-
-    // Create hex selection text box
-    const hexSelect = document.createElement("div");
-    hexSelect.className = "hex-select";
-    hexSelect.textContent = "Click to select hex";
-    hexSelect.setAttribute("data-piece-label", piece.label);
-    
-    // Create and add info section
     const infoSection = createPieceInfoSection(piece, pieceClass);
     
     // Add expand button click handler
     expandButton.addEventListener("click", (e) => {
-      e.stopPropagation(); // Prevent piece item click
+      e.stopPropagation();
       infoSection.classList.toggle("visible");
       expandButton.textContent = infoSection.classList.contains("visible") ? "🔼" : "ℹ️";
     });
-
-    // Initialize piece selection tracking
-    pieceSelections.set(piece.label, {
-      class: piece.class,
-      action: "pass",
-      description: "",
-      targetHex: null
-    });
-
-    // Handle action selection
-    select.addEventListener("change", (e) => {
-      const actionName = e.target.value;
-      const selection = pieceSelections.get(piece.label);
-      
-      if (actionName === "pass") {
-        selection.action = "pass";
-        selection.description = "";
-        selection.targetHex = null;
-        hexSelect.textContent = "Click to select hex";
-        hexSelect.style.display = "none";
-      } else if (actionName && pieceClass.actions[actionName]) {
-        const actionData = pieceClass.actions[actionName];
-        selection.action = actionName;
-        selection.description = actionData.description;
-        selection.targetHex = null; // Reset target when action changes
-        selection.targetHexes = null; // Reset multi-target list
-        selection.affectedHexes = null; // Reset AOE affected hexes
-
-        // Show hex selector for any action that needs target selection
-        const needsTargetSelection = ['move', 'single_target_attack', 'multi_target_attack', 'aoe'].includes(actionData.action_type);
-        hexSelect.style.display = needsTargetSelection ? "block" : "none";
-        hexSelect.textContent = "Click to select hex";
-      }
-      
-      // Clear any existing range indicators
-      document.querySelectorAll(".hex-region.in-range").forEach(hex => {
-        hex.classList.remove("in-range");
-        hex.classList.remove("attack");
-      });
-      
-      updateActionDescriptions();
-      validateTurnCompletion();
-    });
-
-    // Initially hide hex select
-    hexSelect.style.display = "none";
-    
-    // Add hover handlers for hex highlighting
-    hexSelect.addEventListener("mouseenter", () => {
-      const selection = pieceSelections.get(piece.label);
-      if (selection && selection.targetHex) {
-        const hex = document.querySelector(`polygon[data-q="${selection.targetHex.q}"][data-r="${selection.targetHex.r}"]`);
-        if (hex) {
-          hex.classList.add("highlighted");
-        }
-      }
-    });
-
-    hexSelect.addEventListener("mouseleave", () => {
-      // Remove highlight from all hexes
-      document.querySelectorAll(".hex-region.highlighted").forEach(hex => {
-        hex.classList.remove("highlighted");
-      });
-    });
-
-    // Add hex selection click handler
-    hexSelect.addEventListener("click", () => {
-      console.log("Hex selection clicked"); // Debug log
-      
-      // Clear any existing hex selection mode and ranges
-      if (currentHexSelector) {
-        console.log("Clearing previous selection"); // Debug log
-        currentHexSelector.classList.remove("selecting");
-        currentHexSelector.textContent = "Click to select hex";
-        document.querySelectorAll(".hex-region.in-range").forEach(hex => {
-          hex.classList.remove("in-range");
-          hex.classList.remove("attack");
-        });
-      }
-      
-      // Enter hex selection mode
-      isSelectingHex = true;
-      currentHexSelector = hexSelect;
-      hexSelect.classList.add("selecting");
-      hexSelect.textContent = "Selecting...";
-
-      // Find the piece's current position and show range
-      const pieceLabel = hexSelect.getAttribute("data-piece-label");
-      console.log("Selected piece:", pieceLabel); // Debug log
-      
-      const piece = scenario.pieces.find(p => p.label === pieceLabel);
-      const pieceClass = piecesData.classes[piece.class];
-      const selection = pieceSelections.get(pieceLabel);
-      const actionData = pieceClass.actions[selection.action];
-      
-      console.log("Piece data:", { piece, action: selection.action, actionData }); // Debug log
-      
-      if (piece && pieceClass && actionData) {
-        const range = actionData.range;
-        console.log("Showing range:", range); // Debug log
-        
-        // For each hex within range
-        for (let q = -range; q <= range; q++) {
-          for (let r = -range; r <= range; r++) {
-            if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * range) {
-              const targetQ = piece.q + q;
-              const targetR = piece.r + r;
-              
-              if (actionData.action_type === 'move') {
-                // Don't highlight if occupied
-                const isOccupied = scenario.pieces.some(p => 
-                  p.q === targetQ && p.r === targetR
-                );
-                
-                if (!isOccupied && !(q === 0 && r === 0)) {
-                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-                  if (hex) {
-                    hex.classList.add("in-range");
-                  }
-                }
-              } else if (actionData.action_type === 'single_target_attack') {
-                // Only highlight hexes with enemy pieces
-                const hasEnemy = scenario.pieces.some(p => 
-                  p.q === targetQ && p.r === targetR && p.side !== 'player'
-                );
-                
-                if (hasEnemy) {
-                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-                  if (hex) {
-                    hex.classList.add("in-range");
-                    hex.classList.add("attack");
-                  }
-                }
-              } else if (actionData.action_type === 'multi_target_attack') {
-                // Highlight all hexes with enemy pieces
-                const hasEnemy = scenario.pieces.some(p => 
-                  p.q === targetQ && p.r === targetR && p.side !== 'player'
-                );
-                
-                if (hasEnemy) {
-                  const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-                  if (hex) {
-                    hex.classList.add("in-range");
-                    hex.classList.add("attack");
-                  }
-                }
-              } else if (actionData.action_type === 'aoe') {
-                // Highlight all hexes within range as potential center points
-                const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-                if (hex) {
-                  hex.classList.add("in-range");
-                  // If hex contains an enemy, also mark it as an attack hex
-                  const hasEnemy = scenario.pieces.some(p => 
-                    p.q === targetQ && p.r === targetR && p.side !== 'player'
-                  );
-                  if (hasEnemy) {
-                    hex.classList.add("attack");
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-      validateTurnCompletion();
-    });
     
     li.appendChild(labelDiv);
-    li.appendChild(select);
-    li.appendChild(hexSelect);
     li.appendChild(infoSection);
-    playerPiecesList.appendChild(li);
+    enemyPiecesList.appendChild(li);
   });
-
-  // Initialize Sortable for drag-and-drop
-  new Sortable(playerPiecesList, {
-    animation: 150,
-    ghostClass: 'sortable-ghost'
-  });
-
-  // Set up complete turn button handler with piece movement
-  const completeTurnBtn = document.getElementById("complete-turn");
-  completeTurnBtn.addEventListener("click", () => {
-    // Only proceed if all moves are valid
-    if (completeTurnBtn.disabled) {
-      return;
-    }
-
-    // Process moves and attacks
-    pieceSelections.forEach((selection, pieceLabel) => {
-      const piece = scenario.pieces.find(p => p.label === pieceLabel);
-      const pieceClass = piecesData.classes[piece.class];
-      const actionData = pieceClass.actions[selection.action];
-      
-      if (!actionData) return;
-
-      switch (actionData.action_type) {
-        case 'move':
-          if (selection.targetHex) {
-            piece.q = selection.targetHex.q;
-            piece.r = selection.targetHex.r;
-            addBattleLog(`${piece.class} (${pieceLabel}) moved to (${selection.targetHex.q}, ${selection.targetHex.r})`);
-          }
-          break;
-
-        case 'single_target_attack':
-          if (selection.targetHex) {
-            const targetIndex = scenario.pieces.findIndex(p => 
-              p.q === selection.targetHex.q && 
-              p.r === selection.targetHex.r && 
-              p.side !== 'player'
-            );
-            
-            if (targetIndex !== -1) {
-              const removedPiece = scenario.pieces[targetIndex];
-              scenario.pieces.splice(targetIndex, 1);
-              addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
-            }
-          }
-          break;
-
-        case 'multi_target_attack':
-          if (selection.targetHexes) {
-            selection.targetHexes.forEach(targetHex => {
-              const targetIndex = scenario.pieces.findIndex(p => 
-                p.q === targetHex.q && 
-                p.r === targetHex.r && 
-                p.side !== 'player'
-              );
-              
-              if (targetIndex !== -1) {
-                const removedPiece = scenario.pieces[targetIndex];
-                scenario.pieces.splice(targetIndex, 1);
-                addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
-              }
-            });
-          }
-          break;
-
-        case 'aoe':
-          if (selection.affectedHexes) {
-            selection.affectedHexes.forEach(targetHex => {
-              const targetIndex = scenario.pieces.findIndex(p => 
-                p.q === targetHex.q && 
-                p.r === targetHex.r && 
-                p.side !== 'player'
-              );
-              
-              if (targetIndex !== -1) {
-                const removedPiece = scenario.pieces[targetIndex];
-                scenario.pieces.splice(targetIndex, 1);
-                addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
-              }
-            });
-          }
-          break;
-      }
-    });
-
-    pieceSelections.clear();
-    drawHexDetailView(currentRegion, currentSection);
-  });
-
-  // Initial validation
-  validateTurnCompletion();
-
-  // Initial update of descriptions
-  updateActionDescriptions();
-  
-  return pieceSelections; // Return this so we can use it in hex click handlers
 }
 
 // Helper function to show movement range
@@ -1447,85 +1169,6 @@ function addBattleLog(message) {
     logEntries.scrollTop = logEntries.scrollHeight;
 }
 
-// Add this new function to setup enemy pieces display
-function setupEnemyPiecesDisplay(scenario) {
-  const enemyPiecesList = document.getElementById("enemy-pieces");
-  enemyPiecesList.innerHTML = ""; // Clear existing
-  
-  // Filter for enemy pieces
-  const enemyPieces = scenario.pieces.filter(p => p.side === "enemy");
-  
-  // Create display for each enemy piece
-  enemyPieces.forEach(piece => {
-    const li = document.createElement("li");
-    li.className = "enemy-piece-item";
-    
-    // Create piece label with color circle
-    const labelDiv = document.createElement("div");
-    labelDiv.className = "piece-label";
-    
-    const colorSpan = document.createElement("span");
-    colorSpan.className = "piece-color";
-    colorSpan.style.backgroundColor = piece.color;
-    
-    const labelSpan = document.createElement("span");
-    labelSpan.textContent = `${piece.class} (${piece.label})`;
-    
-    // Add expand button
-    const expandButton = document.createElement("button");
-    expandButton.className = "piece-info-button";
-    expandButton.textContent = "ℹ️";
-    expandButton.title = "Show piece information";
-    
-    labelDiv.appendChild(colorSpan);
-    labelDiv.appendChild(labelSpan);
-    labelDiv.appendChild(expandButton);
-    
-    // Get piece class data and create info section
-    const pieceClass = piecesData.classes[piece.class];
-    const infoSection = createPieceInfoSection(piece, pieceClass);
-    
-    // Add hover handlers for the entire enemy piece item
-    li.addEventListener("mouseenter", () => {
-      // Show range for the first action by default
-      const firstAction = Object.keys(pieceClass.actions)[0];
-      if (firstAction) {
-        showPieceActionRange(piece, pieceClass, firstAction);
-      }
-    });
-
-    li.addEventListener("mouseleave", () => {
-      // Clear all range indicators
-      document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
-        hex.classList.remove("in-range");
-        hex.classList.remove("attack");
-      });
-    });
-
-    // Add hover handlers for each action in the info section
-    Object.keys(pieceClass.actions).forEach(actionName => {
-      const actionItem = infoSection.querySelector(`[data-action="${actionName}"]`);
-      if (actionItem) {
-        actionItem.addEventListener("mouseenter", (e) => {
-          e.stopPropagation(); // Prevent triggering the li's mouseenter
-          showPieceActionRange(piece, pieceClass, actionName);
-        });
-      }
-    });
-    
-    // Add expand button click handler
-    expandButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      infoSection.classList.toggle("visible");
-      expandButton.textContent = infoSection.classList.contains("visible") ? "🔼" : "ℹ️";
-    });
-    
-    li.appendChild(labelDiv);
-    li.appendChild(infoSection);
-    enemyPiecesList.appendChild(li);
-  });
-}
-
 // Add this new function to show piece range and targets
 function showPieceActionRange(piece, pieceClass, actionName) {
   // Clear any existing highlights first
@@ -1605,4 +1248,265 @@ function showPieceActionRange(piece, pieceClass, actionName) {
       }
     }
   }
+}
+
+// Add back the setupPlayerControls function
+function setupPlayerControls(scenario) {
+  const playerPiecesList = document.getElementById("player-pieces");
+  playerPiecesList.innerHTML = ""; // Clear existing
+  pieceSelections.clear(); // Clear the global map
+
+  // Filter for player pieces
+  const playerPieces = scenario.pieces.filter(p => p.side === "player");
+
+  // Create action selection list
+  playerPieces.forEach(piece => {
+    const li = document.createElement("li");
+    li.className = "piece-item";
+    
+    // Create piece label with color circle
+    const labelDiv = document.createElement("div");
+    labelDiv.className = "piece-label";
+    
+    const colorSpan = document.createElement("span");
+    colorSpan.className = "piece-color";
+    colorSpan.style.backgroundColor = piece.color;
+    
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = `${piece.class} (${piece.label})`;
+    
+    // Add expand button
+    const expandButton = document.createElement("button");
+    expandButton.className = "piece-info-button";
+    expandButton.textContent = "ℹ️";
+    expandButton.title = "Show piece information";
+    
+    labelDiv.appendChild(colorSpan);
+    labelDiv.appendChild(labelSpan);
+    labelDiv.appendChild(expandButton);
+    
+    // Create action select dropdown
+    const select = document.createElement("select");
+    select.className = "action-select";
+    
+    // Add pass option first (default)
+    const passOption = document.createElement("option");
+    passOption.value = "pass";
+    passOption.textContent = "Pass";
+    select.appendChild(passOption);
+    
+    // Get piece class data and add its actions
+    const pieceClass = piecesData.classes[piece.class];
+    if (pieceClass && pieceClass.actions) {
+      Object.entries(pieceClass.actions).forEach(([actionName, actionData]) => {
+        const option = document.createElement("option");
+        option.value = actionName;
+        option.textContent = actionName.charAt(0).toUpperCase() + actionName.slice(1);
+        select.appendChild(option);
+      });
+    }
+
+    // Create hex selection text box
+    const hexSelect = document.createElement("div");
+    hexSelect.className = "hex-select";
+    hexSelect.textContent = "Click to select hex";
+    hexSelect.setAttribute("data-piece-label", piece.label);
+    
+    // Create and add info section
+    const infoSection = createPieceInfoSection(piece, pieceClass);
+    
+    // Add expand button click handler
+    expandButton.addEventListener("click", (e) => {
+      e.stopPropagation(); // Prevent piece item click
+      infoSection.classList.toggle("visible");
+      expandButton.textContent = infoSection.classList.contains("visible") ? "🔼" : "ℹ️";
+    });
+
+    // Initialize piece selection tracking
+    pieceSelections.set(piece.label, {
+      class: piece.class,
+      action: "pass",
+      description: "",
+      targetHex: null
+    });
+
+    // Handle action selection
+    select.addEventListener("change", (e) => {
+      const actionName = e.target.value;
+      const selection = pieceSelections.get(piece.label);
+      
+      if (actionName === "pass") {
+        selection.action = "pass";
+        selection.description = "";
+        selection.targetHex = null;
+        hexSelect.textContent = "Click to select hex";
+        hexSelect.style.display = "none";
+      } else if (actionName && pieceClass.actions[actionName]) {
+        const actionData = pieceClass.actions[actionName];
+        selection.action = actionName;
+        selection.description = actionData.description;
+        selection.targetHex = null; // Reset target when action changes
+        selection.targetHexes = null; // Reset multi-target list
+        selection.affectedHexes = null; // Reset AOE affected hexes
+
+        // Show hex selector for any action that needs target selection
+        const needsTargetSelection = ['move', 'single_target_attack', 'multi_target_attack', 'aoe'].includes(actionData.action_type);
+        hexSelect.style.display = needsTargetSelection ? "block" : "none";
+        hexSelect.textContent = "Click to select hex";
+      }
+      
+      // Clear any existing range indicators
+      document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+        hex.classList.remove("in-range");
+        hex.classList.remove("attack");
+      });
+      
+      updateActionDescriptions();
+      validateTurnCompletion();
+    });
+
+    // Add hex selection click handler
+    hexSelect.addEventListener("click", () => {
+      console.log("Hex selection clicked"); // Debug log
+      
+      // Clear any existing hex selection mode and ranges
+      if (currentHexSelector) {
+        console.log("Clearing previous selection"); // Debug log
+        currentHexSelector.classList.remove("selecting");
+        currentHexSelector.textContent = "Click to select hex";
+        document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+          hex.classList.remove("in-range");
+          hex.classList.remove("attack");
+        });
+      }
+      
+      // Enter hex selection mode
+      isSelectingHex = true;
+      currentHexSelector = hexSelect;
+      hexSelect.classList.add("selecting");
+      hexSelect.textContent = "Selecting...";
+
+      // Find the piece's current position and show range
+      const pieceLabel = hexSelect.getAttribute("data-piece-label");
+      console.log("Selected piece:", pieceLabel); // Debug log
+      
+      const piece = scenario.pieces.find(p => p.label === pieceLabel);
+      const pieceClass = piecesData.classes[piece.class];
+      const selection = pieceSelections.get(pieceLabel);
+      const actionData = pieceClass.actions[selection.action];
+      
+      console.log("Piece data:", { piece, action: selection.action, actionData }); // Debug log
+      
+      if (piece && pieceClass && actionData) {
+        showPieceActionRange(piece, pieceClass, selection.action);
+      }
+      validateTurnCompletion();
+    });
+
+    // Initially hide hex select
+    hexSelect.style.display = "none";
+    
+    li.appendChild(labelDiv);
+    li.appendChild(select);
+    li.appendChild(hexSelect);
+    li.appendChild(infoSection);
+    playerPiecesList.appendChild(li);
+  });
+
+  // Initialize Sortable for drag-and-drop
+  new Sortable(playerPiecesList, {
+    animation: 150,
+    ghostClass: 'sortable-ghost'
+  });
+
+  // Set up complete turn button handler with piece movement
+  const completeTurnBtn = document.getElementById("complete-turn");
+  completeTurnBtn.addEventListener("click", () => {
+    // Only proceed if all moves are valid
+    if (completeTurnBtn.disabled) {
+      return;
+    }
+
+    // Process moves and attacks
+    pieceSelections.forEach((selection, pieceLabel) => {
+      const piece = scenario.pieces.find(p => p.label === pieceLabel);
+      const pieceClass = piecesData.classes[piece.class];
+      const actionData = pieceClass.actions[selection.action];
+      
+      if (!actionData) return;
+
+      switch (actionData.action_type) {
+        case 'move':
+          if (selection.targetHex) {
+            piece.q = selection.targetHex.q;
+            piece.r = selection.targetHex.r;
+            addBattleLog(`${piece.class} (${pieceLabel}) moved to (${selection.targetHex.q}, ${selection.targetHex.r})`);
+          }
+          break;
+
+        case 'single_target_attack':
+          if (selection.targetHex) {
+            const targetIndex = scenario.pieces.findIndex(p => 
+              p.q === selection.targetHex.q && 
+              p.r === selection.targetHex.r && 
+              p.side !== 'player'
+            );
+            
+            if (targetIndex !== -1) {
+              const removedPiece = scenario.pieces[targetIndex];
+              scenario.pieces.splice(targetIndex, 1);
+              addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+            }
+          }
+          break;
+
+        case 'multi_target_attack':
+          if (selection.targetHexes) {
+            selection.targetHexes.forEach(targetHex => {
+              const targetIndex = scenario.pieces.findIndex(p => 
+                p.q === targetHex.q && 
+                p.r === targetHex.r && 
+                p.side !== 'player'
+              );
+              
+              if (targetIndex !== -1) {
+                const removedPiece = scenario.pieces[targetIndex];
+                scenario.pieces.splice(targetIndex, 1);
+                addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+              }
+            });
+          }
+          break;
+
+        case 'aoe':
+          if (selection.affectedHexes) {
+            selection.affectedHexes.forEach(targetHex => {
+              const targetIndex = scenario.pieces.findIndex(p => 
+                p.q === targetHex.q && 
+                p.r === targetHex.r && 
+                p.side !== 'player'
+              );
+              
+              if (targetIndex !== -1) {
+                const removedPiece = scenario.pieces[targetIndex];
+                scenario.pieces.splice(targetIndex, 1);
+                addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+              }
+            });
+          }
+          break;
+      }
+    });
+
+    pieceSelections.clear();
+    drawHexDetailView(currentRegion, currentSection);
+  });
+
+  // Initial validation
+  validateTurnCompletion();
+
+  // Initial update of descriptions
+  updateActionDescriptions();
+  
+  return pieceSelections; // Return this so we can use it in hex click handlers
 }
