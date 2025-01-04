@@ -9,6 +9,8 @@ let pieceSelections = new Map(); // Make this global
 let puzzleScenario = null;
 let battleLog = [];
 let blockedHexes = new Set(); // Add this global variable
+let delayedAttacks = []; // Array to store attacks that are delayed due to cast_speed
+let turnCounter = 0; // Track number of turns completed
 
 const HEX_SIZE = 30; // radius of each hex
 const SQRT3 = Math.sqrt(3);
@@ -1507,99 +1509,233 @@ function setupPlayerControls(scenario) {
       return;
     }
 
-    // Process moves and attacks
+    turnCounter++; // Increment turn counter
+
+    // Process delayed attacks first
+    const remainingAttacks = [];
+    for (const attack of delayedAttacks) {
+        if (turnCounter >= attack.executionTurn) {
+            // Check if attacker has moved
+            const attacker = scenario.pieces.find(p => p.label === attack.attackerLabel);
+            if (attacker.q !== attack.attackerQ || attacker.r !== attack.attackerR) {
+                addBattleLog(`${attacker.class} (${attack.attackerLabel})'s cast is canceled due to movement`);
+                continue;
+            }
+
+            // Handle different attack types
+            if (attack.type === 'single_target_attack' || attack.type === 'multi_target_attack') {
+                // For single/multi target attacks, check if target(s) moved
+                const targets = Array.isArray(attack.targets) ? attack.targets : [attack.targets];
+                let targetMoved = false;
+
+                for (const target of targets) {
+                    const targetPiece = scenario.pieces.find(p => 
+                        p.q === target.originalQ && 
+                        p.r === target.originalR && 
+                        p.side !== 'player'
+                    );
+
+                    if (!targetPiece || targetPiece.q !== target.originalQ || targetPiece.r !== target.originalR) {
+                        addBattleLog(`${attacker.class} (${attack.attackerLabel})'s attack missed - target moved`);
+                        targetMoved = true;
+                        break;
+                    }
+                }
+
+                if (!targetMoved) {
+                    // Execute the attack
+                    for (const target of targets) {
+                        const targetIndex = scenario.pieces.findIndex(p => 
+                            p.q === target.originalQ && 
+                            p.r === target.originalR && 
+                            p.side !== 'player'
+                        );
+                        
+                        if (targetIndex !== -1) {
+                            const removedPiece = scenario.pieces[targetIndex];
+                            scenario.pieces.splice(targetIndex, 1);
+                            addBattleLog(`${attacker.class} (${attack.attackerLabel})'s delayed ${attack.actionName} eliminated ${removedPiece.class} (${removedPiece.label})`);
+                        }
+                    }
+                }
+            } else if (attack.type === 'aoe') {
+                // For AOE, check which pieces are still in the affected area
+                const affectedPieces = [];
+                const radius = attack.radius;
+                
+                for (let q = -radius; q <= radius; q++) {
+                    for (let r = -radius; r <= radius; r++) {
+                        if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * radius) {
+                            const targetQ = attack.centerQ + q;
+                            const targetR = attack.centerR + r;
+                            
+                            const targetPiece = scenario.pieces.find(p => 
+                                p.q === targetQ && 
+                                p.r === targetR && 
+                                p.side !== 'player'
+                            );
+                            
+                            if (targetPiece) {
+                                affectedPieces.push(targetPiece);
+                            }
+                        }
+                    }
+                }
+
+                // Remove affected pieces
+                for (const piece of affectedPieces) {
+                    const index = scenario.pieces.indexOf(piece);
+                    if (index !== -1) {
+                        scenario.pieces.splice(index, 1);
+                        addBattleLog(`${attacker.class} (${attack.attackerLabel})'s delayed ${attack.actionName} eliminated ${piece.class} (${piece.label})`);
+                    }
+                }
+            }
+        } else {
+            remainingAttacks.push(attack);
+        }
+    }
+    delayedAttacks = remainingAttacks;
+
+    // Process current turn moves and attacks
     pieceSelections.forEach((selection, pieceLabel) => {
-      const piece = scenario.pieces.find(p => p.label === pieceLabel);
-      const pieceClass = piecesData.classes[piece.class];
-      const actionData = pieceClass.actions[selection.action];
-      
-      if (!actionData) return;
+        const piece = scenario.pieces.find(p => p.label === pieceLabel);
+        const pieceClass = piecesData.classes[piece.class];
+        const actionData = pieceClass.actions[selection.action];
+        
+        if (!actionData) return;
 
-      switch (actionData.action_type) {
-        case 'move':
-          if (selection.targetHex) {
-            piece.q = selection.targetHex.q;
-            piece.r = selection.targetHex.r;
-            addBattleLog(`${piece.class} (${pieceLabel}) moved to (${selection.targetHex.q}, ${selection.targetHex.r})`);
-          }
-          break;
+        switch (actionData.action_type) {
+            case 'move':
+                if (selection.targetHex) {
+                    piece.q = selection.targetHex.q;
+                    piece.r = selection.targetHex.r;
+                    addBattleLog(`${piece.class} (${pieceLabel}) moved to (${selection.targetHex.q}, ${selection.targetHex.r})`);
+                }
+                break;
 
-        case 'swap_position':
-          if (selection.targetHex) {
-            const targetPiece = scenario.pieces.find(p => 
-              p.q === selection.targetHex.q && 
-              p.r === selection.targetHex.r && 
-              p !== piece
-            );
-            
-            if (targetPiece) {
-              // Store original positions
-              const originalQ = piece.q;
-              const originalR = piece.r;
-              
-              // Swap positions
-              piece.q = targetPiece.q;
-              piece.r = targetPiece.r;
-              targetPiece.q = originalQ;
-              targetPiece.r = originalR;
-              
-              addBattleLog(`${piece.class} (${pieceLabel}) swapped positions with ${targetPiece.class} (${targetPiece.label})`);
-            }
-          }
-          break;
+            case 'swap_position':
+                if (selection.targetHex) {
+                    const targetPiece = scenario.pieces.find(p => 
+                        p.q === selection.targetHex.q && 
+                        p.r === selection.targetHex.r && 
+                        p !== piece
+                    );
+                    
+                    if (targetPiece) {
+                        const originalQ = piece.q;
+                        const originalR = piece.r;
+                        piece.q = targetPiece.q;
+                        piece.r = targetPiece.r;
+                        targetPiece.q = originalQ;
+                        targetPiece.r = originalR;
+                        addBattleLog(`${piece.class} (${pieceLabel}) swapped positions with ${targetPiece.class} (${targetPiece.label})`);
+                    }
+                }
+                break;
 
-        case 'single_target_attack':
-          if (selection.targetHex) {
-            const targetIndex = scenario.pieces.findIndex(p => 
-              p.q === selection.targetHex.q && 
-              p.r === selection.targetHex.r && 
-              p.side !== 'player'
-            );
-            
-            if (targetIndex !== -1) {
-              const removedPiece = scenario.pieces[targetIndex];
-              scenario.pieces.splice(targetIndex, 1);
-              addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
-            }
-          }
-          break;
+            case 'single_target_attack':
+            case 'multi_target_attack':
+            case 'aoe':
+                // Check if this action has a cast_speed
+                if (actionData.cast_speed > 0) {
+                    const executionTurn = turnCounter + actionData.cast_speed;
+                    const attackInfo = {
+                        type: actionData.action_type,
+                        actionName: selection.action,
+                        attackerLabel: pieceLabel,
+                        attackerQ: piece.q,
+                        attackerR: piece.r,
+                        executionTurn: executionTurn
+                    };
 
-        case 'multi_target_attack':
-          if (selection.targetHexes) {
-            selection.targetHexes.forEach(targetHex => {
-              const targetIndex = scenario.pieces.findIndex(p => 
-                p.q === targetHex.q && 
-                p.r === targetHex.r && 
-                p.side !== 'player'
-              );
-              
-              if (targetIndex !== -1) {
-                const removedPiece = scenario.pieces[targetIndex];
-                scenario.pieces.splice(targetIndex, 1);
-                addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
-              }
-            });
-          }
-          break;
+                    if (actionData.action_type === 'single_target_attack') {
+                        const target = scenario.pieces.find(p => 
+                            p.q === selection.targetHex.q && 
+                            p.r === selection.targetHex.r && 
+                            p.side !== 'player'
+                        );
+                        attackInfo.targets = {
+                            originalQ: selection.targetHex.q,
+                            originalR: selection.targetHex.r,
+                            label: target.label
+                        };
+                        addBattleLog(`${piece.class} (${pieceLabel}) begins casting ${selection.action} on ${target.class} (${target.label})`);
+                    } else if (actionData.action_type === 'multi_target_attack') {
+                        attackInfo.targets = selection.targetHexes.map(hex => {
+                            const target = scenario.pieces.find(p => 
+                                p.q === hex.q && 
+                                p.r === hex.r && 
+                                p.side !== 'player'
+                            );
+                            return {
+                                originalQ: hex.q,
+                                originalR: hex.r,
+                                label: target.label
+                            };
+                        });
+                        const targetLabels = attackInfo.targets.map(t => t.label).join(', ');
+                        addBattleLog(`${piece.class} (${pieceLabel}) begins casting ${selection.action} on targets: ${targetLabels}`);
+                    } else if (actionData.action_type === 'aoe') {
+                        attackInfo.centerQ = selection.targetHex.q;
+                        attackInfo.centerR = selection.targetHex.r;
+                        attackInfo.radius = actionData.radius;
+                        addBattleLog(`${piece.class} (${pieceLabel}) begins casting ${selection.action} centered at (${selection.targetHex.q}, ${selection.targetHex.r})`);
+                    }
 
-        case 'aoe':
-          if (selection.affectedHexes) {
-            selection.affectedHexes.forEach(targetHex => {
-              const targetIndex = scenario.pieces.findIndex(p => 
-                p.q === targetHex.q && 
-                p.r === targetHex.r && 
-                p.side !== 'player'
-              );
-              
-              if (targetIndex !== -1) {
-                const removedPiece = scenario.pieces[targetIndex];
-                scenario.pieces.splice(targetIndex, 1);
-                addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
-              }
-            });
-          }
-          break;
-      }
+                    delayedAttacks.push(attackInfo);
+                } else {
+                    // Handle immediate attacks as before
+                    if (actionData.action_type === 'single_target_attack') {
+                        if (selection.targetHex) {
+                            const targetIndex = scenario.pieces.findIndex(p => 
+                                p.q === selection.targetHex.q && 
+                                p.r === selection.targetHex.r && 
+                                p.side !== 'player'
+                            );
+                            
+                            if (targetIndex !== -1) {
+                                const removedPiece = scenario.pieces[targetIndex];
+                                scenario.pieces.splice(targetIndex, 1);
+                                addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+                            }
+                        }
+                    } else if (actionData.action_type === 'multi_target_attack') {
+                        if (selection.targetHexes) {
+                            selection.targetHexes.forEach(targetHex => {
+                                const targetIndex = scenario.pieces.findIndex(p => 
+                                    p.q === targetHex.q && 
+                                    p.r === targetHex.r && 
+                                    p.side !== 'player'
+                                );
+                                
+                                if (targetIndex !== -1) {
+                                    const removedPiece = scenario.pieces[targetIndex];
+                                    scenario.pieces.splice(targetIndex, 1);
+                                    addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+                                }
+                            });
+                        }
+                    } else if (actionData.action_type === 'aoe') {
+                        if (selection.affectedHexes) {
+                            selection.affectedHexes.forEach(targetHex => {
+                                const targetIndex = scenario.pieces.findIndex(p => 
+                                    p.q === targetHex.q && 
+                                    p.r === targetHex.r && 
+                                    p.side !== 'player'
+                                );
+                                
+                                if (targetIndex !== -1) {
+                                    const removedPiece = scenario.pieces[targetIndex];
+                                    scenario.pieces.splice(targetIndex, 1);
+                                    addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+                                }
+                            });
+                        }
+                    }
+                }
+                break;
+        }
     });
 
     pieceSelections.clear();

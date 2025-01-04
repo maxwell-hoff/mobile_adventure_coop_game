@@ -86,11 +86,12 @@ classes:
         action_type: "move"
         range: 1
         description: "Move up to 1 hex in any direction"
-      life_drain:
+      necrotizing_consecrate:
         action_type: "aoe"
         range: 100
         attack_type: "magic"
         radius: 100
+        cast_speed: 3
         description: "Drain life from all enemies on grid"
 
   Hunter:
