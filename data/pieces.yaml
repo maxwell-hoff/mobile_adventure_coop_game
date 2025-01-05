@@ -5,12 +5,14 @@ classes:
       move:
         action_type: "move"
         range: 1
+        requires_los: True
         description: "Move 1 hex in any direction"
       dark_bolt:
         action_type: "single_target_attack"
         range: 2
         attack_type: "magic"
         max_num_targets: 1
+        requires_los: True
         description: "Cast a dark bolt at an enemy within 3 hexes"
       # dark_bolt:
       #   action_type: "multi_target_attack"
@@ -38,12 +40,14 @@ classes:
       move:
         action_type: "move"
         range: 1
+        requires_los: True
         description: "Move up to 2 hexes in any direction"
       elemental_blast:
         action_type: "single_target_attack"
         range: 3
         attack_type: "magic"
         max_num_targets: 1
+        requires_los: True
         description: "Launch an elemental blast at an enemy within 4 hexes"
       temporal_rift:
         action_type: "swap_position"
@@ -59,6 +63,7 @@ classes:
       move:
         action_type: "move"
         range: 1
+        requires_los: True
         description: "Move up to 1 hex in any direction"
       # holy_smite:
       #   action_type: "attack"
@@ -71,12 +76,14 @@ classes:
       move:
         action_type: "move"
         range: 1
+        requires_los: True
         description: "Move up to 1 hex in any direction"
       sweep:
         action_type: "aoe"
         range: 0
         attack_type: "physical"
         radius: 1
+        requires_los: True
         description: "Strike all adjacent enemies"
 
   BloodWarden:
@@ -85,6 +92,7 @@ classes:
       move:
         action_type: "move"
         range: 1
+        requires_los: True
         description: "Move up to 1 hex in any direction"
       necrotizing_consecrate:
         action_type: "aoe"
@@ -92,6 +100,7 @@ classes:
         attack_type: "magic"
         radius: 100
         cast_speed: 3
+        requires_los: False
         description: "Drain life from all enemies on grid"
 
   Hunter:
@@ -100,10 +109,12 @@ classes:
       move:
         action_type: "move"
         range: 1
+        requires_los: True
         description: "Move up to 3 hexes in any direction"
       precise_shot:
         action_type: "multi_target_attack"
         range: 2
         attack_type: "physical"
         max_num_targets: 2
+        requires_los: True
         description: "Fire an arrow at an enemy within 3 hexes" 

@@ -798,6 +798,24 @@ function validateTurnCompletion() {
         
         if (!actionData) return;
         
+        // Check line of sight if required
+        if (actionData.requires_los) {
+          if (selection.targetHex && !hasLineOfSight(piece.q, piece.r, selection.targetHex.q, selection.targetHex.r)) {
+            console.log(`${pieceLabel}'s ${selection.action} has no line of sight to target`);
+            isValid = false;
+            return;
+          }
+          if (selection.targetHexes) {
+            for (const target of selection.targetHexes) {
+              if (!hasLineOfSight(piece.q, piece.r, target.q, target.r)) {
+                console.log(`${pieceLabel}'s ${selection.action} has no line of sight to one of its targets`);
+                isValid = false;
+                return;
+              }
+            }
+          }
+        }
+
         switch (actionData.action_type) {
             case 'move':
                 if (!selection.targetHex) {
@@ -1241,7 +1259,7 @@ function addBattleLog(message) {
 
 // Add this new function to show piece range and targets
 function showPieceActionRange(piece, pieceClass, actionName) {
-  // Clear any existing highlights first
+  // Clear existing highlights
   document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
     hex.classList.remove("in-range");
     hex.classList.remove("attack");
@@ -1251,7 +1269,7 @@ function showPieceActionRange(piece, pieceClass, actionName) {
   if (!actionData || !actionData.range) return;
 
   const range = actionData.range;
-  console.log("Showing range for", piece.class, "action:", actionName, "range:", range);
+  const requiresLOS = actionData.requires_los; // Change to check action's requires_los instead of piece's
 
   // For each hex within range
   for (let q = -range; q <= range; q++) {
@@ -1264,8 +1282,13 @@ function showPieceActionRange(piece, pieceClass, actionName) {
         const targetKey = `${targetQ},${targetR}`;
         if (blockedHexes.has(targetKey)) continue;
 
+        // Check line of sight if required
+        if (requiresLOS && !hasLineOfSight(piece.q, piece.r, targetQ, targetR)) {
+          continue; // Skip this hex if no line of sight
+        }
+
+        // Rest of the action type logic remains the same...
         if (actionData.action_type === 'move') {
-          // Don't highlight if occupied
           const isOccupied = puzzleScenario.pieces.some(p => 
             p.q === targetQ && p.r === targetR
           );
@@ -1300,8 +1323,6 @@ function showPieceActionRange(piece, pieceClass, actionName) {
         } else if (actionData.action_type === 'single_target_attack' || 
                    actionData.action_type === 'multi_target_attack' || 
                    actionData.action_type === 'dark_bolt') {
-          // For player pieces, highlight enemy pieces as targets
-          // For enemy pieces, highlight player pieces as targets
           const hasValidTarget = puzzleScenario.pieces.some(p => 
             p.q === targetQ && p.r === targetR && p.side !== piece.side
           );
@@ -1317,8 +1338,6 @@ function showPieceActionRange(piece, pieceClass, actionName) {
           const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
           if (hex) {
             hex.classList.add("in-range");
-            // For player pieces, highlight hexes with enemy pieces
-            // For enemy pieces, highlight hexes with player pieces
             const hasValidTarget = puzzleScenario.pieces.some(p => 
               p.q === targetQ && p.r === targetR && p.side !== piece.side
             );
@@ -1749,4 +1768,61 @@ function setupPlayerControls(scenario) {
   updateActionDescriptions();
   
   return pieceSelections; // Return this so we can use it in hex click handlers
+}
+
+// Add this new function to check line of sight between two hexes
+function hasLineOfSight(startQ, startR, endQ, endR) {
+  // If same hex, always has LOS
+  if (startQ === endQ && startR === endR) return true;
+  
+  // Get the list of hexes that form the line between start and end
+  const hexLine = getHexesInLine(startQ, startR, endQ, endR);
+  
+  // Check each hex in the line (excluding start and end points)
+  for (let i = 1; i < hexLine.length - 1; i++) {
+    const hex = hexLine[i];
+    
+    // Check if hex is blocked
+    const hexKey = `${hex.q},${hex.r}`;
+    if (blockedHexes.has(hexKey)) {
+      return false;
+    }
+    
+    // Check if there's a piece here
+    const pieceInWay = puzzleScenario.pieces.some(p => 
+      p.q === hex.q && p.r === hex.r
+    );
+    if (pieceInWay) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Add this new function to get hexes in a line
+function getHexesInLine(startQ, startR, endQ, endR) {
+  const hexes = [];
+  const N = Math.max(
+    Math.abs(endQ - startQ),
+    Math.abs(endR - startR),
+    Math.abs((startQ + startR) - (endQ + endR))
+  );
+  
+  // If N is 0, return just the start point
+  if (N === 0) {
+    return [{q: startQ, r: startR}];
+  }
+  
+  // Get all hexes along the line
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const q = Math.round(startQ + (endQ - startQ) * t);
+    const r = Math.round(startR + (endR - startR) * t);
+    // Calculate the third coordinate to ensure we stay on valid hex grid
+    const s = -q - r;
+    
+    hexes.push({q, r});
+  }
+  
+  return hexes;
 }
