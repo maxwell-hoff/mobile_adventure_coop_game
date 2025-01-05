@@ -1351,6 +1351,84 @@ function showPieceActionRange(piece, pieceClass, actionName) {
   }
 }
 
+// Update hasLineOfSight function to use hex-based line of sight
+function hasLineOfSight(startQ, startR, endQ, endR) {
+  // If same hex, always has LOS
+  if (startQ === endQ && startR === endR) return true;
+
+  // Get the list of hexes that form the line between start and end
+  const hexLine = getHexesInLine(startQ, startR, endQ, endR);
+  
+  // Check each hex in the line (excluding start and end points)
+  for (let i = 1; i < hexLine.length - 1; i++) {
+    const hex = hexLine[i];
+    
+    // Check if hex is blocked
+    const hexKey = `${hex.q},${hex.r}`;
+    if (blockedHexes.has(hexKey)) {
+      return false;
+    }
+    
+    // Check if there's a piece here
+    const pieceInWay = puzzleScenario.pieces.some(p => 
+      p.q === hex.q && p.r === hex.r
+    );
+    if (pieceInWay) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Add this function to get hexes in a line using cube coordinates
+function getHexesInLine(startQ, startR, endQ, endR) {
+  const N = Math.max(
+    Math.abs(endQ - startQ),
+    Math.abs(endR - startR),
+    Math.abs((startQ + startR) - (endQ + endR))
+  );
+
+  const hexes = [];
+  
+  // If N is 0, return just the start point
+  if (N === 0) {
+    return [{q: startQ, r: startR}];
+  }
+  
+  // Use cube coordinates for linear interpolation
+  const startS = -startQ - startR;
+  const endS = -endQ - endR;
+  
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    // Interpolate in cube coordinates
+    const q = Math.round(startQ + (endQ - startQ) * t);
+    const r = Math.round(startR + (endR - startR) * t);
+    const s = Math.round(startS + (endS - startS) * t);
+    
+    // Ensure we maintain q + r + s = 0
+    const sum = q + r + s;
+    if (sum !== 0) {
+      // Fix any rounding errors by adjusting the coordinate with the largest change
+      const dq = Math.abs(q - startQ);
+      const dr = Math.abs(r - startR);
+      const ds = Math.abs(s - startS);
+      
+      if (dq > dr && dq > ds) {
+        hexes.push({q: -r-s, r: r});
+      } else if (dr > ds) {
+        hexes.push({q: q, r: -q-s});
+      } else {
+        hexes.push({q: q, r: r});
+      }
+    } else {
+      hexes.push({q: q, r: r});
+    }
+  }
+  
+  return hexes;
+}
+
 // Add back the setupPlayerControls function
 function setupPlayerControls(scenario) {
   const playerPiecesList = document.getElementById("player-pieces");
@@ -1768,61 +1846,4 @@ function setupPlayerControls(scenario) {
   updateActionDescriptions();
   
   return pieceSelections; // Return this so we can use it in hex click handlers
-}
-
-// Add this new function to check line of sight between two hexes
-function hasLineOfSight(startQ, startR, endQ, endR) {
-  // If same hex, always has LOS
-  if (startQ === endQ && startR === endR) return true;
-  
-  // Get the list of hexes that form the line between start and end
-  const hexLine = getHexesInLine(startQ, startR, endQ, endR);
-  
-  // Check each hex in the line (excluding start and end points)
-  for (let i = 1; i < hexLine.length - 1; i++) {
-    const hex = hexLine[i];
-    
-    // Check if hex is blocked
-    const hexKey = `${hex.q},${hex.r}`;
-    if (blockedHexes.has(hexKey)) {
-      return false;
-    }
-    
-    // Check if there's a piece here
-    const pieceInWay = puzzleScenario.pieces.some(p => 
-      p.q === hex.q && p.r === hex.r
-    );
-    if (pieceInWay) {
-      return false;
-    }
-  }
-  return true;
-}
-
-// Add this new function to get hexes in a line
-function getHexesInLine(startQ, startR, endQ, endR) {
-  const hexes = [];
-  const N = Math.max(
-    Math.abs(endQ - startQ),
-    Math.abs(endR - startR),
-    Math.abs((startQ + startR) - (endQ + endR))
-  );
-  
-  // If N is 0, return just the start point
-  if (N === 0) {
-    return [{q: startQ, r: startR}];
-  }
-  
-  // Get all hexes along the line
-  for (let i = 0; i <= N; i++) {
-    const t = i / N;
-    const q = Math.round(startQ + (endQ - startQ) * t);
-    const r = Math.round(startR + (endR - startR) * t);
-    // Calculate the third coordinate to ensure we stay on valid hex grid
-    const s = -q - r;
-    
-    hexes.push({q, r});
-  }
-  
-  return hexes;
 }
