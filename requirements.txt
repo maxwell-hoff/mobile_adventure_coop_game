@@ -5,3 +5,4 @@ pygame
 matplotlib 
 numpy 
 gym
+shimmy>=0.2.1

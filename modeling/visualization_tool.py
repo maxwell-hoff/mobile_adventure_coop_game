@@ -1,6 +1,7 @@
 import pygame
 import matplotlib.pyplot as plt
 import numpy as np
+from rl_training import model
 
 # Hex settings
 HEX_RADIUS = 30

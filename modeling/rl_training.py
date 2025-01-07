@@ -1,7 +1,7 @@
 import gym
 import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.envs import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv
 import matplotlib.pyplot as plt
 import yaml
 import os
@@ -22,23 +22,39 @@ class HexPuzzleEnv(gym.Env):
         self.puzzle_scenario = puzzle_scenario
         self.grid_radius = puzzle_scenario["subGridRadius"]
 
-        # Observations: positions of player/enemy pieces (q, r coordinates)
-        num_positions = (2 * self.grid_radius + 1) ** 2
+        # Count player and enemy pieces separately
+        self.player_pieces = [p for p in puzzle_scenario["pieces"] if p["side"] == "player"]
+        self.enemy_pieces = [p for p in puzzle_scenario["pieces"] if p["side"] == "enemy"]
+        
+        # Create observation space with correct shapes
         self.observation_space = gym.spaces.Dict({
-            "player_positions": gym.spaces.Box(low=-3, high=3, shape=(len(puzzle_scenario["pieces"]), 2), dtype=np.int32),
-            "enemy_positions": gym.spaces.Box(low=-3, high=3, shape=(len(puzzle_scenario["pieces"]), 2), dtype=np.int32),
+            "player_positions": gym.spaces.Box(
+                low=-3, 
+                high=3, 
+                shape=(len(self.player_pieces), 2), 
+                dtype=np.int32
+            ),
+            "enemy_positions": gym.spaces.Box(
+                low=-3, 
+                high=3, 
+                shape=(len(self.enemy_pieces), 2), 
+                dtype=np.int32
+            ),
         })
 
         # Actions: select a hex coordinate (q, r) for each move
+        num_positions = (2 * self.grid_radius + 1) ** 2
         self.action_space = gym.spaces.MultiDiscrete([num_positions, num_positions])
 
-        # Reset the state
-        self.reset()
-
     def reset(self):
+        # Convert positions to numpy arrays with correct shapes
         self.state = {
-            "player_positions": [(piece["q"], piece["r"]) for piece in self.puzzle_scenario["pieces"] if piece["side"] == "player"],
-            "enemy_positions": [(piece["q"], piece["r"]) for piece in self.puzzle_scenario["pieces"] if piece["side"] == "enemy"],
+            "player_positions": np.array([
+                [piece["q"], piece["r"]] for piece in self.player_pieces
+            ], dtype=np.int32),
+            "enemy_positions": np.array([
+                [piece["q"], piece["r"]] for piece in self.enemy_pieces
+            ], dtype=np.int32)
         }
         return self.state
 
@@ -55,7 +71,10 @@ class HexPuzzleEnv(gym.Env):
         else:
             reward = -1  # Penalty for non-optimal move
 
-        self.state["player_positions"][0] = (q, r)
+        # Update only the first player piece position
+        if len(self.state["player_positions"]) > 0:
+            self.state["player_positions"][0] = np.array([q, r], dtype=np.int32)
+            
         return self.state, reward, done, {}
 
     def render(self):
@@ -74,7 +93,7 @@ scenario = world_data["regions"][0]["puzzleScenarios"][0]
 env = DummyVecEnv([lambda: HexPuzzleEnv(scenario)])
 
 # Create PPO Model
-model = PPO("MlpPolicy", env, verbose=1)
+model = PPO("MultiInputPolicy", env, verbose=1)
 
 # Training loop
 print("Training PPO RL model...")
