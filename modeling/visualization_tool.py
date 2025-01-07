@@ -1,112 +1,86 @@
 import pygame
 import numpy as np
+import yaml
 from rl_training import model, scenario
 
 # Hex settings
 HEX_RADIUS = 30
-GRID_CENTER = (400, 300)  # Center of display
-
+GRID_CENTER = (400, 300)
+COLOR_HEX = (200, 200, 200)
+COLOR_BLOCKED_HEX = (0, 0, 0)  # Blocked hexes shown in black
 COLOR_PLAYER = (85, 107, 47)
 COLOR_ENEMY = (220, 20, 60)
-COLOR_HEX = (200, 200, 200)
 
-# Load saved actions log
-actions_log = np.load("actions_log.npy", allow_pickle=True)
+# Load YAML world data
+with open("data/world.yaml", "r") as f:
+    world_data = yaml.safe_load(f)
 
-# Organize actions log by iterations (episodes)
-iterations = []
-current_iteration = []
+scenario = world_data["regions"][0]["puzzleScenarios"][0]
+blocked_hexes = {(h["q"], h["r"]) for h in scenario["blockedHexes"]}
 
-for entry in actions_log:
-    current_iteration.append(entry)
-    if entry["reward"] == 10:  # End of episode (successful checkmate)
-        iterations.append(current_iteration)
-        current_iteration = []
-
-if current_iteration:
-    iterations.append(current_iteration)  # Add last episode if incomplete
-
-
+# Convert axial coordinates to pixel coordinates
 def hex_to_pixel(q, r):
-    """ Convert axial hex coordinates to pixel coordinates. """
     x = HEX_RADIUS * (3 / 2) * q
     y = HEX_RADIUS * np.sqrt(3) * (r + q / 2)
     return GRID_CENTER[0] + x, GRID_CENTER[1] + y
 
+# Draw hex grid
+def draw_hex_grid(screen, subgrid_radius):
+    for q in range(-subgrid_radius, subgrid_radius + 1):
+        for r in range(-subgrid_radius, subgrid_radius + 1):
+            if abs(q + r) <= subgrid_radius:
+                x, y = hex_to_pixel(q, r)
+                color = COLOR_BLOCKED_HEX if (q, r) in blocked_hexes else COLOR_HEX
+                pygame.draw.polygon(screen, color, hex_corners(x, y), 0)
+                pygame.draw.polygon(screen, (0, 0, 0), hex_corners(x, y), 2)
 
-def draw_hex_grid(screen, pieces, action_step=None):
-    """ Draw the hex grid and pieces. """
-    screen.fill((255, 255, 255))  # White background
+# Get hex corners for polygon drawing
+def hex_corners(x, y):
+    corners = []
+    for i in range(6):
+        angle_rad = np.pi / 180 * (60 * i + 30)
+        corner_x = x + HEX_RADIUS * np.cos(angle_rad)
+        corner_y = y + HEX_RADIUS * np.sin(angle_rad)
+        corners.append((corner_x, corner_y))
+    return corners
 
+# Draw pieces on the hex map
+def draw_pieces(screen, pieces):
     for piece in pieces:
         q, r = piece["q"], piece["r"]
         x, y = hex_to_pixel(q, r)
         color = COLOR_PLAYER if piece["side"] == "player" else COLOR_ENEMY
-        pygame.draw.circle(screen, COLOR_HEX, (x, y), HEX_RADIUS, 1)
         pygame.draw.circle(screen, color, (x, y), HEX_RADIUS // 2)
+        label_font = pygame.font.SysFont("Arial", 16)
+        label = label_font.render(piece["label"], True, (255, 255, 255))
+        screen.blit(label, (x - label.get_width() // 2, y - label.get_height() // 2))
 
-    if action_step:
-        q, r = action_step["player_move"]
-        x, y = hex_to_pixel(q, r)
-        pygame.draw.circle(screen, (255, 0, 0), (x, y), HEX_RADIUS // 2)  # Highlighted move
-
-
-def visualize_training(iterations):
+def render_scenario():
     pygame.init()
     screen = pygame.display.set_mode((800, 600))
-    pygame.display.set_caption("Step-by-Step Visualization")
+    pygame.display.set_caption("Hex Puzzle Scenario")
     clock = pygame.time.Clock()
 
-    iteration_index = 0  # Start with the first iteration (episode)
-    step_index = 0  # Start with the first step in the iteration
     running = True
-    paused = True
-
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RIGHT:
-                    step_index = min(step_index + 1, len(iterations[iteration_index]) - 1)
-                if event.key == pygame.K_LEFT:
-                    step_index = max(0, step_index - 1)
-                if event.key == pygame.K_UP:
-                    iteration_index = min(iteration_index + 1, len(iterations) - 1)
-                    step_index = 0  # Reset step index for new iteration
-                if event.key == pygame.K_DOWN:
-                    iteration_index = max(0, iteration_index - 1)
-                    step_index = 0  # Reset step index for previous iteration
-                if event.key == pygame.K_SPACE:
-                    paused = not paused
-                if event.key == pygame.K_ESCAPE:
-                    running = False
 
-        if not paused:
-            step_index = (step_index + 1) % len(iterations[iteration_index])
-            pygame.time.wait(300)  # Delay for auto-play (300 ms per step)
-
-        current_iteration = iterations[iteration_index]
-        current_step = current_iteration[step_index]
-
-        # Draw current iteration and step
-        draw_hex_grid(screen, scenario["pieces"], current_step)
-        display_iteration_step_info(screen, iteration_index, step_index, len(current_iteration))
+        screen.fill((255, 255, 255))
+        draw_hex_grid(screen, scenario["subGridRadius"])
+        draw_pieces(screen, scenario["pieces"])
         pygame.display.flip()
-        clock.tick(30)
+        clock.tick(60)
 
     pygame.quit()
 
+def log_pieces(pieces):
+    for piece in pieces:
+        pos = f"({piece['q']}, {piece['r']})"
+        print(f"{piece['class']} ({piece['label']}) at {pos} - Side: {piece['side']}")
 
-def display_iteration_step_info(screen, iteration_idx, step_idx, total_steps):
-    """ Display iteration and step information on the screen. """
-    font = pygame.font.SysFont(None, 24)
-    iteration_text = f"Iteration: {iteration_idx + 1}/{len(iterations)}"
-    step_text = f"Step: {step_idx + 1}/{total_steps}"
-    iteration_surface = font.render(iteration_text, True, (0, 0, 0))
-    step_surface = font.render(step_text, True, (0, 0, 0))
-    screen.blit(iteration_surface, (10, 10))
-    screen.blit(step_surface, (10, 40))
+log_pieces(scenario["pieces"])
 
 
-visualize_training(iterations)
+render_scenario()

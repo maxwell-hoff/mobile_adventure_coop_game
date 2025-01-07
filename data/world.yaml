@@ -75,8 +75,8 @@ regions:
               side: "player",  q: 1,  r: 2 }
           - { class: "Priest",   label: "P", color: "#556b2f",
               side: "player",  q: -1,  r: 1 }
-          - { class: "BloodWarden", label: "BW", color: "#dc143c",
-              side: "player",   q: 0, r: 3 }
+          # - { class: "BloodWarden", label: "BW", color: "#dc143c",
+          #     side: "player",   q: 0, r: 3 }
           - { class: "Guardian", label: "G", color: "#dc143c",
               side: "enemy",   q: 1,  r: -3 }
           - { class: "Guardian", label: "G", color: "#dc143c",
