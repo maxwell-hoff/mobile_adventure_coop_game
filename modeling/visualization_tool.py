@@ -1,83 +1,72 @@
 import pygame
-import matplotlib.pyplot as plt
 import numpy as np
-from rl_training import model
+from rl_training import model, scenario
 
 # Hex settings
 HEX_RADIUS = 30
 GRID_CENTER = (400, 300)  # Center of display
 
-# Color settings
-COLOR_PLAYER = (85, 107, 47)  # Dark green
-COLOR_ENEMY = (220, 20, 60)  # Crimson
+COLOR_PLAYER = (85, 107, 47)
+COLOR_ENEMY = (220, 20, 60)
 COLOR_HEX = (200, 200, 200)
 
+# Load saved actions log
+actions_log = np.load("actions_log.npy", allow_pickle=True)
 
+# Hex grid utilities
 def hex_to_pixel(q, r):
-    """ Convert axial hex coordinates to pixel coordinates. """
-    x = HEX_RADIUS * (3/2) * q
+    x = HEX_RADIUS * (3 / 2) * q
     y = HEX_RADIUS * np.sqrt(3) * (r + q / 2)
     return GRID_CENTER[0] + x, GRID_CENTER[1] + y
 
+def draw_hex_grid(screen, pieces, action_step=None):
+    screen.fill((255, 255, 255))  # White background
 
-def draw_hex_grid(screen, pieces):
-    """ Draw the hex grid and pieces. """
     for piece in pieces:
         q, r = piece["q"], piece["r"]
         x, y = hex_to_pixel(q, r)
-
-        # Draw hex outline
-        pygame.draw.circle(screen, COLOR_HEX, (x, y), HEX_RADIUS, 1)
-
-        # Draw player/enemy pieces
         color = COLOR_PLAYER if piece["side"] == "player" else COLOR_ENEMY
+        pygame.draw.circle(screen, COLOR_HEX, (x, y), HEX_RADIUS, 1)
         pygame.draw.circle(screen, color, (x, y), HEX_RADIUS // 2)
 
+    if action_step:
+        q, r = action_step["player_move"]
+        x, y = hex_to_pixel(q, r)
+        pygame.draw.circle(screen, (255, 0, 0), (x, y), HEX_RADIUS // 2)  # Highlighted move
 
-def visualize_training(model):
+
+def visualize_training(actions_log):
     pygame.init()
     screen = pygame.display.set_mode((800, 600))
-    pygame.display.set_caption("Training Visualization")
+    pygame.display.set_caption("Step-by-Step Visualization")
     clock = pygame.time.Clock()
 
+    step_index = 0
     running = True
+    paused = True
+
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RIGHT:
+                    step_index = min(step_index + 1, len(actions_log) - 1)
+                if event.key == pygame.K_LEFT:
+                    step_index = max(0, step_index - 1)
+                if event.key == pygame.K_SPACE:
+                    paused = not paused
 
-        screen.fill((255, 255, 255))  # White background
-        draw_hex_grid(screen, scenario["pieces"])
+        if not paused:
+            step_index = (step_index + 1) % len(actions_log)
+            pygame.time.wait(500)  # Delay for auto-play
 
+        # Draw grid and pieces at current step
+        draw_hex_grid(screen, scenario["pieces"], actions_log[step_index])
         pygame.display.flip()
-        clock.tick(60)
+        clock.tick(30)
 
     pygame.quit()
 
 
-def plot_training_logs(rewards, losses):
-    """ Plot training rewards and losses. """
-    plt.figure(figsize=(10, 5))
-    plt.subplot(1, 2, 1)
-    plt.plot(rewards, label='Reward')
-    plt.title("Reward Over Time")
-    plt.xlabel("Episodes")
-    plt.ylabel("Reward")
-    plt.legend()
-
-    plt.subplot(1, 2, 2)
-    plt.plot(losses, label='Loss', color='red')
-    plt.title("Loss Over Time")
-    plt.xlabel("Episodes")
-    plt.ylabel("Loss")
-    plt.legend()
-
-    plt.show()
-
-
-# Example log data for visualization
-rewards_log = np.random.randn(200).cumsum()
-losses_log = np.abs(np.random.randn(200))
-
-plot_training_logs(rewards_log, losses_log)
-visualize_training(model)
+visualize_training(actions_log)
