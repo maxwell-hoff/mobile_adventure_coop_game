@@ -102,7 +102,11 @@ def handle_navigation(event, prev_rect, next_rect):
 
 # Render scenario with navigation
 def render_scenario():
-    global current_step, current_iteration
+    global current_step, current_iteration, all_iterations
+
+    # Load actions log from the model output
+    actions_log = np.load("actions_log.npy", allow_pickle=True)
+    all_iterations = [actions_log]  # Wrap logs in a list so we can iterate
 
     pygame.init()
     screen = pygame.display.set_mode((800, 600))
@@ -117,9 +121,13 @@ def render_scenario():
 
         screen.fill((255, 255, 255))
         draw_hex_grid(screen, scenario["subGridRadius"])
-        draw_pieces(screen, scenario["pieces"])
+        
+        # Draw the state at the current step
+        if all_iterations and len(all_iterations[current_iteration]) > current_step:
+            step_data = all_iterations[current_iteration][current_step]
+            draw_pieces(screen, scenario["pieces"])  # Draw initial pieces
+            print(f"Turn: {step_data['turn']}, Move: {step_data['move']}, Reward: {step_data['reward']}")
 
-        # Draw buttons and handle navigation
         prev_rect, next_rect = draw_buttons(screen)
         handle_navigation(event, prev_rect, next_rect)
 
@@ -127,5 +135,6 @@ def render_scenario():
         clock.tick(60)
 
     pygame.quit()
+
 
 render_scenario()
