@@ -18,6 +18,11 @@ with open("data/world.yaml", "r") as f:
 scenario = world_data["regions"][0]["puzzleScenarios"][0]
 blocked_hexes = {(h["q"], h["r"]) for h in scenario["blockedHexes"]}
 
+# Step and iteration tracking
+current_step = 0
+current_iteration = 0
+all_iterations = []  # This will store steps for each iteration
+
 # Convert axial coordinates to pixel coordinates
 def hex_to_pixel(q, r):
     x = HEX_RADIUS * (3 / 2) * q
@@ -55,10 +60,53 @@ def draw_pieces(screen, pieces):
         label = label_font.render(piece["label"], True, (255, 255, 255))
         screen.blit(label, (x - label.get_width() // 2, y - label.get_height() // 2))
 
+# Draw navigation buttons
+def draw_buttons(screen):
+    button_font = pygame.font.SysFont("Arial", 20)
+
+    # Previous Step Button
+    prev_rect = pygame.Rect(50, 550, 100, 40)
+    pygame.draw.rect(screen, (200, 200, 200), prev_rect)
+    prev_label = button_font.render("← Prev Step", True, (0, 0, 0))
+    screen.blit(prev_label, (prev_rect.x + 10, prev_rect.y + 5))
+
+    # Next Step Button
+    next_rect = pygame.Rect(650, 550, 100, 40)
+    pygame.draw.rect(screen, (200, 200, 200), next_rect)
+    next_label = button_font.render("Next Step →", True, (0, 0, 0))
+    screen.blit(next_label, (next_rect.x + 10, next_rect.y + 5))
+
+    # Iteration Display
+    iteration_label = button_font.render(f"Iteration: {current_iteration + 1}", True, (0, 0, 0))
+    screen.blit(iteration_label, (350, 10))
+
+    return prev_rect, next_rect
+
+# Handle navigation
+def handle_navigation(event, prev_rect, next_rect):
+    global current_step, current_iteration
+
+    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        if prev_rect.collidepoint(event.pos):
+            current_step = max(0, current_step - 1)
+        elif next_rect.collidepoint(event.pos):
+            current_step = min(len(all_iterations[current_iteration]) - 1, current_step + 1)
+
+    if event.type == pygame.KEYDOWN:
+        if event.key == pygame.K_LEFT:
+            current_step = max(0, current_step - 1)
+        elif event.key == pygame.K_RIGHT:
+            current_step = min(len(all_iterations[current_iteration]) - 1, current_step + 1)
+        elif event.key == pygame.K_r:
+            current_step = 0  # Reset to the start of the iteration
+
+# Render scenario with navigation
 def render_scenario():
+    global current_step, current_iteration
+
     pygame.init()
     screen = pygame.display.set_mode((800, 600))
-    pygame.display.set_caption("Hex Puzzle Scenario")
+    pygame.display.set_caption("Hex Puzzle Scenario Navigation")
     clock = pygame.time.Clock()
 
     running = True
@@ -70,17 +118,14 @@ def render_scenario():
         screen.fill((255, 255, 255))
         draw_hex_grid(screen, scenario["subGridRadius"])
         draw_pieces(screen, scenario["pieces"])
+
+        # Draw buttons and handle navigation
+        prev_rect, next_rect = draw_buttons(screen)
+        handle_navigation(event, prev_rect, next_rect)
+
         pygame.display.flip()
         clock.tick(60)
 
     pygame.quit()
-
-def log_pieces(pieces):
-    for piece in pieces:
-        pos = f"({piece['q']}, {piece['r']})"
-        print(f"{piece['class']} ({piece['label']}) at {pos} - Side: {piece['side']}")
-
-log_pieces(scenario["pieces"])
-
 
 render_scenario()
