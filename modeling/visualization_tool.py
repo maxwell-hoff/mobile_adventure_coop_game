@@ -158,22 +158,62 @@ def handle_navigation(event,
 
 def update_piece_positions(step_data):
     """
-    Overwrite scenario['pieces'] positions from step_data["positions"].
+    Overwrite scenario['pieces'] so it exactly matches
+    how many pieces the environment says are alive.
+    
+    If player_pos is empty, that means the environment
+    says the player has 0 pieces left => remove them all
+    from scenario.
+    
+    If enemy_pos is smaller or bigger, same approach.
     """
-    player_pos = step_data["positions"]["player"]
-    enemy_pos = step_data["positions"]["enemy"]
+    player_pos = step_data["positions"]["player"]  # shape (Np, 2)
+    enemy_pos = step_data["positions"]["enemy"]    # shape (Ne, 2)
 
-    player_index = 0
-    enemy_index = 0
+    # We'll build a new list of puzzle pieces from scratch:
+    new_pieces = []
+    
+    # Indices to track which row in 'player_pos' or 'enemy_pos' we're on
+    p_idx = 0
+    e_idx = 0
+
+    # We'll also track how many remain
+    num_player_alive = len(player_pos)
+    num_enemy_alive = len(enemy_pos)
+
+    # Option A: if you need to preserve which piece is Warlock vs Sorcerer etc.
+    # we can match them up by label. We'll do a simpler approach:
+    # We'll keep them in the same order they appear in scenario["pieces"].
+    # But if the environment actually changes the *order* of living pieces,
+    # you might need to store piece label in the environment logs.
+
+    # Because each piece in scenario has side=player or side=enemy,
+    # we only fill them up to the # that are alive.  E.g. if environment says 0
+    # player pieces, we skip all "player" pieces in scenario.
+
     for piece in scenario["pieces"]:
         if piece["side"] == "player":
-            piece["q"] = player_pos[player_index][0]
-            piece["r"] = player_pos[player_index][1]
-            player_index += 1
-        else:
-            piece["q"] = enemy_pos[enemy_index][0]
-            piece["r"] = enemy_pos[enemy_index][1]
-            enemy_index += 1
+            if p_idx < num_player_alive:
+                piece["q"] = float(player_pos[p_idx][0])
+                piece["r"] = float(player_pos[p_idx][1])
+                new_pieces.append(piece)
+                p_idx += 1
+            else:
+                # This piece is "dead" according to environment => skip it
+                pass
+        else:  # enemy side
+            if e_idx < num_enemy_alive:
+                piece["q"] = float(enemy_pos[e_idx][0])
+                piece["r"] = float(enemy_pos[e_idx][1])
+                new_pieces.append(piece)
+                e_idx += 1
+            else:
+                # "dead" => skip
+                pass
+
+    # Now replace scenario["pieces"] with only the still-living pieces
+    scenario["pieces"].clear()
+    scenario["pieces"].extend(new_pieces)
 
 def render_scenario():
     global current_step, current_iteration, all_iterations
