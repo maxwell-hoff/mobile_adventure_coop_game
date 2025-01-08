@@ -83,12 +83,18 @@ class HexPuzzleEnv(gym.Env):
         # If max steps or game over
         if self.steps_taken >= self.max_steps or self._check_game_over():
             done = True
-
+        
+        all_positions = {
+            "player": self.player_positions.copy(),
+            "enemy": self.enemy_positions.copy()
+        }
+        
         # Log the action
         self.actions_log.append({
             "turn": "player",
             "move": (q, r),
-            "reward": reward
+            "reward": reward,
+            "positions": all_positions 
         })
 
         return self._get_obs(), reward, done, {}

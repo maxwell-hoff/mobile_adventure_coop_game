@@ -26,9 +26,14 @@ all_iterations = []  # This will store steps for each iteration
 
 # Convert axial coordinates to pixel coordinates
 def hex_to_pixel(q, r):
-    x = HEX_RADIUS * (3 / 2) * q
-    y = HEX_RADIUS * np.sqrt(3) * (r + q / 2)
-    return GRID_CENTER[0] + x, GRID_CENTER[1] + y
+    try:
+        x = HEX_RADIUS * (3 / 2) * q
+        y = HEX_RADIUS * np.sqrt(3) * (r + q / 2)
+        return GRID_CENTER[0] + x, GRID_CENTER[1] + y
+    except Exception as e:
+        print(f"Error in hex_to_pixel conversion: q={q}, r={r}")
+        print(f"Exception: {e}")
+        raise
 
 # Draw hex grid
 def draw_hex_grid(screen, subgrid_radius):
@@ -53,13 +58,21 @@ def hex_corners(x, y):
 # Draw pieces on the hex map
 def draw_pieces(screen, pieces):
     for piece in pieces:
-        q, r = piece["q"], piece["r"]
-        x, y = hex_to_pixel(q, r)
-        color = COLOR_PLAYER if piece["side"] == "player" else COLOR_ENEMY
-        pygame.draw.circle(screen, color, (x, y), HEX_RADIUS // 2)
-        label_font = pygame.font.SysFont("Arial", 16)
-        label = label_font.render(piece["label"], True, (255, 255, 255))
-        screen.blit(label, (x - label.get_width() // 2, y - label.get_height() // 2))
+        try:
+            q, r = float(piece["q"]), float(piece["r"])  # Convert to float explicitly
+            print(f"Processing piece: {piece['label']}, q={q}, r={r}")  # Debug log
+            x, y = hex_to_pixel(q, r)
+            x, y = int(x), int(y)  # Convert to integers for pygame
+            print(f"Converted coordinates: x={x}, y={y}")  # Debug log
+            color = COLOR_PLAYER if piece["side"] == "player" else COLOR_ENEMY
+            pygame.draw.circle(screen, color, (x, y), HEX_RADIUS // 2)
+            label_font = pygame.font.SysFont("Arial", 16)
+            label = label_font.render(piece["label"], True, (255, 255, 255))
+            screen.blit(label, (x - label.get_width() // 2, y - label.get_height() // 2))
+        except Exception as e:
+            print(f"Error processing piece: {piece}")
+            print(f"Exception: {e}")
+            raise
 
 # Draw navigation buttons
 def draw_buttons(screen):
@@ -105,9 +118,25 @@ def handle_navigation(event, prev_rect, next_rect):
 
 # Apply the moves from the actions log to update piece positions
 def update_piece_positions(step_data):
+    # Instead of applying step_data["move"] to scenario,
+    # just directly copy all positions from step_data["positions"].
+    # That means scenario["pieces"] always matches what the environment saw.
+
+    player_pos = step_data["positions"]["player"]  # e.g. shape (N, 2)
+    enemy_pos = step_data["positions"]["enemy"]
+
+    player_index = 0
+    enemy_index = 0
     for piece in scenario["pieces"]:
-        if piece["side"] == step_data["turn"]:
-            piece["q"], piece["r"] = step_data["move"]
+        if piece["side"] == "player":
+            piece["q"] = player_pos[player_index][0]
+            piece["r"] = player_pos[player_index][1]
+            player_index += 1
+        else:  # side == "enemy"
+            piece["q"] = enemy_pos[enemy_index][0]
+            piece["r"] = enemy_pos[enemy_index][1]
+            enemy_index += 1
+
 
 # Draw the state at the current step
 def render_scenario():
