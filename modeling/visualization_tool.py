@@ -2,7 +2,6 @@ import pygame
 import numpy as np
 import yaml
 import sys
-from stable_baselines3 import PPO
 
 # Hex settings
 HEX_RADIUS = 30
@@ -22,30 +21,35 @@ blocked_hexes = {(h["q"], h["r"]) for h in scenario["blockedHexes"]}
 # Step and iteration tracking
 current_step = 0
 current_iteration = 0
-all_iterations = []  # This will store steps for each iteration
+all_iterations = []  # This will store episodes, each is a list of steps
+user_clicked_next_step = False
+user_clicked_prev_step = False
+user_clicked_next_iter = False
+user_clicked_prev_iter = False
 
-# Convert axial coordinates to pixel coordinates
 def hex_to_pixel(q, r):
     try:
+        q = float(q)  # Convert to float first
+        r = float(r)
         x = HEX_RADIUS * (3 / 2) * q
         y = HEX_RADIUS * np.sqrt(3) * (r + q / 2)
-        return GRID_CENTER[0] + x, GRID_CENTER[1] + y
+        # Convert to integers and add grid center
+        return (int(GRID_CENTER[0] + x), int(GRID_CENTER[1] + y))
     except Exception as e:
         print(f"Error in hex_to_pixel conversion: q={q}, r={r}")
         print(f"Exception: {e}")
         raise
 
-# Draw hex grid
 def draw_hex_grid(screen, subgrid_radius):
     for q in range(-subgrid_radius, subgrid_radius + 1):
         for r in range(-subgrid_radius, subgrid_radius + 1):
             if abs(q + r) <= subgrid_radius:
                 x, y = hex_to_pixel(q, r)
                 color = COLOR_BLOCKED_HEX if (q, r) in blocked_hexes else COLOR_HEX
-                pygame.draw.polygon(screen, color, hex_corners(x, y), 0)
-                pygame.draw.polygon(screen, (0, 0, 0), hex_corners(x, y), 2)
+                corners = hex_corners(x, y)
+                pygame.draw.polygon(screen, color, corners, 0)
+                pygame.draw.polygon(screen, (0, 0, 0), corners, 2)
 
-# Get hex corners for polygon drawing
 def hex_corners(x, y):
     corners = []
     for i in range(6):
@@ -55,15 +59,11 @@ def hex_corners(x, y):
         corners.append((corner_x, corner_y))
     return corners
 
-# Draw pieces on the hex map
 def draw_pieces(screen, pieces):
     for piece in pieces:
         try:
-            q, r = float(piece["q"]), float(piece["r"])  # Convert to float explicitly
-            print(f"Processing piece: {piece['label']}, q={q}, r={r}")  # Debug log
-            x, y = hex_to_pixel(q, r)
-            x, y = int(x), int(y)  # Convert to integers for pygame
-            print(f"Converted coordinates: x={x}, y={y}")  # Debug log
+            q, r = piece["q"], piece["r"]
+            x, y = hex_to_pixel(q, r)  # Now guaranteed to be integers
             color = COLOR_PLAYER if piece["side"] == "player" else COLOR_ENEMY
             pygame.draw.circle(screen, color, (x, y), HEX_RADIUS // 2)
             label_font = pygame.font.SysFont("Arial", 16)
@@ -74,55 +74,93 @@ def draw_pieces(screen, pieces):
             print(f"Exception: {e}")
             raise
 
-# Draw navigation buttons
 def draw_buttons(screen):
     button_font = pygame.font.SysFont("Arial", 20)
 
-    # Previous Step Button
-    prev_rect = pygame.Rect(50, 550, 100, 40)
-    pygame.draw.rect(screen, (200, 200, 200), prev_rect)
-    prev_label = button_font.render("← Prev Step", True, (0, 0, 0))
-    screen.blit(prev_label, (prev_rect.x + 10, prev_rect.y + 5))
+    # Prev Iteration
+    prev_iter_rect = pygame.Rect(20, 10, 120, 30)
+    pygame.draw.rect(screen, (200, 200, 200), prev_iter_rect)
+    prev_iter_label = button_font.render("← Prev Iter", True, (0, 0, 0))
+    screen.blit(prev_iter_label, (prev_iter_rect.x + 5, prev_iter_rect.y + 5))
 
-    # Next Step Button
-    next_rect = pygame.Rect(650, 550, 100, 40)
-    pygame.draw.rect(screen, (200, 200, 200), next_rect)
+    # Next Iteration
+    next_iter_rect = pygame.Rect(660, 10, 120, 30)
+    pygame.draw.rect(screen, (200, 200, 200), next_iter_rect)
+    next_iter_label = button_font.render("Next Iter →", True, (0, 0, 0))
+    screen.blit(next_iter_label, (next_iter_rect.x + 5, next_iter_rect.y + 5))
+
+    # Prev Step
+    prev_step_rect = pygame.Rect(20, 550, 120, 40)
+    pygame.draw.rect(screen, (200, 200, 200), prev_step_rect)
+    prev_label = button_font.render("← Prev Step", True, (0, 0, 0))
+    screen.blit(prev_label, (prev_step_rect.x + 10, prev_step_rect.y + 5))
+
+    # Next Step
+    next_step_rect = pygame.Rect(660, 550, 120, 40)
+    pygame.draw.rect(screen, (200, 200, 200), next_step_rect)
     next_label = button_font.render("Next Step →", True, (0, 0, 0))
-    screen.blit(next_label, (next_rect.x + 10, next_rect.y + 5))
+    screen.blit(next_label, (next_step_rect.x + 10, next_step_rect.y + 5))
 
     # Iteration Display
-    iteration_label = button_font.render(f"Iteration: {current_iteration + 1}", True, (0, 0, 0))
+    iteration_label = button_font.render(f"Iteration: {current_iteration + 1}/{len(all_iterations)}", True, (0, 0, 0))
     screen.blit(iteration_label, (350, 10))
 
-    return prev_rect, next_rect
+    return prev_iter_rect, next_iter_rect, prev_step_rect, next_step_rect
 
-# Handle navigation
-def handle_navigation(event, prev_rect, next_rect):
+def handle_navigation(event,
+                      prev_iter_rect,
+                      next_iter_rect,
+                      prev_step_rect,
+                      next_step_rect):
+    """
+    Sets global flags so we only print
+    the move if user explicitly clicked Next Step, etc.
+    """
     global current_step, current_iteration
+    global user_clicked_next_step, user_clicked_prev_step
+    global user_clicked_next_iter, user_clicked_prev_iter
 
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-        if prev_rect.collidepoint(event.pos):
+        if prev_iter_rect.collidepoint(event.pos):
+            current_iteration = max(0, current_iteration - 1)
+            current_step = 0
+            user_clicked_next_iter = False
+            user_clicked_prev_iter = True
+        elif next_iter_rect.collidepoint(event.pos):
+            current_iteration = min(len(all_iterations) - 1, current_iteration + 1)
+            current_step = 0
+            user_clicked_next_iter = True
+            user_clicked_prev_iter = False
+        elif prev_step_rect.collidepoint(event.pos):
+            old_step = current_step
             current_step = max(0, current_step - 1)
-        elif next_rect.collidepoint(event.pos):
+            user_clicked_prev_step = (current_step != old_step)
+            user_clicked_next_step = False
+        elif next_step_rect.collidepoint(event.pos):
+            old_step = current_step
             current_step = min(len(all_iterations[current_iteration]) - 1, current_step + 1)
+            user_clicked_next_step = (current_step != old_step)
+            user_clicked_prev_step = False
 
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_LEFT:
+            old_step = current_step
             current_step = max(0, current_step - 1)
+            user_clicked_prev_step = (current_step != old_step)
+            user_clicked_next_step = False
         elif event.key == pygame.K_RIGHT:
+            old_step = current_step
             current_step = min(len(all_iterations[current_iteration]) - 1, current_step + 1)
+            user_clicked_next_step = (current_step != old_step)
+            user_clicked_prev_step = False
         elif event.key == pygame.K_r:
-            current_step = 0  # Reset to the start of the iteration
+            current_step = 0
 
-
-
-# Apply the moves from the actions log to update piece positions
 def update_piece_positions(step_data):
-    # Instead of applying step_data["move"] to scenario,
-    # just directly copy all positions from step_data["positions"].
-    # That means scenario["pieces"] always matches what the environment saw.
-
-    player_pos = step_data["positions"]["player"]  # e.g. shape (N, 2)
+    """
+    Copy positions from the step_data into scenario["pieces"].
+    """
+    player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
 
     player_index = 0
@@ -132,23 +170,29 @@ def update_piece_positions(step_data):
             piece["q"] = player_pos[player_index][0]
             piece["r"] = player_pos[player_index][1]
             player_index += 1
-        else:  # side == "enemy"
+        else:  # enemy
             piece["q"] = enemy_pos[enemy_index][0]
             piece["r"] = enemy_pos[enemy_index][1]
             enemy_index += 1
 
-
-# Draw the state at the current step
 def render_scenario():
     global current_step, current_iteration, all_iterations
+    global user_clicked_next_step, user_clicked_prev_step
+    global user_clicked_next_iter, user_clicked_prev_iter
 
-    # Load actions log from the model output
+    # Load the multiple episodes from file
     try:
-        actions_log = np.load("actions_log.npy", allow_pickle=True)
+        # This shape is (n_episodes,) each is a list of steps
+        all_episodes = np.load("actions_log.npy", allow_pickle=True)
     except FileNotFoundError:
         print("actions_log.npy not found. Please run rl_training.py first.")
         sys.exit(1)
-    all_iterations = [actions_log]  # Wrap logs in a list so we can iterate
+
+    # Convert that array to a Python list for easier handling
+    all_iterations = list(all_episodes)  # Now each item is an episode
+    if len(all_iterations) == 0:
+        print("No episodes in actions_log.npy")
+        return
 
     pygame.init()
     screen = pygame.display.set_mode((800, 600))
@@ -157,37 +201,47 @@ def render_scenario():
 
     running = True
     while running:
+        # We reset these flags every frame
+        user_clicked_next_step = False
+        user_clicked_prev_step = False
+        user_clicked_next_iter = False
+        user_clicked_prev_iter = False
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            handle_navigation(event, *button_rects)
 
+        # Clear screen
         screen.fill((255, 255, 255))
         draw_hex_grid(screen, scenario["subGridRadius"])
-        
-        # Draw the state at the current step
-        if all_iterations and len(all_iterations[current_iteration]) > current_step:
-            step_data = all_iterations[current_iteration][current_step]
-            
-            # Update positions according to the step data
-            update_piece_positions(step_data)
-            
-            # Draw the updated pieces on the screen
-            draw_pieces(screen, scenario["pieces"])
-            
-            # Log the current step data
-            try:
-                print(f"Turn: {step_data.get('turn', 'unknown')}, Move: {step_data.get('move', 'unknown')}, Reward: {step_data.get('reward', 0)}")
-            except Exception as e:
-                print(f"Error displaying step data: {e}")
-                print(f"Step data: {step_data}")
 
-        prev_rect, next_rect = draw_buttons(screen)
-        handle_navigation(event, prev_rect, next_rect)
+        # Draw iteration/step info if valid
+        if (0 <= current_iteration < len(all_iterations)):
+            episode_data = all_iterations[current_iteration]
+            if (0 <= current_step < len(episode_data)):
+                step_data = episode_data[current_step]
+                # Update scenario pieces from step_data
+                update_piece_positions(step_data)
+                # Draw them
+                draw_pieces(screen, scenario["pieces"])
+
+                # Print info only if the user *just* clicked next step
+                if user_clicked_next_step:
+                    print(f"Step {current_step+1}/{len(episode_data)} | "
+                          f"Iteration {current_iteration+1}/{len(all_iterations)} | "
+                          f"Turn: {step_data.get('turn','?')} | "
+                          f"Move: {step_data.get('move','?')} | "
+                          f"Reward: {step_data.get('reward','?')}")
+
+        # Draw buttons
+        button_rects = draw_buttons(screen)
 
         pygame.display.flip()
         clock.tick(60)
 
     pygame.quit()
 
-
-render_scenario()
+# Run it
+if __name__ == "__main__":
+    render_scenario()
