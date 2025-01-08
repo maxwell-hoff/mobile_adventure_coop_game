@@ -100,7 +100,13 @@ def handle_navigation(event, prev_rect, next_rect):
         elif event.key == pygame.K_r:
             current_step = 0  # Reset to the start of the iteration
 
-# Render scenario with navigation
+# Apply the moves from the actions log to update piece positions
+def update_piece_positions(step_data):
+    for piece in scenario["pieces"]:
+        if piece["side"] == step_data["turn"]:
+            piece["q"], piece["r"] = step_data["move"]
+
+# Draw the state at the current step
 def render_scenario():
     global current_step, current_iteration, all_iterations
 
@@ -125,7 +131,14 @@ def render_scenario():
         # Draw the state at the current step
         if all_iterations and len(all_iterations[current_iteration]) > current_step:
             step_data = all_iterations[current_iteration][current_step]
-            draw_pieces(screen, scenario["pieces"])  # Draw initial pieces
+            
+            # Update positions according to the step data
+            update_piece_positions(step_data)
+            
+            # Draw the updated pieces on the screen
+            draw_pieces(screen, scenario["pieces"])
+            
+            # Log the current step data
             try:
                 print(f"Turn: {step_data.get('turn', 'unknown')}, Move: {step_data.get('move', 'unknown')}, Reward: {step_data.get('reward', 0)}")
             except Exception as e:
