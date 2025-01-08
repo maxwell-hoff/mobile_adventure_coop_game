@@ -15,29 +15,53 @@ with open(os.path.join("data", "pieces.yaml"), "r") as f:
 
 class HexPuzzleEnv(gym.Env):
     """
-    Example environment with alternating turns:
-      1) Player side moves each of its pieces once.
-      2) Enemy side moves each of its pieces once.
-    That constitutes one full round.
+    Single-agent environment:
+      - The agent controls the 'player' side.
+      - The 'enemy' side is scripted: specifically, the BloodWarden 
+        will cast 'necrotizing_consecrate' on its first turn, killing 
+        all player pieces if they haven't already 'won'.
 
-    We'll store both sides' moves in the log. We assume each piece 
-    has exactly 1 action per round.
+    Each episode:
+      - Always starts with the puzzle in the same initial layout.
+      - The player has up to 3 moves to solve the puzzle 
+        (some "checkmate" or "win" condition).
+      - If the puzzle isn't solved by the time the enemy acts 
+        (which happens after the player's first move), 
+        the BloodWarden kills everyone => puzzle lost => done.
 
-    Because your map.js has more thorough puzzle logic, here we just
-    show how to enforce constraints from pieces.yaml (range, LOS, etc.).
+    ACTION SPACE (simplified):
+      - The agent picks which piece to act (among player pieces).
+      - Then picks a target hex or "pass."
+
+    We'll keep this environment short:
+      - Maximum 3 player moves total. If not solved => done (lose).
+      - On the enemy's first turn, they do necrotizing_consecrate => done (player loses) 
+        unless the puzzle was already solved.
+
+    REWARDS:
+      - Big +10 if solve the puzzle (some checkmate condition).
+      - -10 if the puzzle is lost (BloodWarden kills you or you run out of moves).
+      - +0.1 for a valid move, -1 for an invalid move, etc.
     """
-    def __init__(self, puzzle_scenario, max_rounds=5):
+
+    def __init__(self, puzzle_scenario, max_player_moves=3):
         super().__init__()
         self.scenario = puzzle_scenario
         self.grid_radius = puzzle_scenario["subGridRadius"]
-        self.max_rounds = max_rounds  # how many full "rounds" of player+enemy
-        self.rounds_done = 0
+        self.max_player_moves = max_player_moves  # how many player moves we allow
 
         # Separate out pieces
         self.player_pieces = [p for p in puzzle_scenario["pieces"] if p["side"] == "player"]
         self.enemy_pieces = [p for p in puzzle_scenario["pieces"] if p["side"] == "enemy"]
 
-        # Build a list of all hex coordinates in the puzzle
+        # Identify the BloodWarden (if present)
+        self.bloodwarden = None
+        for epiece in self.enemy_pieces:
+            if epiece["class"] == "BloodWarden":
+                self.bloodwarden = epiece
+                break
+
+        # Build a list of all hex coords
         self.all_hexes = []
         for q in range(-self.grid_radius, self.grid_radius + 1):
             for r in range(-self.grid_radius, self.grid_radius + 1):
@@ -45,23 +69,13 @@ class HexPuzzleEnv(gym.Env):
                     self.all_hexes.append((q, r))
         self.num_positions = len(self.all_hexes)
 
-        # For a single-step environment approach, let's say the agent picks
-        # one "piece index" + one "action" + one "target hex" all in one.
-        # This is just a simplistic approach; you can do a better multi-discrete or dict space.
-        # But to keep it short, let's define:
-        #   - piece_index in [0..Nplayer-1]
-        #   - hex_index in [0..(board_size)-1]
-        #   => total possible actions = (Nplayer * board_size)
-        # We'll assume "no-op" or "pass" is also included, or we can store that in a separate discrete dimension.
-        
+        # We'll store an action space like:
+        #   - piece_index in [0..(n_player_pieces-1)]
+        #   - target_index in [0..num_positions] where "num_positions" means pass
         self.n_player_pieces = len(self.player_pieces)
-        # For now, define a single Discrete space that = n_player_pieces * (num_positions + 1 for pass).
-        # If the agent picks an action that is "invalid", we give negative reward, for example.
-        # This is simplified; typically you'd do a multi-discrete or a custom approach.
         self.action_space = gym.spaces.Discrete(self.n_player_pieces * (self.num_positions + 1))
 
         # Observations: positions of all player + enemy pieces
-        # shape = 2*(Nplayer + Nenemy)
         obs_size = 2*(len(self.player_pieces) + len(self.enemy_pieces))
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius, high=self.grid_radius,
@@ -69,70 +83,98 @@ class HexPuzzleEnv(gym.Env):
         )
 
         # Logging
-        self.all_episodes = []
-        self.current_episode_steps = []
+        self.all_episodes = []        # entire set of episodes
+        self.current_episode_steps = []  # steps in the current episode
         self.reset()
 
     def reset(self):
-        # If we just finished an episode, store its steps
+        # If we just finished an episode, store it
         if len(self.current_episode_steps) > 0:
             self.all_episodes.append(self.current_episode_steps)
             self.current_episode_steps = []
 
-        self.rounds_done = 0
-
-        # Reset piece positions to scenario initial
+        # Reset puzzle to the initial configuration each time
+        # so that each iteration starts from the same puzzle layout
         for p in self.player_pieces:
-            p["q"] = p.get("q_init", p["q"])  # or use p["q"] directly
+            # optionally store original q/r in puzzle or do something like:
+            p["q"] = p.get("q_init", p["q"])  
             p["r"] = p.get("r_init", p["r"])
-        for p in self.enemy_pieces:
-            p["q"] = p.get("q_init", p["q"])
-            p["r"] = p.get("r_init", p["r"])
+        for e in self.enemy_pieces:
+            e["q"] = e.get("q_init", e["q"])
+            e["r"] = e.get("r_init", e["r"])
 
-        self.steps_in_current_round = 0  # how many piece-moves done so far
+        # Track how many moves the player has used
+        self.player_moves_used = 0
+        # It's always the player's turn first
         self.is_player_turn = True
+        # Whether the enemy has used necrotizing_consecrate
+        self.enemy_has_cast = False
+
         return self._get_obs()
 
     def step(self, action):
         """
-        The agent picks an action representing which piece to move + where to move it (or pass).
-        Then the environment will also move the enemy's piece(s). We only do 1 piece per environment step 
-        or multiple pieces? 
-        Because you said each piece on that side acts once, we might do:
-         - step() => picks next piece on the active side
-         - once all pieces on that side have acted, we switch sides
-         - once both sides have acted => 1 round is complete
+        Each call to step() => one piece on the active side uses one action 
+        (which might be pass or move).
+        Then we check if the puzzle is solved or if the enemy kills everyone.
         """
         done = False
         reward = 0.0
 
-        # 1) Decode the action
-        #    passIndex = num_positions => means "pass"
-        piece_action_space = self.num_positions + 1  # for each of the n_player_pieces
+        piece_action_space = self.num_positions + 1
         piece_idx = action // piece_action_space
         target_idx = action % piece_action_space
 
-        # piece to act
-        if self.is_player_turn:
-            piece_list = self.player_pieces
-            side_str = "player"
-        else:
-            piece_list = self.enemy_pieces
-            side_str = "enemy"
+        # We'll assume single-agent => controlling 'player' side
+        # We only step if it's the player's turn. If it's the enemy's turn,
+        # we do the forced "necrotizing_consecrate."
+        # In your final approach, you might do multi-step logic to handle 
+        # each piece's turn in sequence. But here's a simpler approach:
+        if not self.is_player_turn:
+            # It's enemy turn => always cast necrotizing_consecrate
+            self._enemy_necrotizing_consecrate()
+            # Log that
+            step_dict = {
+                "turn": "enemy",
+                "piece_label": (self.bloodwarden["label"] if self.bloodwarden else "Unknown"),
+                "action": "necrotizing_consecrate",
+                "move": None,
+                "reward": reward,
+                "positions": self._log_positions()
+            }
+            self.current_episode_steps.append(step_dict)
 
-        if piece_idx < 0 or piece_idx >= len(piece_list):
+            # If any player pieces remain after that, let's allow next step. 
+            # But typically that kills them => done.
+            if len(self.player_pieces) == 0:
+                reward -= 10  # big penalty: player lost
+                done = True
+            else:
+                # If for some reason some remain, we can let puzzle continue or end
+                done = True  # typically you'd end, because the puzzle scenario is designed that it kills everyone
+            obs = self._get_obs()
+            return obs, reward, done, {}
+
+        # If we are here => it's the player's turn
+        if piece_idx < 0 or piece_idx >= len(self.player_pieces):
             # invalid piece index
             reward -= 2
-            done = False
+            step_dict = {
+                "turn": "player",
+                "piece_label": "invalid_piece_index",
+                "action": "invalid",
+                "move": None,
+                "reward": reward,
+                "positions": self._log_positions()
+            }
+            self.current_episode_steps.append(step_dict)
+
         else:
-            piece = piece_list[piece_idx]
-            # parse target
+            piece = self.player_pieces[piece_idx]
             if target_idx == self.num_positions:
                 # pass
-                reward += 0  # or small negative or zero
-                # log pass
                 step_dict = {
-                    "turn": side_str,
+                    "turn": "player",
                     "piece_label": piece["label"],
                     "action": "pass",
                     "move": None,
@@ -141,25 +183,20 @@ class HexPuzzleEnv(gym.Env):
                 }
                 self.current_episode_steps.append(step_dict)
             else:
-                # The agent tries to move piece to self.all_hexes[target_idx]
+                # Try to move to that hex
                 q, r = self.all_hexes[target_idx]
-                
-                # Check constraints from pieces.yaml for piece's "move" action:
-                # We'll assume each piece can only do the "move" action for demonstration.
-                # If you want to incorporate "attack" or "aoe", you'd parse that from the action as well.
-                
                 if self._valid_move(piece, q, r):
-                    # do move
                     old_q, old_r = piece["q"], piece["r"]
                     piece["q"], piece["r"] = q, r
+
+                    # small reward for valid move
                     reward += 0.1
-                    # check if checkmate
+                    # check if puzzle is solved => +10
                     if self._is_checkmate(piece, q, r):
                         reward += 10
                         done = True
-                    # log
                     step_dict = {
-                        "turn": side_str,
+                        "turn": "player",
                         "piece_label": piece["label"],
                         "action": "move",
                         "move": (q, r),
@@ -171,7 +208,7 @@ class HexPuzzleEnv(gym.Env):
                     # invalid move
                     reward -= 1
                     step_dict = {
-                        "turn": side_str,
+                        "turn": "player",
                         "piece_label": piece["label"],
                         "action": "invalid_move",
                         "move": (q, r),
@@ -180,55 +217,41 @@ class HexPuzzleEnv(gym.Env):
                     }
                     self.current_episode_steps.append(step_dict)
 
-        self.steps_in_current_round += 1
+        # Now we've used 1 player move
+        self.player_moves_used += 1
 
-        # if all pieces in this side have acted, switch to the other side
-        # note: you have as many steps in a side's turn as pieces on that side
-        # If each side has the same # of pieces => total steps in a round is sum(...) etc.
-        # We do a simpler approach here:
-        n_pieces_side = len(piece_list)
-        if self.steps_in_current_round >= n_pieces_side:
-            # switch
-            self.steps_in_current_round = 0
-            self.is_player_turn = not self.is_player_turn
-            # if we just switched from enemy->player => that means 1 full round is done
-            if self.is_player_turn:  
-                self.rounds_done += 1
-                if self.rounds_done >= self.max_rounds:
-                    done = True
-
-        # done condition: max rounds or no pieces left, etc.
-        if self._check_end_conditions():
-            done = True
+        # If the puzzle wasn't solved => check if we used up all 3 moves
+        if not done and self.player_moves_used >= self.max_player_moves:
+            # now it's the enemy turn => they cast necrotizing => end
+            self.is_player_turn = False
 
         obs = self._get_obs()
         info = {}
+
         return obs, reward, done, info
 
-    # --------------- Helper functions --------------------
-    def _check_end_conditions(self):
-        # For instance, if all enemy pieces are gone or all player pieces are gone
-        # or we reached round limit, etc.
-        if len(self.player_pieces) == 0 or len(self.enemy_pieces) == 0:
-            return True
-        return False
+    # ---------------------------------------------------------
+    # HELPER METHODS
+    # ---------------------------------------------------------
+
+    def _enemy_necrotizing_consecrate(self):
+        """
+        Enemy's lethal AOE that kills all players instantly.
+        We'll remove all player pieces from self.player_pieces.
+        """
+        if not self.bloodwarden:
+            return
+        # kills everything
+        self.player_pieces.clear()  # so length is now 0
+        self.enemy_has_cast = True
 
     def _valid_move(self, piece, q, r):
-        """
-        Check constraints from pieces.yaml and map.js:
-         - range <= pieceClass.actions["move"].range
-         - not blocked
-         - not occupied
-         etc.
-        """
-        # find pieceClass
+        """Check constraints from pieces.yaml for 'move' action."""
         pclass = pieces_data["classes"][piece["class"]]
         move_def = pclass["actions"].get("move", None)
         if not move_def:
-            # no "move" action => invalid
             return False
 
-        # check range
         max_range = move_def["range"]
         dist = self._hex_distance(piece["q"], piece["r"], q, r)
         if dist > max_range:
@@ -246,26 +269,26 @@ class HexPuzzleEnv(gym.Env):
 
         return True
 
-    def _log_positions(self):
-        """
-        Return a dict {player: np.array(...), enemy: np.array(...)} 
-        so the visualization can see the final positions 
-        after the action.
-        """
-        player_pos = np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.float32)
-        enemy_pos = np.array([[p["q"], p["r"]] for p in self.enemy_pieces], dtype=np.float32)
-        return {"player": player_pos, "enemy": enemy_pos}
-
     def _is_checkmate(self, piece, q, r):
         """
-        Example: if the piece steps on (0,3) or (1,-3) 
-        or if an enemy piece is captured, etc.
+        Suppose 'checkmate' = we stepped onto (1, -3), or 
+        we captured an enemy piece, or some puzzle logic, etc.
+        Here is just a placeholder.
         """
-        check_positions = [(0,3), (1,-3)]
+        check_positions = [(0, 3), (1, -3)]
         return (q, r) in check_positions
 
+    def _log_positions(self):
+        """
+        Return dict with current positions of player and enemy 
+        so the visualization can update.
+        """
+        player_array = np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.float32)
+        enemy_array = np.array([[p["q"], p["r"]] for p in self.enemy_pieces], dtype=np.float32)
+        return {"player": player_array, "enemy": enemy_array}
+
     def _get_obs(self):
-        # Flatten positions
+        # Flatten player + enemy positions
         coords = []
         for p in self.player_pieces:
             coords.append(p["q"])
@@ -277,30 +300,29 @@ class HexPuzzleEnv(gym.Env):
 
     @staticmethod
     def _hex_distance(q1, r1, q2, r2):
-        return (abs(q1 - q2) 
-              + abs(r1 - r2) 
+        return (abs(q1 - q2)
+              + abs(r1 - r2)
               + abs((q1 + r1) - (q2 + r2))) / 2
 
     def close(self):
-        # if we want to store final episode steps
+        # If we want to store final steps for the last episode
         if len(self.current_episode_steps) > 0:
             self.all_episodes.append(self.current_episode_steps)
 
-# -----------------------------------------
-#  Example usage: train + save logs
-# -----------------------------------------
 def main():
-    # Load puzzle scenario from YAML
     scenario = world_data["regions"][0]["puzzleScenarios"][0]
 
-    env = DummyVecEnv([lambda: HexPuzzleEnv(scenario, max_rounds=5)])
+    # Single environment
+    env = DummyVecEnv([lambda: HexPuzzleEnv(scenario, max_player_moves=3)])
     model = PPO("MlpPolicy", env, verbose=1)
+
+    # We'll do a short training
     model.learn(total_timesteps=2000)
 
-    # after training, gather episodes
+    # Save episodes
     episodes = env.envs[0].all_episodes
     np.save("actions_log.npy", np.array(episodes, dtype=object), allow_pickle=True)
-    print("Done training, saved logs with multi-piece turn structure.")
+    print("Done training. Saved actions log for visualization!")
 
 if __name__ == "__main__":
     main()

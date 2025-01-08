@@ -158,7 +158,7 @@ def handle_navigation(event,
 
 def update_piece_positions(step_data):
     """
-    Copy positions from the step_data into scenario["pieces"].
+    Overwrite scenario['pieces'] positions from step_data["positions"].
     """
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
@@ -170,7 +170,7 @@ def update_piece_positions(step_data):
             piece["q"] = player_pos[player_index][0]
             piece["r"] = player_pos[player_index][1]
             player_index += 1
-        else:  # enemy
+        else:
             piece["q"] = enemy_pos[enemy_index][0]
             piece["r"] = enemy_pos[enemy_index][1]
             enemy_index += 1
@@ -231,11 +231,14 @@ def render_scenario():
 
                 # Print info only if the user *just* clicked next step
                 if user_clicked_next_step:
+                    # excerpt from inside the 'if user_clicked_next_step:' block
                     print(f"Step {current_step+1}/{len(episode_data)} | "
-                          f"Iteration {current_iteration+1}/{len(all_iterations)} | "
-                          f"Turn: {step_data.get('turn','?')} | "
-                          f"Move: {step_data.get('move','?')} | "
-                          f"Reward: {step_data.get('reward','?')}")
+                        f"Iteration {current_iteration+1}/{len(all_iterations)} | "
+                        f"Turn: {step_data.get('turn','?')} | "
+                        f"Piece: {step_data.get('piece_label','?')} | "
+                        f"Action: {step_data.get('action','?')} | "
+                        f"Move: {step_data.get('move','?')} | "
+                        f"Reward: {step_data.get('reward','?')}")
 
         pygame.display.flip()
         clock.tick(60)
