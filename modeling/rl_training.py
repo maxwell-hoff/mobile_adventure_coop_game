@@ -23,7 +23,7 @@ class HexPuzzleEnv(gym.Env):
 
         self.player_pieces = [p for p in puzzle_scenario["pieces"] if p["side"] == "player"]
         self.enemy_pieces = [p for p in puzzle_scenario["pieces"] if p["side"] == "enemy"]
-        self.actions_log = []  # Log of all actions for both sides
+        self.actions_log = []  # Initialize the actions log
         self.is_player_turn = True  # Track whose turn it is
 
         self.observation_space = gym.spaces.Dict({
@@ -32,37 +32,50 @@ class HexPuzzleEnv(gym.Env):
         })
 
         num_positions = (2 * self.grid_radius + 1) ** 2
-        # Action for both player and enemy
-        self.action_space = gym.spaces.MultiDiscrete([num_positions, 2])  # (q, r), where 2 = [0: player, 1: enemy]
+        self.action_space = gym.spaces.MultiDiscrete([num_positions, num_positions])
 
     def reset(self):
         self.state = {
             "player_positions": np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.int32),
             "enemy_positions": np.array([[p["q"], p["r"]] for p in self.enemy_pieces], dtype=np.int32),
         }
-        self.actions_log.clear()
-        self.is_player_turn = True  # Start with the player's turn
+        self.actions_log.clear()  # Clear the actions log on reset
+        self.is_player_turn = True  # Start with player's turn
         return self.state
 
     def step(self, action):
-        # Determine the side and the move
-        position_index, side = action  # Side determines if it's a player (0) or enemy (1) move
-        side_str = "player" if side == 0 else "enemy"
+        q, r = action
+        # Store the current turn information
+        turn_info = {
+            "turn": "player" if self.is_player_turn else "enemy",
+            "move": (int(q), int(r)),  # Convert to regular integers for serialization
+            "reward": 0  # Will be updated below
+        }
+        
+        # Reward logic: positive for checkmate, negative for wrong moves
+        reward = 0
+        done = False
 
-        # Get the corresponding piece's new position
-        q, r = divmod(position_index, self.grid_radius * 2 + 1)
+        # Example: check if action leads to checkmate
+        if self._is_checkmate(q, r):
+            reward = 10
+            done = True
+        else:
+            reward = -1  # Penalty for non-optimal move
 
-        if side == 0 and len(self.state["player_positions"]) > 0:
+        # Update the reward in our turn info
+        turn_info["reward"] = reward
+        
+        # Update only the first player piece position
+        if len(self.state["player_positions"]) > 0:
             self.state["player_positions"][0] = np.array([q, r], dtype=np.int32)
-        elif side == 1 and len(self.state["enemy_positions"]) > 0:
-            self.state["enemy_positions"][0] = np.array([q, r], dtype=np.int32)
-
-        reward = self._calculate_reward(side_str)
-        done = self._check_game_over()
-
-        self.actions_log.append({"turn": side_str, "move": (q, r), "reward": reward})
-        self.is_player_turn = not self.is_player_turn  # Toggle the turn
-
+        
+        # Add the turn info to our actions log
+        self.actions_log.append(turn_info)
+        
+        # Toggle the turn
+        self.is_player_turn = not self.is_player_turn
+        
         return self.state, reward, done, {}
 
     def _calculate_reward(self, side_str):
@@ -73,7 +86,7 @@ class HexPuzzleEnv(gym.Env):
             return -10
         return -1  # Negative reward for non-optimal moves
 
-    def _is_checkmate(self):
+    def _is_checkmate(self, q, r):
         # Placeholder checkmate logic
         return any((q, r) in [(0, 3), (1, -3)] for q, r in self.state["player_positions"])
     
@@ -93,10 +106,6 @@ print("Training PPO RL model...")
 model.learn(total_timesteps=20000)
 model.save("ppo_redwood_vale")
 
-# Save logs for visualization
-all_iterations = env.envs[0].actions_log
-
-
-# # Save actions log for debugging
-# actions_log_file = "actions_log.npy"
-# np.save(actions_log_file, env.envs[0].actions_log)
+# Save actions log for visualization
+actions_log_file = "actions_log.npy"
+np.save(actions_log_file, env.envs[0].actions_log)

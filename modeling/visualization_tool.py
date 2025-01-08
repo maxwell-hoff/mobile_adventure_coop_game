@@ -126,7 +126,11 @@ def render_scenario():
         if all_iterations and len(all_iterations[current_iteration]) > current_step:
             step_data = all_iterations[current_iteration][current_step]
             draw_pieces(screen, scenario["pieces"])  # Draw initial pieces
-            print(f"Turn: {step_data['turn']}, Move: {step_data['move']}, Reward: {step_data['reward']}")
+            try:
+                print(f"Turn: {step_data.get('turn', 'unknown')}, Move: {step_data.get('move', 'unknown')}, Reward: {step_data.get('reward', 0)}")
+            except Exception as e:
+                print(f"Error displaying step data: {e}")
+                print(f"Step data: {step_data}")
 
         prev_rect, next_rect = draw_buttons(screen)
         handle_navigation(event, prev_rect, next_rect)
