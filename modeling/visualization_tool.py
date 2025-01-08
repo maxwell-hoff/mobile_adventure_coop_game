@@ -207,14 +207,17 @@ def render_scenario():
         user_clicked_next_iter = False
         user_clicked_prev_iter = False
 
+        screen.fill((255, 255, 255))
+        draw_hex_grid(screen, scenario["subGridRadius"])
+
+        # Draw buttons first so we have button_rects for navigation
+        button_rects = draw_buttons(screen)
+
+        # Handle events with the now-defined button_rects
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             handle_navigation(event, *button_rects)
-
-        # Clear screen
-        screen.fill((255, 255, 255))
-        draw_hex_grid(screen, scenario["subGridRadius"])
 
         # Draw iteration/step info if valid
         if (0 <= current_iteration < len(all_iterations)):
@@ -233,9 +236,6 @@ def render_scenario():
                           f"Turn: {step_data.get('turn','?')} | "
                           f"Move: {step_data.get('move','?')} | "
                           f"Reward: {step_data.get('reward','?')}")
-
-        # Draw buttons
-        button_rects = draw_buttons(screen)
 
         pygame.display.flip()
         clock.tick(60)
