@@ -274,7 +274,8 @@ def render_scenario():
                     # excerpt from inside the 'if user_clicked_next_step:' block
                     print(f"Step {current_step+1}/{len(episode_data)} | "
                         f"Iteration {current_iteration+1}/{len(all_iterations)} | "
-                        f"Turn: {step_data.get('turn','?')} | "
+                        f"Turn#: {step_data.get('turn_number','?')} | "
+                        f"TurnSide: {step_data.get('turn','?')} | "
                         f"Piece: {step_data.get('piece_label','?')} | "
                         f"Action: {step_data.get('action','?')} | "
                         f"Move: {step_data.get('move','?')} | "
