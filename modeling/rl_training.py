@@ -76,7 +76,12 @@ class HexPuzzleEnv(gym.Env):
         self.action_space = gym.spaces.Discrete(self.n_player_pieces * (self.num_positions + 1))
 
         # Observations: positions of all player + enemy pieces
-        obs_size = 2*(len(self.player_pieces) + len(self.enemy_pieces))
+        # Calculate the ACTUAL number of coordinates we'll have
+        self.n_player_coords = len(self.player_pieces) * 2  # each piece has q,r coords
+        self.n_enemy_coords = len(self.enemy_pieces) * 2    # each piece has q,r coords
+        obs_size = self.n_player_coords + self.n_enemy_coords    # total size
+        
+        # Create observation space with the correct size
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius, high=self.grid_radius,
             shape=(obs_size,), dtype=np.float32
@@ -288,15 +293,23 @@ class HexPuzzleEnv(gym.Env):
         return {"player": player_array, "enemy": enemy_array}
 
     def _get_obs(self):
-        # Flatten player + enemy positions
-        coords = []
+        # Flatten player + enemy positions into array of correct size
+        coords = np.zeros(self.n_player_coords + self.n_enemy_coords, dtype=np.float32)
+        
+        # Fill in player coordinates
+        idx = 0
         for p in self.player_pieces:
-            coords.append(p["q"])
-            coords.append(p["r"])
+            coords[idx] = p["q"]
+            coords[idx + 1] = p["r"]
+            idx += 2
+            
+        # Fill in enemy coordinates
         for e in self.enemy_pieces:
-            coords.append(e["q"])
-            coords.append(e["r"])
-        return np.array(coords, dtype=np.float32)
+            coords[idx] = e["q"]
+            coords[idx + 1] = e["r"]
+            idx += 2
+            
+        return coords
 
     @staticmethod
     def _hex_distance(q1, r1, q2, r2):
