@@ -14,98 +14,134 @@ with open(os.path.join("data", "pieces.yaml"), "r") as f:
     pieces_data = yaml.safe_load(f)
 
 
-# Custom Environment for Puzzle Scenarios
 class HexPuzzleEnv(gym.Env):
-    def __init__(self, puzzle_scenario):
+    def __init__(self, puzzle_scenario, max_steps=50):
         super(HexPuzzleEnv, self).__init__()
         self.puzzle_scenario = puzzle_scenario
         self.grid_radius = puzzle_scenario["subGridRadius"]
+        self.max_steps = max_steps
 
+        # Identify hexes
+        self.all_hexes = []
+        for q in range(-self.grid_radius, self.grid_radius + 1):
+            for r in range(-self.grid_radius, self.grid_radius + 1):
+                if abs(q + r) <= self.grid_radius:
+                    self.all_hexes.append((q, r))
+        self.num_positions = len(self.all_hexes)
+
+        # Distinguish sides
         self.player_pieces = [p for p in puzzle_scenario["pieces"] if p["side"] == "player"]
         self.enemy_pieces = [p for p in puzzle_scenario["pieces"] if p["side"] == "enemy"]
-        self.actions_log = []  # Initialize the actions log
-        self.is_player_turn = True  # Track whose turn it is
 
-        self.observation_space = gym.spaces.Dict({
-            "player_positions": gym.spaces.Box(low=-3, high=3, shape=(len(self.player_pieces), 2), dtype=np.int32),
-            "enemy_positions": gym.spaces.Box(low=-3, high=3, shape=(len(self.enemy_pieces), 2), dtype=np.int32),
-        })
+        # Simple approach: move the first player piece
+        self.action_space = gym.spaces.Discrete(self.num_positions)
 
-        num_positions = (2 * self.grid_radius + 1) ** 2
-        self.action_space = gym.spaces.MultiDiscrete([num_positions, num_positions])
+        # Observations: positions for all player + enemy
+        obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
+        # e.g. [p1_q, p1_r, p2_q, p2_r, e1_q, e1_r, e2_q, e2_r, ...]
+        self.observation_space = gym.spaces.Box(
+            low=-self.grid_radius, high=self.grid_radius,
+            shape=(obs_size,), dtype=np.float32
+        )
+
+        # For logging moves
+        self.actions_log = []
+        self.reset()
 
     def reset(self):
-        self.state = {
-            "player_positions": np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.int32),
-            "enemy_positions": np.array([[p["q"], p["r"]] for p in self.enemy_pieces], dtype=np.int32),
-        }
-        self.actions_log.clear()  # Clear the actions log on reset
-        self.is_player_turn = True  # Start with player's turn
-        return self.state
+        self.steps_taken = 0
+        # Could randomize piece positions or just load from scenario
+        self.player_positions = np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.float32)
+        self.enemy_positions = np.array([[p["q"], p["r"]] for p in self.enemy_pieces], dtype=np.float32)
+        self.actions_log.clear()
+        return self._get_obs()
 
     def step(self, action):
-        q, r = action
-        # Store the current turn information
-        turn_info = {
-            "turn": "player" if self.is_player_turn else "enemy",
-            "move": (int(q), int(r)),  # Convert to regular integers for serialization
-            "reward": 0  # Will be updated below
-        }
-        
-        # Reward logic: positive for checkmate, negative for wrong moves
-        reward = 0
+        self.steps_taken += 1
         done = False
+        reward = 0
 
-        # Example: check if action leads to checkmate
-        if self._is_checkmate(q, r):
-            reward = 10
-            done = True
+        # Convert action index -> (q, r)
+        q, r = self.all_hexes[action]
+
+        # Check if it's valid or leads to checkmate
+        if self._is_valid_move(q, r):
+            # Move the first player piece
+            self.player_positions[0] = np.array([q, r], dtype=np.float32)
+
+            if self._is_checkmate(q, r):
+                reward += 10
+                done = True
+            else:
+                reward += 0.1
         else:
-            reward = -1  # Penalty for non-optimal move
+            reward -= 1
 
-        # Update the reward in our turn info
-        turn_info["reward"] = reward
-        
-        # Update only the first player piece position
-        if len(self.state["player_positions"]) > 0:
-            self.state["player_positions"][0] = np.array([q, r], dtype=np.int32)
-        
-        # Add the turn info to our actions log
-        self.actions_log.append(turn_info)
-        
-        # Toggle the turn
-        self.is_player_turn = not self.is_player_turn
-        
-        return self.state, reward, done, {}
+        # For demonstration: we do a trivial enemy move or do nothing
+        # If you want to handle a real enemy turn, you'd do it here.
 
-    def _calculate_reward(self, side_str):
-        # Example placeholder reward logic
-        if side_str == "player" and self._is_checkmate():
-            return 10
-        elif side_str == "enemy" and self._is_checkmate():
-            return -10
-        return -1  # Negative reward for non-optimal moves
+        # If max steps or game over
+        if self.steps_taken >= self.max_steps or self._check_game_over():
+            done = True
+
+        # Log the action
+        self.actions_log.append({
+            "turn": "player",
+            "move": (q, r),
+            "reward": reward
+        })
+
+        return self._get_obs(), reward, done, {}
+
+    def _get_obs(self):
+        # Flatten player + enemy positions
+        flat_player = self.player_positions.flatten()
+        flat_enemy = self.enemy_positions.flatten()
+        return np.concatenate([flat_player, flat_enemy], axis=0)
+
+    def _is_valid_move(self, q, r):
+        # Example: within 1 hex from current position
+        cur_q, cur_r = self.player_positions[0]
+        dist = self._hex_distance(cur_q, cur_r, q, r)
+        if dist > 1:
+            return False
+
+        # Check if blocked
+        blocked_hexes = {(b["q"], b["r"]) for b in self.puzzle_scenario.get("blockedHexes", [])}
+        if (q, r) in blocked_hexes:
+            return False
+
+        return True
 
     def _is_checkmate(self, q, r):
-        # Placeholder checkmate logic
-        return any((q, r) in [(0, 3), (1, -3)] for q, r in self.state["player_positions"])
-    
+        # Placeholder logic
+        # e.g. if (q, r) in some special list
+        # or if it captures an enemy piece, etc.
+        # For now just check if we stepped on (0,3) or (1,-3)
+        check_positions = [(0,3), (1,-3)]
+        return (q, r) in check_positions
+
     def _check_game_over(self):
-        # Placeholder game over logic
-        return len(self.state["player_positions"]) == 0 or len(self.state["enemy_positions"]) == 0
+        # Could check if no enemies remain, or no player pieces remain, etc.
+        return False
+
+    @staticmethod
+    def _hex_distance(q1, r1, q2, r2):
+        return (abs(q1 - q2) + abs(r1 - r2) + abs((q1 + r1) - (q2 + r2))) / 2
 
 
 scenario = world_data["regions"][0]["puzzleScenarios"][0]
-env = DummyVecEnv([lambda: HexPuzzleEnv(scenario)])
+env = DummyVecEnv([lambda: HexPuzzleEnv(scenario, max_steps=50)])
 
-# Create PPO Model
-model = PPO("MultiInputPolicy", env, verbose=1)
+# Create PPO model
+model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./ppo_logs")
 
-# Training PPO model with modified logging
 print("Training PPO RL model...")
 model.learn(total_timesteps=20000)
 model.save("ppo_redwood_vale")
 
 # Save actions log for visualization
 actions_log_file = "actions_log.npy"
+# We only need to save the log from env.envs[0]
 np.save(actions_log_file, env.envs[0].actions_log)
+print("Training complete. Actions log saved!")

@@ -1,7 +1,8 @@
 import pygame
 import numpy as np
 import yaml
-from rl_training import model, scenario
+import sys
+from stable_baselines3 import PPO
 
 # Hex settings
 HEX_RADIUS = 30
@@ -100,6 +101,8 @@ def handle_navigation(event, prev_rect, next_rect):
         elif event.key == pygame.K_r:
             current_step = 0  # Reset to the start of the iteration
 
+
+
 # Apply the moves from the actions log to update piece positions
 def update_piece_positions(step_data):
     for piece in scenario["pieces"]:
@@ -111,7 +114,11 @@ def render_scenario():
     global current_step, current_iteration, all_iterations
 
     # Load actions log from the model output
-    actions_log = np.load("actions_log.npy", allow_pickle=True)
+    try:
+        actions_log = np.load("actions_log.npy", allow_pickle=True)
+    except FileNotFoundError:
+        print("actions_log.npy not found. Please run rl_training.py first.")
+        sys.exit(1)
     all_iterations = [actions_log]  # Wrap logs in a list so we can iterate
 
     pygame.init()
