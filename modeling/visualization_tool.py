@@ -32,8 +32,8 @@ def hex_to_pixel(q, r):
     return (int(GRID_CENTER[0] + x), int(GRID_CENTER[1] + y))
 
 def draw_hex_grid(screen, subgrid_radius):
-    for q in range(-subgrid_radius, subgrid_radius + 1):
-        for r in range(-subgrid_radius, subgrid_radius + 1):
+    for q in range(-subgrid_radius, subgrid_radius+1):
+        for r in range(-subgrid_radius, subgrid_radius+1):
             if abs(q + r) <= subgrid_radius:
                 x, y = hex_to_pixel(q, r)
                 color = COLOR_BLOCKED_HEX if (q, r) in blocked_hexes else COLOR_HEX
@@ -85,17 +85,12 @@ def draw_buttons(screen):
     pygame.draw.rect(screen, (200,200,200), next_step_rect)
     screen.blit(button_font.render("Next Step →", True, (0,0,0)), (665,555))
 
-    # Show iteration info
     iteration_label = button_font.render(f"Iteration: {current_iteration + 1}/{len(all_iterations)}", True, (0,0,0))
     screen.blit(iteration_label, (350, 10))
 
     return prev_iter_rect, next_iter_rect, prev_step_rect, next_step_rect
 
 def handle_navigation(event, pi, ni, ps, ns):
-    """
-    We also add a new hotkey 'G' to let the user type a specific iteration number in the console,
-    and then jump to that iteration.
-    """
     global current_step, current_iteration
     global user_clicked_next_step, user_clicked_prev_step
     global user_clicked_next_iter, user_clicked_prev_iter
@@ -135,11 +130,9 @@ def handle_navigation(event, pi, ni, ps, ns):
             user_clicked_prev_step = False
 
         elif event.key == pygame.K_r:
-            # reset step to 0
             current_step = 0
 
         elif event.key == pygame.K_g:
-            # 'g' => user wants to jump to an iteration
             print("Type an iteration number in the console and press Enter.")
             try:
                 user_input = input("Enter iteration # to jump to (1-based): ")
@@ -154,10 +147,14 @@ def handle_navigation(event, pi, ni, ps, ns):
 
 def update_piece_positions(step_data):
     """
-    Overwrite scenario["pieces"] to match the environment state for the given step.
+    step_data["positions"] has shape:
+       {"player": np.array([...]),
+        "enemy":  np.array([...])}
+    We overwrite scenario["pieces"] to match those positions exactly.
     """
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
+
     new_pieces = []
     p_idx = 0
     e_idx = 0
@@ -184,7 +181,6 @@ def render_scenario():
     global user_clicked_next_step, user_clicked_prev_step
     global user_clicked_next_iter, user_clicked_prev_iter
 
-    # Load the episodes
     try:
         all_episodes = np.load("actions_log.npy", allow_pickle=True)
     except FileNotFoundError:
@@ -212,26 +208,26 @@ def render_scenario():
         draw_hex_grid(screen, scenario["subGridRadius"])
         pi, ni, ps, ns = draw_buttons(screen)
 
-        # event loop
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             handle_navigation(event, pi, ni, ps, ns)
 
-        # draw the current step
         if 0 <= current_iteration < len(all_iterations):
             episode_data = all_iterations[current_iteration]
+            # clamp current_step in case we clicked next iteration with fewer steps
+            current_step = min(current_step, len(episode_data)-1)
+
             if 0 <= current_step < len(episode_data):
                 step_data = episode_data[current_step]
                 update_piece_positions(step_data)
                 draw_pieces(screen, scenario["pieces"])
 
-                # print step info if user just advanced step
                 if user_clicked_next_step:
                     print(f"Step {current_step+1}/{len(episode_data)} "
                           f"| Iteration {current_iteration+1}/{len(all_iterations)} "
                           f"| Turn#: {step_data.get('turn_number','?')} "
-                          f"| TurnSide: {step_data.get('turn','?')} "
+                          f"| TurnSide: {step_data.get('turn_side','?')} "
                           f"| Reward: {step_data.get('reward','?')}")
 
         pygame.display.flip()
