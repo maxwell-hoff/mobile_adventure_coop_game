@@ -410,6 +410,11 @@ class HexPuzzleEnv(gym.Env):
             coords.append(e["q"])
             coords.append(e["r"])
         return np.array(coords, dtype=np.float32)
+    
+    def _hex_distance(self, q1, r1, q2, r2):
+        return (abs(q1 - q2)
+              + abs(r1 - r2)
+              + abs((q1 + r1) - (q2 + r2))) / 2
 
 
 ###############################
