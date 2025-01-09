@@ -79,6 +79,14 @@ class HexPuzzleEnv(gym.Env):
         self.scenario = deepcopy(self.original_scenario)
         self._init_pieces_from_scenario(self.scenario)
 
+        # DEBUG PRINT: show the scenario's initial positions
+        print("=== RESET ===")
+        for p in self.player_pieces:
+            print(f"Player {p['label']} at ({p['q']}, {p['r']})")
+        for e in self.enemy_pieces:
+            print(f"Enemy {e['label']} at ({e['q']}, {e['r']})")
+        print("================")
+
         self.turn_number = 1
         self.turn_side = "player"
         self.done_forced = False
