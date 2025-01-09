@@ -329,16 +329,13 @@ class HexPuzzleEnv(gym.Env):
         return mask
 
     def _handle_delayed_attacks(self):
-        """
-        If any delayedAttacks have turn_to_trigger == self.turn_number,
-        we apply them. e.g. if it's necrotizing_consecrate, kill all players.
-        """
         new_delayed = []
         for att in self.delayedAttacks:
             if att["turn_to_trigger"] == self.turn_number:
                 if att["type"] == "necrotizing_consecrate":
-                    # kills all player pieces
-                    self.player_pieces.clear()
+                    # Instead of self.player_pieces.clear(), do:
+                    for piece in self.player_pieces:
+                        self._kill_player_piece(piece)
             else:
                 new_delayed.append(att)
         self.delayedAttacks = new_delayed
