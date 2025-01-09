@@ -32,8 +32,7 @@ def hex_to_pixel(q, r):
         q = float(q)  # Convert to float first
         r = float(r)
         x = HEX_RADIUS * (3 / 2) * q
-        y = HEX_RADIUS * np.sqrt(3) * (r + q / 2)
-        # Convert to integers and add grid center
+        y = HEX_RADIUS * (3**0.5) * (r + q / 2)
         return (int(GRID_CENTER[0] + x), int(GRID_CENTER[1] + y))
     except Exception as e:
         print(f"Error in hex_to_pixel conversion: q={q}, r={r}")
@@ -53,7 +52,7 @@ def draw_hex_grid(screen, subgrid_radius):
 def hex_corners(x, y):
     corners = []
     for i in range(6):
-        angle_rad = np.pi / 180 * (60 * i + 30)
+        angle_rad = (60 * i + 30) * (3.14159 / 180.0)
         corner_x = x + HEX_RADIUS * np.cos(angle_rad)
         corner_y = y + HEX_RADIUS * np.sin(angle_rad)
         corners.append((corner_x, corner_y))
@@ -63,7 +62,7 @@ def draw_pieces(screen, pieces):
     for piece in pieces:
         try:
             q, r = piece["q"], piece["r"]
-            x, y = hex_to_pixel(q, r)  # Now guaranteed to be integers
+            x, y = hex_to_pixel(q, r)
             color = COLOR_PLAYER if piece["side"] == "player" else COLOR_ENEMY
             pygame.draw.circle(screen, color, (x, y), HEX_RADIUS // 2)
             label_font = pygame.font.SysFont("Arial", 16)
@@ -112,10 +111,6 @@ def handle_navigation(event,
                       next_iter_rect,
                       prev_step_rect,
                       next_step_rect):
-    """
-    Sets global flags so we only print
-    the move if user explicitly clicked Next Step, etc.
-    """
     global current_step, current_iteration
     global user_clicked_next_step, user_clicked_prev_step
     global user_clicked_next_iter, user_clicked_prev_iter
@@ -158,38 +153,20 @@ def handle_navigation(event,
 
 def update_piece_positions(step_data):
     """
-    Overwrite scenario['pieces'] so it exactly matches
-    how many pieces the environment says are alive.
-    
-    If player_pos is empty, that means the environment
-    says the player has 0 pieces left => remove them all
-    from scenario.
-    
-    If enemy_pos is smaller or bigger, same approach.
+    We overwrite scenario['pieces'] so it exactly matches the
+    environment state for that step (the log shows the true positions).
     """
     player_pos = step_data["positions"]["player"]  # shape (Np, 2)
     enemy_pos = step_data["positions"]["enemy"]    # shape (Ne, 2)
 
-    # We'll build a new list of puzzle pieces from scratch:
     new_pieces = []
-    
-    # Indices to track which row in 'player_pos' or 'enemy_pos' we're on
     p_idx = 0
     e_idx = 0
 
-    # We'll also track how many remain
+    # We'll keep them in the same order they appear in scenario["pieces"],
+    # but skip any that are "dead" from the environment's perspective
     num_player_alive = len(player_pos)
     num_enemy_alive = len(enemy_pos)
-
-    # Option A: if you need to preserve which piece is Warlock vs Sorcerer etc.
-    # we can match them up by label. We'll do a simpler approach:
-    # We'll keep them in the same order they appear in scenario["pieces"].
-    # But if the environment actually changes the *order* of living pieces,
-    # you might need to store piece label in the environment logs.
-
-    # Because each piece in scenario has side=player or side=enemy,
-    # we only fill them up to the # that are alive.  E.g. if environment says 0
-    # player pieces, we skip all "player" pieces in scenario.
 
     for piece in scenario["pieces"]:
         if piece["side"] == "player":
@@ -199,7 +176,7 @@ def update_piece_positions(step_data):
                 new_pieces.append(piece)
                 p_idx += 1
             else:
-                # This piece is "dead" according to environment => skip it
+                # This piece is "dead"
                 pass
         else:  # enemy side
             if e_idx < num_enemy_alive:
@@ -208,10 +185,9 @@ def update_piece_positions(step_data):
                 new_pieces.append(piece)
                 e_idx += 1
             else:
-                # "dead" => skip
+                # "dead"
                 pass
 
-    # Now replace scenario["pieces"] with only the still-living pieces
     scenario["pieces"].clear()
     scenario["pieces"].extend(new_pieces)
 
@@ -222,14 +198,12 @@ def render_scenario():
 
     # Load the multiple episodes from file
     try:
-        # This shape is (n_episodes,) each is a list of steps
         all_episodes = np.load("actions_log.npy", allow_pickle=True)
     except FileNotFoundError:
         print("actions_log.npy not found. Please run rl_training.py first.")
         sys.exit(1)
 
-    # Convert that array to a Python list for easier handling
-    all_iterations = list(all_episodes)  # Now each item is an episode
+    all_iterations = list(all_episodes)  # each item is one "episode"
     if len(all_iterations) == 0:
         print("No episodes in actions_log.npy")
         return
@@ -241,7 +215,7 @@ def render_scenario():
 
     running = True
     while running:
-        # We reset these flags every frame
+        # Reset these flags every frame
         user_clicked_next_step = False
         user_clicked_prev_step = False
         user_clicked_next_iter = False
@@ -250,42 +224,38 @@ def render_scenario():
         screen.fill((255, 255, 255))
         draw_hex_grid(screen, scenario["subGridRadius"])
 
-        # Draw buttons first so we have button_rects for navigation
+        # Draw buttons first so we can detect clicks
         button_rects = draw_buttons(screen)
 
-        # Handle events with the now-defined button_rects
+        # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             handle_navigation(event, *button_rects)
 
-        # Draw iteration/step info if valid
+        # Draw iteration/step if valid
         if (0 <= current_iteration < len(all_iterations)):
             episode_data = all_iterations[current_iteration]
             if (0 <= current_step < len(episode_data)):
                 step_data = episode_data[current_step]
-                # Update scenario pieces from step_data
                 update_piece_positions(step_data)
-                # Draw them
                 draw_pieces(screen, scenario["pieces"])
 
-                # Print info only if the user *just* clicked next step
+                # Print out info only if user explicitly advanced a step
                 if user_clicked_next_step:
-                    # excerpt from inside the 'if user_clicked_next_step:' block
                     print(f"Step {current_step+1}/{len(episode_data)} | "
-                        f"Iteration {current_iteration+1}/{len(all_iterations)} | "
-                        f"Turn#: {step_data.get('turn_number','?')} | "
-                        f"TurnSide: {step_data.get('turn','?')} | "
-                        f"Piece: {step_data.get('piece_label','?')} | "
-                        f"Action: {step_data.get('action','?')} | "
-                        f"Move: {step_data.get('move','?')} | "
-                        f"Reward: {step_data.get('reward','?')}")
+                          f"Iteration {current_iteration+1}/{len(all_iterations)} | "
+                          f"Turn#: {step_data.get('turn_number','?')} | "
+                          f"TurnSide: {step_data.get('turn','?')} | "
+                          f"Piece: {step_data.get('piece_label','?')} | "
+                          f"Action: {step_data.get('action','?')} | "
+                          f"Move: {step_data.get('move','?')} | "
+                          f"Reward: {step_data.get('reward','?')}")
 
         pygame.display.flip()
         clock.tick(60)
 
     pygame.quit()
 
-# Run it
 if __name__ == "__main__":
     render_scenario()
