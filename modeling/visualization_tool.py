@@ -20,6 +20,7 @@ blocked_hexes = {(h["q"], h["r"]) for h in scenario["blockedHexes"]}
 current_step = 0
 current_iteration = 0
 all_iterations = []
+
 user_clicked_next_step = False
 user_clicked_prev_step = False
 user_clicked_next_iter = False
@@ -55,6 +56,7 @@ def draw_pieces(screen, pieces):
         x, y = hex_to_pixel(q, r)
         color = COLOR_PLAYER if piece["side"] == "player" else COLOR_ENEMY
         pygame.draw.circle(screen, color, (x, y), HEX_RADIUS//2)
+
         label_font = pygame.font.SysFont("Arial", 16)
         label = piece.get("label","?")
         txt_surface = label_font.render(label, True, (255, 255, 255))
@@ -62,28 +64,38 @@ def draw_pieces(screen, pieces):
 
 def draw_buttons(screen):
     button_font = pygame.font.SysFont("Arial", 20)
+
+    # Prev Iteration
     prev_iter_rect = pygame.Rect(20, 10, 120, 30)
     pygame.draw.rect(screen, (200,200,200), prev_iter_rect)
     screen.blit(button_font.render("← Prev Iter", True, (0,0,0)), (25,15))
 
+    # Next Iteration
     next_iter_rect = pygame.Rect(660, 10, 120, 30)
     pygame.draw.rect(screen, (200,200,200), next_iter_rect)
     screen.blit(button_font.render("Next Iter →", True, (0,0,0)), (665,15))
 
+    # Prev Step
     prev_step_rect = pygame.Rect(20, 550, 120, 40)
     pygame.draw.rect(screen, (200,200,200), prev_step_rect)
     screen.blit(button_font.render("← Prev Step", True, (0,0,0)), (25,555))
 
+    # Next Step
     next_step_rect = pygame.Rect(660, 550, 120, 40)
     pygame.draw.rect(screen, (200,200,200), next_step_rect)
     screen.blit(button_font.render("Next Step →", True, (0,0,0)), (665,555))
 
+    # Show iteration info
     iteration_label = button_font.render(f"Iteration: {current_iteration + 1}/{len(all_iterations)}", True, (0,0,0))
     screen.blit(iteration_label, (350, 10))
 
     return prev_iter_rect, next_iter_rect, prev_step_rect, next_step_rect
 
 def handle_navigation(event, pi, ni, ps, ns):
+    """
+    We also add a new hotkey 'G' to let the user type a specific iteration number in the console,
+    and then jump to that iteration.
+    """
     global current_step, current_iteration
     global user_clicked_next_step, user_clicked_prev_step
     global user_clicked_next_iter, user_clicked_prev_iter
@@ -121,13 +133,28 @@ def handle_navigation(event, pi, ni, ps, ns):
             current_step = min(len(all_iterations[current_iteration]) - 1, current_step + 1)
             user_clicked_next_step = (current_step != old_step)
             user_clicked_prev_step = False
+
         elif event.key == pygame.K_r:
+            # reset step to 0
             current_step = 0
+
+        elif event.key == pygame.K_g:
+            # 'g' => user wants to jump to an iteration
+            print("Type an iteration number in the console and press Enter.")
+            try:
+                user_input = input("Enter iteration # to jump to (1-based): ")
+                desired_iter = int(user_input) - 1
+                if 0 <= desired_iter < len(all_iterations):
+                    current_iteration = desired_iter
+                    current_step = 0
+                else:
+                    print(f"Invalid iteration: must be between 1 and {len(all_iterations)}.")
+            except ValueError:
+                print("Invalid integer input. Ignoring...")
 
 def update_piece_positions(step_data):
     """
-    Step data includes step_data["positions"]["player"] and step_data["positions"]["enemy"].
-    We'll rewrite scenario["pieces"] to match these positions so we can draw them.
+    Overwrite scenario["pieces"] to match the environment state for the given step.
     """
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
@@ -157,6 +184,7 @@ def render_scenario():
     global user_clicked_next_step, user_clicked_prev_step
     global user_clicked_next_iter, user_clicked_prev_iter
 
+    # Load the episodes
     try:
         all_episodes = np.load("actions_log.npy", allow_pickle=True)
     except FileNotFoundError:
@@ -184,11 +212,13 @@ def render_scenario():
         draw_hex_grid(screen, scenario["subGridRadius"])
         pi, ni, ps, ns = draw_buttons(screen)
 
+        # event loop
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             handle_navigation(event, pi, ni, ps, ns)
 
+        # draw the current step
         if 0 <= current_iteration < len(all_iterations):
             episode_data = all_iterations[current_iteration]
             if 0 <= current_step < len(episode_data):
@@ -196,12 +226,13 @@ def render_scenario():
                 update_piece_positions(step_data)
                 draw_pieces(screen, scenario["pieces"])
 
+                # print step info if user just advanced step
                 if user_clicked_next_step:
-                    print(f"Step {current_step+1}/{len(episode_data)} | "
-                          f"Iteration {current_iteration+1}/{len(all_iterations)} | "
-                          f"Turn#: {step_data.get('turn_number','?')} | "
-                          f"TurnSide: {step_data.get('turn','?')} | "
-                          f"Reward: {step_data.get('reward','?')}")
+                    print(f"Step {current_step+1}/{len(episode_data)} "
+                          f"| Iteration {current_iteration+1}/{len(all_iterations)} "
+                          f"| Turn#: {step_data.get('turn_number','?')} "
+                          f"| TurnSide: {step_data.get('turn','?')} "
+                          f"| Reward: {step_data.get('reward','?')}")
 
         pygame.display.flip()
         clock.tick(60)
