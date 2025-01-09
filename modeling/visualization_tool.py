@@ -32,8 +32,8 @@ def hex_to_pixel(q, r):
     return (int(GRID_CENTER[0] + x), int(GRID_CENTER[1] + y))
 
 def draw_hex_grid(screen, subgrid_radius):
-    for q in range(-subgrid_radius, subgrid_radius+1):
-        for r in range(-subgrid_radius, subgrid_radius+1):
+    for q in range(-subgrid_radius, subgrid_radius + 1):
+        for r in range(-subgrid_radius, subgrid_radius + 1):
             if abs(q + r) <= subgrid_radius:
                 x, y = hex_to_pixel(q, r)
                 color = COLOR_BLOCKED_HEX if (q, r) in blocked_hexes else COLOR_HEX
@@ -132,6 +132,7 @@ def handle_navigation(event, pi, ni, ps, ns):
         elif event.key == pygame.K_r:
             current_step = 0
 
+        # 'g' => user wants to jump to an iteration:
         elif event.key == pygame.K_g:
             print("Type an iteration number in the console and press Enter.")
             try:

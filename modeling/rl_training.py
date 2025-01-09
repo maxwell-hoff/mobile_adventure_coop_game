@@ -30,7 +30,8 @@ class HexPuzzleEnv(gym.Env):
             "turn_number": <int>,
             "turn_side": <"player" or "enemy" or None>,
             "reward": <float>,
-            "positions": {"player": np.array, "enemy": np.array}
+            "positions": {"player": np.array, "enemy": np.array},
+            "non_bloodwarden_kills": <int>  # only in final step
           }
       - We'll add one dict at the start of each episode (turn_number=0, turn_side=None, reward=0)
         to record the initial state (the "reset" state).
@@ -81,6 +82,9 @@ class HexPuzzleEnv(gym.Env):
         self.all_episodes = []     # entire history across episodes
         self.current_episode = []  # logs for this single episode
 
+        # Track how many non–BloodWarden pieces have been killed (from either side)
+        self.non_bloodwarden_kills = 0
+
     @property
     def all_pieces(self):
         """Returns the combined player + enemy piece list."""
@@ -103,9 +107,13 @@ class HexPuzzleEnv(gym.Env):
         self.scenario = deepcopy(self.original_scenario)
         self._init_pieces_from_scenario(self.scenario)
 
+        # Reset turn-based variables
         self.turn_number = 1
         self.turn_side = "player"
         self.done_forced = False
+
+        # Reset the kill counter each episode
+        self.non_bloodwarden_kills = 0
 
         # (Optional) Debug print
         print("\n=== RESET ===")
@@ -166,8 +174,8 @@ class HexPuzzleEnv(gym.Env):
             else:
                 valid_reward -= 1.0
         elif local_action == self.num_positions:
-            # pass => do nothing
-            pass
+            # pass => small penalty
+            valid_reward -= 0.5
         else:
             # necro => only if piece has "BloodWarden"
             if self._can_necro(piece):
@@ -186,21 +194,25 @@ class HexPuzzleEnv(gym.Env):
         """
         Helper to wrap up a single environment step:
           - Store the step in self.current_episode
+          - If ended, also store non_bloodwarden_kills in the final step
           - If not ended, swap turns & possibly increment turn_number
           - Return standard (obs, reward, terminated, truncated, info)
         """
-        # Create a log entry for this step
         step_data = {
             "turn_number": self.turn_number,
             "turn_side": self.turn_side,
             "reward": reward,
             "positions": self._log_positions()
         }
-        self.current_episode.append(step_data)
 
         if terminated or truncated:
+            # store the number of kills in the final step
+            step_data["non_bloodwarden_kills"] = self.non_bloodwarden_kills
             self.done_forced = True
-        else:
+
+        self.current_episode.append(step_data)
+
+        if not (terminated or truncated):
             # swap side
             if self.turn_side == "player":
                 self.turn_side = "enemy"
@@ -281,7 +293,11 @@ class HexPuzzleEnv(gym.Env):
                 self._kill_piece(e)
 
     def _kill_piece(self, piece):
+        # If piece is not BloodWarden, increment kill count
         if not piece.get("dead", False):
+            if piece["class"] != "BloodWarden":
+                self.non_bloodwarden_kills += 1
+
             piece["dead"] = True
             piece["q"] = 9999
             piece["r"] = 9999
@@ -338,15 +354,11 @@ def make_env_fn(scenario_dict):
 
 
 def main():
-    # Load scenario from world_data
+    # 1) Load scenario from world_data
     scenario = world_data["regions"][0]["puzzleScenarios"][0]
     scenario_copy = deepcopy(scenario)
 
-    # Quick test
-    test_env = HexPuzzleEnv(scenario_copy, max_turns=10)
-    print("Observation size:", test_env.obs_size)
-
-    # Make the single environment for training
+    # 2) Create environment
     def factory():
         sc = deepcopy(scenario)
         return make_env_fn(sc)
@@ -354,31 +366,64 @@ def main():
     vec_env = DummyVecEnv([factory()])
 
     model = MaskablePPO("MlpPolicy", vec_env, verbose=1)
-    print("Training single-agent that controls both player & enemy...")
 
-    model.learn(total_timesteps=5000)
+    print("Starting training: continuing until the player side wins at least once...")
+    player_side_has_won = False
+    iteration_count_before = 0
 
-    # After training, gather all episodes from the environment
+    # 3) Keep training in chunks until we see a player-side win
+    while not player_side_has_won:
+        # Train for another chunk of timesteps
+        model.learn(total_timesteps=1000)
+
+        # Retrieve all episodes so far
+        all_episodes = vec_env.envs[0].all_episodes
+
+        # Check any newly-finished episodes for a player-side win
+        for i, ep in enumerate(all_episodes[iteration_count_before:], start=iteration_count_before):
+            if len(ep) == 0:
+                continue
+            final_step = ep[-1]
+            final_reward = final_step["reward"]
+            side = final_step["turn_side"]
+            if final_reward >= 20 and side == "player":
+                print(f"Player side just won in iteration {i+1}!")
+                player_side_has_won = True
+                break
+
+        # Update how many episodes we've already checked
+        iteration_count_before = len(all_episodes)
+
+    # 4) Once we exit the loop, we have at least one player-side win.
+    # Gather all episodes for the final logging.
     all_episodes = vec_env.envs[0].all_episodes
 
-    # We'll do a quick summary: see who "won" in each iteration
+    # 5) We'll do a quick summary: see who "won" in each iteration
     iteration_outcomes = []
     for i, episode in enumerate(all_episodes):
         if len(episode) == 0:
             outcome_str = f"Iteration {i+1}: No steps taken?"
         else:
-            # final step
             final_step = episode[-1]
             final_reward = final_step["reward"]
             side = final_step["turn_side"]
-            if final_reward >= 20:
-                outcome_str = f"Iteration {i+1}: {side} side WINS!"
+
+            nbw_kills = final_step.get("non_bloodwarden_kills", 0)
+            if final_reward >= 20 and side == "player":
+                outcome_str = (f"Iteration {i+1}: PLAYER side WINS! "
+                               f"(non-bloodwarden kills={nbw_kills})")
+            elif final_reward >= 20 and side == "enemy":
+                outcome_str = (f"Iteration {i+1}: ENEMY side WINS! "
+                               f"(non-bloodwarden kills={nbw_kills})")
             elif final_reward <= -20:
-                outcome_str = f"Iteration {i+1}: {side} side LOSES!"
+                outcome_str = (f"Iteration {i+1}: {side} side LOSES! "
+                               f"(non-bloodwarden kills={nbw_kills})")
             elif final_reward == -10:
-                outcome_str = f"Iteration {i+1}: double knockout or time-limit penalty"
+                outcome_str = (f"Iteration {i+1}: double knockout or time-limit penalty "
+                               f"(non-bloodwarden kills={nbw_kills})")
             else:
-                outcome_str = f"Iteration {i+1}: final reward={final_reward}, side={side}"
+                outcome_str = (f"Iteration {i+1}: final reward={final_reward}, side={side}, "
+                               f"non-bloodwarden kills={nbw_kills}")
 
         iteration_outcomes.append(outcome_str)
 
@@ -387,7 +432,7 @@ def main():
         print(outcome)
     print("==========================\n")
 
-    # Save the episodes log
+    # 6) Save the episodes log
     np.save("actions_log.npy", np.array(all_episodes, dtype=object), allow_pickle=True)
     print("Saved actions_log.npy with turn-based scenario.")
 

@@ -1,0 +1,128 @@
+1. Introduction & Overview
+Product Name: Hex-Based Cooperative/Competitive Puzzle-RPG (working title)
+
+Primary Goal
+
+Provide a board-game-like puzzle experience on a hex grid within a larger exploration game framework.
+Players can enter a “Section View” of a region and encounter chess-like or tactical puzzles using classes (Guardian, Hunter, Priest, Sorcerer, Warlock, Bloodwarden, etc.) with special rules.
+Key Objectives
+
+Immersive World: The puzzle scenarios are triggered within specific regions and tiles in a hex-based “world view,” seamlessly integrated into your broader game.
+YAML-Driven: All characters, class abilities, colors, positions, obstacles, and special puzzle logic are configurable via a YAML config file.
+Strategic Depth: Each scenario should feel like a chess puzzle (with minimal pieces, specialized moves, and “checkmate in X moves” constraints), but on a hex layout with unique class-based abilities.
+Two-Move or Three-Move Puzzles: Many scenarios revolve around minimal-turn solutions (similar to checkmate in 2–3) with specialized synergy moves (e.g., Warlock disarms, Sorcerer teleports, etc.).
+2. Target Users & Context
+Players of a Coop/Adventure Board-Game: They explore the world, enter region “tiles,” and occasionally face puzzle scenarios.
+Puzzle Enthusiasts: They want short, intense logic challenges akin to chess compositions.
+Developers/Scenario Authors: They can author or tweak puzzle data in YAML (positions, classes, blocked hexes) without changing code.
+3. Scenarios & Gameplay Requirements
+3.1 Hex-Based Puzzle Scenario
+Hex Layout
+
+Each scenario is a sub-grid (e.g., radius=3 or 4) that forms a small diamond of hexes (~7×7 or 9×9 in axial terms).
+Certain hexes are blocked (impassable).
+Each puzzle scenario has a specific turn limit or “win in X moves” objective.
+Classes & Abilities
+
+Each piece has no HP or minimal “one-hit kill” approach (like chess).
+Classes (Guardian, Hunter, Priest, Sorcerer, Warlock, Bloodwarden) each have unique movement/attack rules, e.g.:
+Guardian: Moves 1 space; can protect an ally (immobilizing both), attacks all adjacent enemies.
+Hunter: Moves 1; can attack from 2 spaces with AoE around the target.
+Priest: Moves 1; can resurrect 1 unit (2-turn cast); can dispel or protect allies.
+Sorcerer: Moves 1; can swap with another character (range 4 LOS), create immovable walls, immobilize a target, or do ranged attacks.
+Warlock: Disarms, places AoE DOT, can pull enemies or swap spots with ally, short-range direct attacks.
+Bloodwarden: Kills everything within 10 hexes but kills itself in 2-turn cast.
+3.2 Two-Move (or Three-Move) Checkmate Puzzles
+Puzzle Flow
+
+The player always moves first, activating one or more pieces.
+The AI or “enemy side” moves in response.
+The puzzle states “Checkmate in 2” or “Checkmate in 3,” meaning the player must arrange kills or unstoppable threats by the final turn.
+Sample Scenario
+
+Warlock disarms enemy Hunter. Sorcerer swaps with Warlock.
+Enemy moves Priest/Guardian 1 step, Bloodwarden starts casting kill-all.
+Next turn, Sorcerer swaps with enemy Priest, Warlock kills Priest => puzzle solved.
+4. Technical Requirements
+4.1 YAML Configuration
+Goal: All scenario data is modular and maintainable purely via YAML, with no code changes needed to tweak positions or class definitions.
+
+YAML Must Contain:
+
+Region / Tile: A reference to which region & hex triggers this scenario.
+Sub-grid parameters: subGridRadius, or explicit coordinate sets.
+Blocked Hexes: A list of sub-hex (q,r) that are impassable.
+Pieces:
+name (e.g., “Priest,” “Warlock,” “Sorcerer,” etc.).
+label (display text on the puzzle board).
+color (hex code or named color).
+side: “player” or “enemy.”
+q, r positions in puzzle sub-grid.
+Example snippet:
+
+yaml
+Copy code
+puzzleScenarios:
+  - name: "PriestKillPuzzle"
+    triggerHex: { q: 0, r: 0 }
+    subGridRadius: 3
+    blockedHexes:
+      - { q: 0, r: 2 }
+      - { q: 1, r: 1 }
+    pieces:
+      - { name: "Warlock", label: "W", color: "#8b008b", side: "player", q: 2, r: 0 }
+      - { name: "Sorcerer", label: "S", color: "#4b0082", side: "player", q: 1, r: 0 }
+      ...
+4.2 JavaScript Implementation
+drawRegionView:
+
+On click of a region’s hex, check if a puzzle scenario is triggered.
+If yes, pass scenario data to drawHexDetailView.
+drawHexDetailView:
+
+If puzzle data is present, parse subGridRadius, blockedHexes, pieces, etc.
+Generate sub-hex coords, color them, place text labels for each piece.
+Possibly show a legend for piece classes & colors.
+Game Logic (Future):
+
+Turn-based interactions, verifying if Warlock uses “disarm,” etc.
+“Checkmate in X moves” detection.
+4.3 Visual Indicators & Legend
+Each piece has a distinct color plus a label in the puzzle sub-grid.
+Blocked hexes are shown in gray.
+A small “legend” in the puzzle display clarifies piece types.
+5. Constraints & Considerations
+No Standard Health Pools: Pieces die from any successful attack or timed “DOT” effect finishing.
+Immobilization & 2-Turn Casts: Must track partial turn states (like Bloodwarden’s 2-turn ability, Priest’s 2-turn resurrect).
+LOS & Range**: Certain spells or attacks require line-of-sight or up to X range. The puzzle system must handle obstacle line-blocking.
+Hex Representation: Using axial coordinates for sub-grids. The code must transform them properly for the puzzle board.
+User Flow:
+World View → Region View → click puzzle tile → Section/Puzzle View.
+Return to region view upon puzzle completion or user choosing “Region View” button.
+6. User Experience Flow
+Player selects Redwood Vale on the World Map.
+In Redwood Vale’s Region View, the user clicks the hex (0,0).
+The system checks the YAML for puzzleScenarios, finds “PriestKillPuzzle,” and loads that puzzle.
+In the Section/Puzzle screen, the user sees a 7×7 sub-grid with various pieces color-labeled (Warlock, Sorcerer, ePriest, etc.).
+The puzzle text or a small popup might read: “Win in 2 moves by killing the enemy Priest.”
+The user executes Warlock’s “disarm,” Sorcerer’s “swap,” etc., until the puzzle is solved.
+If the enemy’s Priest is killed, the puzzle ends successfully and the user returns or the game triggers some victory logic.
+7. Future Extensions
+Multiple Puzzles within Redwood Vale or other regions, each triggered by different triggerHex.
+More Classes or advanced abilities added to the YAML.
+AI Turn Sequencing: The puzzle logic eventually needs a small solver or script so the enemy “knows” how to move its pieces.
+Polish: Animations of Warlock pulling an enemy, Priest resurrecting an ally, etc.
+8. Acceptance Criteria
+YAML-Driven Puzzle
+Scenario data can be entirely customized in world.yaml (or separate puzzle YAML), including piece positions, colors, blocked hexes, and scenario name.
+Successful Puzzle Trigger
+Clicking (q=0, r=0) in Redwood Vale’s Region View transitions into a puzzle sub-grid.
+Visual
+Each piece is color-coded and labeled (e.g., “W” for Warlock, “S” for Sorcerer, “P” for Priest, etc.).
+Blocked hexes are clearly indicated.
+A small legend is displayed.
+Two-Move Win
+The scenario is designed so the user can kill the enemy Priest in 2 moves (assuming correct use of disarm, swap, range attack).
+Puzzle End
+Once the Priest is killed, we can show “Victory” or a simple message.
+The scenario can close or return the user to region view.
