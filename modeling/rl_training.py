@@ -25,10 +25,12 @@ with open(os.path.join("data", "pieces.yaml"), "r") as f:
 class HexPuzzleEnv(gym.Env):
     """
     Single-agent environment controlling both 'player' & 'enemy'.
-    We incorporate a cast_speed for 'necrotizing_consecrate' by storing the action
-    in self.delayedAttacks and triggering it only after that many turns pass.
 
-    The environment never returns an all-False mask while done=False, so MaskablePPO doesn't crash.
+    * We incorporate 'cast_speed' for spells like 'necrotizing_consecrate'
+      via self.delayedAttacks. The spell effect only happens after X turns.
+
+    * We ensure we never return an all-False mask unless we also
+      set a 'dummy' 1-hot so MaskablePPO doesn't crash.
     """
 
     def __init__(self, puzzle_scenario, max_turns=10, render_mode=None):
@@ -38,32 +40,32 @@ class HexPuzzleEnv(gym.Env):
         self.grid_radius = puzzle_scenario["subGridRadius"]
         self.max_turns = max_turns
 
-        # Build piece arrays
+        # Initialize pieces from scenario
         self._init_pieces_from_scenario(self.scenario)
 
-        # Build hex coordinate list
+        # Precompute all hexes
         self.all_hexes = []
-        for q in range(-self.grid_radius, self.grid_radius + 1):
-            for r in range(-self.grid_radius, self.grid_radius + 1):
-                if abs(q + r) <= self.grid_radius:
+        for q in range(-self.grid_radius, self.grid_radius+1):
+            for r in range(-self.grid_radius, self.grid_radius+1):
+                if abs(q+r) <= self.grid_radius:
                     self.all_hexes.append((q, r))
         self.num_positions = len(self.all_hexes)
 
-        # +1 for pass, +1 for necro
+        # Each piece => can do up to (num_positions) moves, +1 pass, +1 necro => total actions
         self.actions_per_piece = self.num_positions + 2
-        self.total_pieces = len(self.all_pieces)
+        self.total_pieces = len(self.all_pieces)  # e.g. 8 for 3 player + 5 enemy
         self.total_actions = self.total_pieces * self.actions_per_piece
         self.action_space = gym.spaces.Discrete(self.total_actions)
 
-        # Observations = (q, r) for each piece
+        # Observations = (q,r) for each piece
         self.obs_size = 2 * self.total_pieces
         self.observation_space = gym.spaces.Box(
-            low=-self.grid_radius,
-            high=self.grid_radius,
+            low=-self.grid_radius, high=self.grid_radius,
             shape=(self.obs_size,),
             dtype=np.float32
         )
 
+        # Turn variables
         self.turn_number = 1
         self.turn_side = "player"
         self.done_forced = False
@@ -73,16 +75,8 @@ class HexPuzzleEnv(gym.Env):
         self.current_episode = []
         self.non_bloodwarden_kills = 0
 
-        # NEW: store upcoming delayedAttacks. Each item might be:
-        # {
-        #   "caster_side": "player" or "enemy",
-        #   "caster_label": "...",
-        #   "trigger_turn": <int>,
-        #   "action_name": "necrotizing_consecrate",
-        #   "original_q": ...,
-        #   "original_r": ...,
-        # }
-        self.delayedAttacks = []
+        # For delayed spells
+        self.delayedAttacks = []  # e.g. necrotizing_consecrate with cast_speed
 
     @property
     def all_pieces(self):
@@ -95,6 +89,7 @@ class HexPuzzleEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
+        # If we had a running episode, store it
         if len(self.current_episode) > 0:
             self.all_episodes.append(self.current_episode)
         self.current_episode = []
@@ -106,8 +101,6 @@ class HexPuzzleEnv(gym.Env):
         self.turn_side = "player"
         self.done_forced = False
         self.non_bloodwarden_kills = 0
-
-        # Clear any delayedAttacks from prior episode
         self.delayedAttacks.clear()
 
         print("\n=== RESET ===")
@@ -129,6 +122,7 @@ class HexPuzzleEnv(gym.Env):
         return self._get_obs(), {}
 
     def step(self, action):
+        # If forcibly done, instantly return
         if self.done_forced:
             return self._get_obs(), 0.0, True, False, {}
 
@@ -136,6 +130,7 @@ class HexPuzzleEnv(gym.Env):
         local_action = action % self.actions_per_piece
         valid_reward = 0.0
 
+        # Basic checks
         if piece_index < 0 or piece_index >= len(self.all_pieces):
             return self._finish_step(-1.0, terminated=False, truncated=False)
 
@@ -143,9 +138,9 @@ class HexPuzzleEnv(gym.Env):
         if piece.get("dead", False) or piece["side"] != self.turn_side:
             return self._finish_step(-1.0, terminated=False, truncated=False)
 
-        # interpret local_action
+        # Actually interpret the local_action
         if local_action < self.num_positions:
-            # move
+            # Move
             q, r = self.all_hexes[local_action]
             if self._valid_move(piece, q, r):
                 piece["q"] = q
@@ -153,19 +148,24 @@ class HexPuzzleEnv(gym.Env):
             else:
                 valid_reward -= 1.0
         elif local_action == self.num_positions:
-            # pass => small penalty
+            # pass => minor penalty
             valid_reward -= 0.5
         else:
-            # necro
+            # necro => see if caster can do it
             if self._can_necro(piece):
                 self._schedule_necro(piece)
             else:
                 valid_reward -= 1.0
 
+        # Now do normal end-of-turn checks
         reward, terminated, truncated = self._apply_end_conditions(valid_reward)
         return self._finish_step(reward, terminated, truncated)
 
     def _finish_step(self, reward, terminated, truncated):
+        """
+        Concludes the side's step, logs the step_data, possibly flips side,
+        triggers delayedAttacks if we just completed a full round (enemy->player).
+        """
         step_data = {
             "turn_number": self.turn_number,
             "turn_side": self.turn_side,
@@ -178,16 +178,15 @@ class HexPuzzleEnv(gym.Env):
 
         self.current_episode.append(step_data)
 
-        # If we are not ending, let's swap side and then handle delayedAttacks
         if not (terminated or truncated):
-            # switch side
+            # Switch side
             if self.turn_side == "player":
                 self.turn_side = "enemy"
             else:
                 self.turn_side = "player"
                 self.turn_number += 1
 
-            # After side swap, let's check if any delayedAttacks trigger now
+            # After side swap, we check delayedAttacks
             self._check_delayed_attacks()
 
         obs = self._get_obs()
@@ -195,103 +194,85 @@ class HexPuzzleEnv(gym.Env):
 
     def _check_delayed_attacks(self):
         """
-        If any delayed necro is due to trigger this turn, apply it.
-        We tie the reward to the original caster side.
+        For each delayed spell, if trigger_turn == self.turn_number => apply effect.
+        Then remove it from self.delayedAttacks.
         """
         to_remove = []
         for i, att in enumerate(self.delayedAttacks):
             if att["trigger_turn"] == self.turn_number:
-                # We apply necro effect
+                # Attack triggers now
                 caster_side = att["caster_side"]
-                # Possibly check if the caster is still alive or in the same location:
-                # If you want to cancel if caster moved/died, do so here. 
-                # We'll do a simpler approach: just always triggers.
+                # If you want to check if caster is alive or not => do it here.
+                # We'll do a direct effect.
 
-                # Kill the opposing side's pieces
+                # We'll handle necro. If in future there are more spells, handle them similarly.
+                # e.g. if att["action_name"] == "necrotizing_consecrate":
+
                 if caster_side == "enemy":
-                    # kill all player pieces
+                    kills = sum(1 for p in self.player_pieces if not p.get("dead",False))
                     for p in self.player_pieces:
                         self._kill_piece(p)
-                    # big reward if the "enemy" side is currently acting
-                    # but we are not sure if we want to do the reward now or if the "enemy" is the turn side
-                    # We'll do a simple approach: +5 reward for each kill or a big +20 if that wipes them all, etc.
-                    kills = sum(1 for p in self.player_pieces if p.get("dead",False))
-                    # let's do +2 per kill
-                    # Or do a bigger reward if that wipes the entire player side
-                    # We'll do +2 * kills
-                    # If that kills them all => additional +10, etc.
-                    # For now, let's do a moderate reward
                     extra_reward = 2*kills
-                    # We'll store it in the step log => self.current_episode[-1]["reward"] += extra_reward
-                    # But we want to do so in a new "step" dict, or we can just attach it
-                    # We'll do a separate record:
                     event_dict = {
                         "turn_number": self.turn_number,
                         "turn_side": "enemy",
                         "reward": extra_reward,
                         "positions": self._log_positions(),
-                        "desc": f"Delayed necro cast by enemy killed {kills} player piece(s)."
+                        "desc": f"Delayed necro by enemy killed {kills} player piece(s)."
                     }
                     self.current_episode.append(event_dict)
-
                 else:
-                    # kill all enemy pieces
                     kills = sum(1 for e in self.enemy_pieces if not e.get("dead",False))
                     for e in self.enemy_pieces:
                         self._kill_piece(e)
-                    # Let's do a reward for that
                     extra_reward = 2*kills
                     event_dict = {
                         "turn_number": self.turn_number,
                         "turn_side": "player",
                         "reward": extra_reward,
                         "positions": self._log_positions(),
-                        "desc": f"Delayed necro cast by player killed {kills} enemy piece(s)."
+                        "desc": f"Delayed necro by player killed {kills} enemy piece(s)."
                     }
                     self.current_episode.append(event_dict)
 
-                # Mark for removal
                 to_remove.append(i)
 
-        # Remove them in reverse order
         for idx in reversed(to_remove):
             self.delayedAttacks.pop(idx)
 
     def _schedule_necro(self, piece):
         """
-        If cast_speed>0 => store in self.delayedAttacks
+        If cast_speed>0 => delayed,
         else => immediate effect
         """
         piece_class = pieces_data["classes"][piece["class"]]
         necro_data = piece_class["actions"]["necrotizing_consecrate"]
         cast_speed = necro_data.get("cast_speed", 0)
+
         if cast_speed > 0:
-            # Schedule
-            turn_to_trigger = self.turn_number + cast_speed
-            # Log we are scheduling
+            # Delayed
+            trigger_turn = self.turn_number + cast_speed
             schedule_event = {
                 "turn_number": self.turn_number,
                 "turn_side": piece["side"],
                 "reward": 0.0,
                 "positions": self._log_positions(),
-                "desc": f"{piece['class']} ({piece['label']}) started necro, triggers on turn {turn_to_trigger}"
+                "desc": f"{piece['class']} ({piece['label']}) started necro, triggers on turn {trigger_turn}"
             }
             self.current_episode.append(schedule_event)
 
             self.delayedAttacks.append({
                 "caster_side": piece["side"],
                 "caster_label": piece["label"],
-                "trigger_turn": turn_to_trigger,
+                "trigger_turn": trigger_turn,
                 "action_name": "necrotizing_consecrate"
             })
         else:
-            # immediate effect
+            # Immediate effect
             if piece["side"] == "enemy":
-                # kill all player
                 kills = sum(1 for p in self.player_pieces if not p.get("dead",False))
                 for p in self.player_pieces:
                     self._kill_piece(p)
-                # log it
                 event_dict = {
                     "turn_number": self.turn_number,
                     "turn_side": "enemy",
@@ -301,7 +282,6 @@ class HexPuzzleEnv(gym.Env):
                 }
                 self.current_episode.append(event_dict)
             else:
-                # kill all enemy
                 kills = sum(1 for e in self.enemy_pieces if not e.get("dead",False))
                 for e in self.enemy_pieces:
                     self._kill_piece(e)
@@ -316,36 +296,31 @@ class HexPuzzleEnv(gym.Env):
 
     def _apply_end_conditions(self, base_reward):
         """
-        Normal end-of-episode logic. 
-        The necro cast might not immediately kill anything if cast_speed>0,
-        so we rely on delayedAttacks to do the actual kills in _check_delayed_attacks().
+        Normal end-of-episode checks: if either side is wiped => end,
+        or if turn_number > max_turns => truncated => -10
         """
-        player_alive = [p for p in self.player_pieces if not p.get("dead", False)]
-        enemy_alive = [p for p in self.enemy_pieces if not p.get("dead", False)]
+        player_alive = [p for p in self.player_pieces if not p.get("dead",False)]
+        enemy_alive = [p for p in self.enemy_pieces if not p.get("dead",False)]
         reward = base_reward
         terminated = False
         truncated = False
 
-        # Both sides wiped
-        if len(player_alive) == 0 and len(enemy_alive) == 0:
+        if len(player_alive) == 0 and len(enemy_alive)==0:
             reward -= 10
             terminated = True
-        elif len(player_alive) == 0:
-            # If I'm enemy => +20, if I'm player => -20
+        elif len(player_alive)==0:
             if self.turn_side == "enemy":
                 reward += 20
             else:
                 reward -= 20
             terminated = True
-        elif len(enemy_alive) == 0:
-            # If I'm player => +20, if I'm enemy => -20
+        elif len(enemy_alive)==0:
             if self.turn_side == "player":
                 reward += 20
             else:
                 reward -= 20
             terminated = True
 
-        # turn limit
         if not terminated:
             if self.turn_number >= self.max_turns:
                 reward -= 10
@@ -354,6 +329,7 @@ class HexPuzzleEnv(gym.Env):
         return reward, terminated, truncated
 
     def _valid_move(self, piece, q, r):
+        """Return True if piece can move to (q,r)."""
         piece_class = pieces_data["classes"][piece["class"]]
         move_def = piece_class["actions"].get("move", None)
         if not move_def:
@@ -368,9 +344,10 @@ class HexPuzzleEnv(gym.Env):
         if (q, r) in blocked_hexes:
             return False
 
-        living_positions = [(p["q"], p["r"]) for p in self.all_pieces if not p.get("dead", False)]
-        if (q, r) in living_positions:
-            return False
+        # If another piece is living there
+        for pc in self.all_pieces:
+            if not pc.get("dead",False) and pc["q"]==q and pc["r"]==r:
+                return False
 
         return True
 
@@ -378,74 +355,80 @@ class HexPuzzleEnv(gym.Env):
         return piece["class"] == "BloodWarden"
 
     def _kill_piece(self, piece):
-        if not piece.get("dead", False):
-            if piece["class"] != "BloodWarden":
-                self.non_bloodwarden_kills += 1
-            piece["dead"] = True
-            piece["q"] = 9999
-            piece["r"] = 9999
+        if not piece.get("dead",False):
+            # If not BloodWarden => track kills
+            if piece["class"]!="BloodWarden":
+                self.non_bloodwarden_kills+=1
+            piece["dead"]=True
+            piece["q"]=9999
+            piece["r"]=9999
 
-    def _hex_distance(self, q1, r1, q2, r2):
-        return (abs(q1 - q2)
-              + abs(r1 - r2)
-              + abs((q1 + r1) - (q2 + r2))) / 2
+    def _hex_distance(self,q1,r1,q2,r2):
+        return (abs(q1-q2) + abs(r1-r2) + abs((q1+r1)-(q2+r2)))//2
 
     def _get_obs(self):
-        coords = []
+        coords=[]
         for p in self.player_pieces:
             coords.append(p["q"])
             coords.append(p["r"])
         for e in self.enemy_pieces:
             coords.append(e["q"])
             coords.append(e["r"])
-        return np.array(coords, dtype=np.float32)
+        return np.array(coords,dtype=np.float32)
 
     def _log_positions(self):
-        player_arr = np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.float32)
-        enemy_arr = np.array([[p["q"], p["r"]] for p in self.enemy_pieces], dtype=np.float32)
-        return {"player": player_arr, "enemy": enemy_arr}
+        pa = np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.float32)
+        ea = np.array([[p["q"], p["r"]] for p in self.enemy_pieces], dtype=np.float32)
+        return {"player": pa, "enemy": ea}
 
     def _get_action_mask(self):
         """
-        If we produce an all-False mask but the env is not done, MaskablePPO meltdown.
-        So we ensure we never produce an all-False mask while done=False.
-        - If no living pieces => forcibly end => return a 1-hot "dummy" mask.
-        - If after building is all-False => forcibly end => return a 1-hot "dummy" mask.
+        We'll never produce an all-False mask while done=False.
+        If we detect no valid actions => done_forced = True + dummy 1-hot.
         """
         if self.done_forced:
-            mask = np.zeros(self.total_actions, dtype=bool)
-            mask[0] = True
-            return mask
-
-        side_living = [pc for pc in self.all_pieces if pc["side"] == self.turn_side and not pc.get("dead", False)]
-        if len(side_living) == 0:
-            print(f"No living pieces for {self.turn_side} => forcibly end puzzle!")
-            self.done_forced = True
-            mask = np.zeros(self.total_actions, dtype=bool)
-            mask[0] = True
-            return mask
+            # Return dummy
+            dummy = np.zeros(self.total_actions, dtype=bool)
+            dummy[0]=True
+            return dummy
 
         mask = np.zeros(self.total_actions, dtype=bool)
+
+        # Build for living pieces of current side
+        side_living = [pc for pc in self.all_pieces if pc["side"]==self.turn_side and not pc.get("dead",False)]
+
+        # If no living => we do not forcibly end here; 
+        # Instead we only do 'dummy mask' => next step => environment sees side is dead => ends
+        if len(side_living)==0:
+            print(f"No living pieces for {self.turn_side}, no valid actions => dummy mask.")
+            # We do *not* forcibly end puzzle here. We'll let step check and do so. 
+            dummy = np.zeros(self.total_actions,dtype=bool)
+            dummy[0]=True
+            return dummy
+
+        # Build normal
         for i, pc in enumerate(self.all_pieces):
-            if pc.get("dead", False) or pc["side"] != self.turn_side:
+            if pc.get("dead",False) or pc["side"]!=self.turn_side:
                 continue
 
-            base = i * self.actions_per_piece
-            # moves
-            for h_idx, (q, r) in enumerate(self.all_hexes):
-                if self._valid_move(pc, q, r):
-                    mask[base + h_idx] = True
+            base = i*self.actions_per_piece
+            # for each hex => if valid move => True
+            for idx,(q,r) in enumerate(self.all_hexes):
+                if self._valid_move(pc,q,r):
+                    mask[base+idx]=True
             # pass
-            mask[base + self.num_positions] = True
+            mask[base+self.num_positions] = True
+
             # necro
             if self._can_necro(pc):
-                mask[base + self.num_positions + 1] = True
+                mask[base+self.num_positions+1]=True
 
         if not mask.any():
-            print(f"No valid actions for side={self.turn_side} => forcibly end puzzle!")
-            self.done_forced = True
-            mask = np.zeros(self.total_actions, dtype=bool)
-            mask[0] = True
+            print(f"No valid actions => dummy mask.")
+            # do not forcibly end => let _apply_end_conditions handle
+            dummy = np.zeros(self.total_actions,dtype=bool)
+            dummy[0]=True
+            return dummy
 
         return mask
 
@@ -473,69 +456,62 @@ def main():
     player_side_has_won = False
     iteration_count_before = 0
     start_time = time.time()
-    time_limit = 20 * 60  # 20 minutes
+    time_limit = 20*60
 
     while True:
         model.learn(total_timesteps=1000)
 
-        # Time check
-        elapsed = time.time() - start_time
-        if elapsed >= time_limit:
+        elapsed = time.time()-start_time
+        if elapsed>=time_limit:
             print("Time limit reached, stopping.")
             break
 
         all_eps = vec_env.envs[0].all_episodes
-        # Check for player-side win
-        for i, ep in enumerate(all_eps[iteration_count_before:], start=iteration_count_before):
-            if len(ep) == 0:
+        # Check if any newly-finished ep has final_reward>=20, side=player
+        for i,ep in enumerate(all_eps[iteration_count_before:], start=iteration_count_before):
+            if len(ep)==0: 
                 continue
-            final_step = ep[-1]
-            if final_step["reward"] >= 20 and final_step["turn_side"] == "player":
+            final_step=ep[-1]
+            if final_step["reward"]>=20 and final_step["turn_side"]=="player":
                 print(f"Player side just won on iteration {i+1}!")
-                player_side_has_won = True
+                player_side_has_won=True
                 break
-
-        iteration_count_before = len(all_eps)
+        iteration_count_before=len(all_eps)
         if player_side_has_won:
             break
 
-    # Gather all episodes
-    all_episodes = vec_env.envs[0].all_episodes
-
     # Summarize
+    all_episodes = vec_env.envs[0].all_episodes
     iteration_outcomes = []
-    for i, ep in enumerate(all_episodes):
-        if len(ep) == 0:
+    for i,episode in enumerate(all_episodes):
+        if len(episode)==0:
             iteration_outcomes.append(f"Iteration {i+1}: No steps taken?")
             continue
-
-        final_step = ep[-1]
-        rew = final_step["reward"]
-        side = final_step["turn_side"]
-        nbw_kills = final_step.get("non_bloodwarden_kills", 0)
-
-        if rew >= 20 and side == "player":
-            outcome_str = f"Iteration {i+1}: PLAYER side WINS! (nbw_kills={nbw_kills})"
-        elif rew >= 20 and side == "enemy":
-            outcome_str = f"Iteration {i+1}: ENEMY side WINS! (nbw_kills={nbw_kills})"
-        elif rew <= -20:
-            outcome_str = f"Iteration {i+1}: {side} side LOSES! (nbw_kills={nbw_kills})"
-        elif rew == -10:
-            outcome_str = f"Iteration {i+1}: double knockout/time-limit penalty (nbw_kills={nbw_kills})"
+        final = episode[-1]
+        rew=final["reward"]
+        side=final["turn_side"]
+        nbk=final.get("non_bloodwarden_kills",0)
+        if rew>=20 and side=="player":
+            outcome_str=f"Iteration {i+1}: PLAYER side WINS! (nbw_kills={nbk})"
+        elif rew>=20 and side=="enemy":
+            outcome_str=f"Iteration {i+1}: ENEMY side WINS! (nbw_kills={nbk})"
+        elif rew<=-20:
+            outcome_str=f"Iteration {i+1}: {side} side LOSES! (nbw_kills={nbk})"
+        elif rew==-10:
+            outcome_str=f"Iteration {i+1}: double knockout/time-limit penalty (nbw_kills={nbk})"
         else:
-            outcome_str = (f"Iteration {i+1}: final reward={rew}, turn_side={side}, "
-                           f"non_bloodwarden_kills={nbw_kills}")
-
+            outcome_str=(f"Iteration {i+1}: final reward={rew}, turn_side={side}, "
+                         f"non_bloodwarden_kills={nbk}")
         iteration_outcomes.append(outcome_str)
 
     print("\n=== Iteration Outcomes ===")
-    for out in iteration_outcomes:
-        print(out)
+    for o in iteration_outcomes:
+        print(o)
     print("==========================\n")
 
     np.save("actions_log.npy", np.array(all_episodes, dtype=object), allow_pickle=True)
     print("Saved actions_log.npy with scenario.")
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
