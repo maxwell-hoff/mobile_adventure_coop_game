@@ -55,7 +55,9 @@ classes:
         attack_type: "magic"
         max_num_targets: 1
         ally_only: False
+        requires_los: False
         description: "Swap positions with an ally or enemy within 4 hexes"
+
 
   Priest:
     description: "A holy guardian with healing and protective abilities"

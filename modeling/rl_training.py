@@ -598,7 +598,7 @@ def main():
     player_side_has_won = False
     iteration_count_before = 0
     start_time = time.time()
-    time_limit = 20 * 60
+    time_limit = 2 * 60
 
     while True:
         model.learn(total_timesteps=1000)
@@ -618,10 +618,10 @@ def main():
             if rew >= 20 and side == "player":
                 print(f"Player side just won iteration {i+1}!")
                 player_side_has_won = True
-                break
+                # break
         iteration_count_before = len(all_eps)
-        if player_side_has_won:
-            break
+        # if player_side_has_won:
+        #     break
 
     # Summaries
     all_episodes = vec_env.envs[0].all_episodes
