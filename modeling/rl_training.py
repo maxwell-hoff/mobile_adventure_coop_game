@@ -30,7 +30,7 @@ def hex_distance(q1, r1, q2, r2):
 
 def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
     """
-    True if no blocked hex or piece fully blocks the line from (q1,r1) to (q2,r2).
+    True if no blocked hex or living piece fully blocks the line from (q1,r1) to (q2,r2).
     We mimic your map.js approach: get all hexes along the line, skip start & end.
     If any are blocked or have a living piece => no LOS.
     """
@@ -44,16 +44,16 @@ def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
     s2 = -q2 - r2
 
     line_hexes = []
-    for i in range(N+1):
+    for i in range(N + 1):
         t = i / N
         qf = q1 + (q2 - q1) * t
         rf = r1 + (r2 - r1) * t
         sf = s1 + (s2 - s1) * t
-        # Round
         rq = round(qf)
         rr = round(rf)
         rs = round(sf)
-        # Fix sum=0 if rounding is off
+
+        # Fix rounding so q + r + s = 0
         qdiff = abs(rq - qf)
         rdiff = abs(rr - rf)
         sdiff = abs(rs - sf)
@@ -61,19 +61,17 @@ def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
             rq = -rr - rs
         elif rdiff > sdiff:
             rr = -rq - rs
+
         line_hexes.append((rq, rr))
 
-    # Check mid points for blocking
-    # skip the first & last
+    # skip the first and last
     for (hq, hr) in line_hexes[1:-1]:
+        # blocked hex?
         if (hq, hr) in blocked_hexes:
             return False
-        # If any piece is exactly in that hex (and alive)
-        # => blocks LOS
-        # (In your logic, might want different rules, but let's do it.)
-        # We'll check "all_pieces" for living piece
+        # or living piece
         for p in all_pieces:
-            if not p.get("dead", False) and p["q"] == hq and p["r"] == hr:
+            if not p.get("dead", False) and (p["q"], p["r"]) == (hq, hr):
                 return False
     return True
 
@@ -82,21 +80,21 @@ class HexPuzzleEnv(gym.Env):
     """
     Single-agent environment controlling both 'player' & 'enemy'.
 
-    We replicate "map.js" logic more closely by enumerating not only
-    "move/pass/necro", but also single-target or multi-target attacks, so each
-    distinct target (or subset) is its own discrete action. 
+    We replicate "map.js" logic more closely by enumerating:
+      - move actions
+      - pass
+      - necrotizing_consecrate
+      - single_target_attack
+      - multi_target_attack
+      - (optionally AOE)...
 
-    This way, the agent can actually pick e.g. 'dark_bolt' on a specific enemy's hex.
-    
-    Key points:
-      * If the enemy Priest is killed => we instantly give +20 to current side => end.
-      * If there's an enemy in range for some attack, but we skip => small negative (-0.2).
-      * We rely on a _get_full_action_list() that enumerates sub-actions:
-          - move to each valid hex
-          - pass
-          - each single_target_attack vs each valid enemy
-          - each multi_target_attack vs subsets of enemies
-          - necro if available
+    Then in step(), we decode and apply them. We fix the 'target_idx' KeyError by actually
+    using 'target_piece' or 'targets' that we stored in sub_action.
+
+    Additional constraints:
+      * Killing the enemy's Priest => immediate +20.
+      * If there's at least one enemy in range for an attack but we choose no attack => -0.2.
+      * If we pass => -0.5
     """
 
     def __init__(self, puzzle_scenario, max_turns=10, render_mode=None):
@@ -116,17 +114,12 @@ class HexPuzzleEnv(gym.Env):
                     self.all_hexes.append((q, r))
         self.num_positions = len(self.all_hexes)
 
-        # Instead of a fixed "actions_per_piece", we will build a dynamic list
-        # of (piece_index, sub_action) in _get_full_action_list().
-        # But we do need a consistent action_space size. We'll define a "max_actions"
-        # so we do a stable shape. Or we can define it large enough, e.g. 500, to cover worst-case.
-        # For subgrid radius=3 => 7x7=49 hexes => each piece might move to ~49 or pass or do single-target
-        # If multi-target => can be big. We'll pick some big number, but in practice might do more complex approach.
-        self.max_actions_for_side = 500  # hopefully big enough for all enumerations in worst case
+        # We'll define a max so stable_baselines3 sees a fixed discrete space:
+        self.max_actions_for_side = 500
         self.action_space = gym.spaces.Discrete(self.max_actions_for_side)
 
-        # Observations => 2 coords per piece
-        self.obs_size = 2 * len(self.all_pieces)
+        # Observations
+        self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius,
             high=self.grid_radius,
@@ -141,12 +134,7 @@ class HexPuzzleEnv(gym.Env):
         self.all_episodes = []
         self.current_episode = []
         self.non_bloodwarden_kills = 0
-
-        # For delayed spells
         self.delayedAttacks = []
-
-        # We'll store the enumerated actions in a list => self.current_action_list
-        # Each step, we rebuild it in _build_action_list() => we produce a mask accordingly.
 
     @property
     def all_pieces(self):
@@ -188,74 +176,64 @@ class HexPuzzleEnv(gym.Env):
 
         return self._get_obs(), {}
 
-    def step(self, action_index):
+    def step(self, action_idx):
         if self.done_forced:
             return self._get_obs(), 0.0, True, False, {}
 
-        # Rebuild possible actions:
-        valid_actions = self._build_action_list()
-        if len(valid_actions) == 0:
-            # forcibly end puzzle:
+        # If the current side has zero living pieces => forcibly end
+        side_living = [pc for pc in self.all_pieces if pc["side"] == self.turn_side and not pc.get("dead", False)]
+        if len(side_living) == 0:
             end_reward, term, _ = self._apply_end_conditions(0.0)
             return self._finish_step(end_reward, term, False)
 
-        if action_index < 0 or action_index >= len(valid_actions):
-            # invalid => penalize
+        # Build the valid sub-action list
+        valid_actions = self._build_action_list()
+        if len(valid_actions) == 0:
+            # no possible actions => forcibly end
+            end_reward, term, _ = self._apply_end_conditions(0.0)
+            return self._finish_step(end_reward, term, False)
+
+        if action_idx < 0 or action_idx >= len(valid_actions):
+            # invalid => small penalty
             return self._finish_step(-1.0, False, False)
 
-        # decode
-        piece_index, sub_action = valid_actions[action_index]
-        piece = self.all_pieces[piece_index]
+        (pidx, sub_action) = valid_actions[action_idx]
+        piece = self.all_pieces[pidx]
         if piece.get("dead", False) or piece["side"] != self.turn_side:
             return self._finish_step(-1.0, False, False)
 
-        # Check if we skip an attack
-        # If piece could have attacked => but we didn't do an "attack" => small negative
-        # We'll define "attack" as sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"]
+        # If the piece *could* have attacked but didn't => -0.2
         could_attack = self._could_have_attacked(piece)
-        do_attack = (sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"])
+        is_attack = sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"]
         reward_mod = 0.0
-        if could_attack and not do_attack:
+        if could_attack and not is_attack:
             reward_mod -= 0.2
 
-        # Now apply the sub_action
-        final_reward = 0.0 + reward_mod
-        subtype = sub_action["type"]
-        if subtype == "move":
-            # move
-            q, r = sub_action["dest"]
+        # apply sub_action
+        atype = sub_action["type"]
+        if atype == "move":
+            (q, r) = sub_action["dest"]
             piece["q"] = q
             piece["r"] = r
-        elif subtype == "pass":
-            final_reward -= 0.5
-        elif subtype == "aoe" and sub_action["name"] == "necrotizing_consecrate":
-            # same logic as _schedule_necro
+        elif atype == "pass":
+            reward_mod -= 0.5
+        elif atype == "aoe" and sub_action.get("name") == "necrotizing_consecrate":
             self._schedule_necro(piece)
-        elif subtype == "single_target_attack":
-            # kill that one enemy
-            target_idx = sub_action["target_idx"]  # index in enemy array, or we store reference
-            # We'll do it by label or direct reference. Let’s store direct piece ref in the sub_action
-            target_piece = sub_action["target_piece"]
-            # immediate
+        elif atype == "single_target_attack":
+            # Here we use "target_piece"
+            target_piece = sub_action["target_piece"]  # Not target_idx
             if target_piece is not None and not target_piece.get("dead", False):
-                # kill
                 self._kill_piece(target_piece)
-                final_reward += 1.0  # maybe +1 per kill
-        elif subtype == "multi_target_attack":
-            # kill each in sub_action["targets"]
-            for t in sub_action["targets"]:
-                if not t.get("dead", False):
-                    self._kill_piece(t)
-                    final_reward += 1.0
-        else:
-            # e.g. "dark_bolt" or something
-            # we can unify single_target/multi_target. But let's handle if we want a cast_speed
-            # If some spells have cast_speed => we do delayedAttacks
-            pass
+                reward_mod += 1.0
+        elif atype == "multi_target_attack":
+            for tgt in sub_action["targets"]:
+                if not tgt.get("dead", False):
+                    self._kill_piece(tgt)
+                    reward_mod += 1.0
+        # else other action types as needed
 
-        # Now do normal end checks
-        rew, terminated, truncated = self._apply_end_conditions(final_reward)
-        return self._finish_step(rew, terminated, truncated)
+        final_reward, terminated, truncated = self._apply_end_conditions(reward_mod)
+        return self._finish_step(final_reward, terminated, truncated)
 
     def _finish_step(self, reward, terminated, truncated):
         step_data = {
@@ -271,228 +249,167 @@ class HexPuzzleEnv(gym.Env):
         self.current_episode.append(step_data)
 
         if not (terminated or truncated):
+            # swap side
             if self.turn_side == "player":
                 self.turn_side = "enemy"
             else:
                 self.turn_side = "player"
                 self.turn_number += 1
-
             self._check_delayed_attacks()
 
-        obs = self._get_obs()
-        return obs, reward, terminated, truncated, {}
+        return self._get_obs(), reward, terminated, truncated, {}
 
     def _build_action_list(self):
         """
         Return a list of (piece_index, sub_action_dict).
-        sub_action_dict is e.g. {"type": "move", "dest": (q,r)}
-        or {"type":"single_target_attack", "target_piece":..., "range":...}
-        We'll produce at most self.max_actions_for_side (some large cap).
+        This enumerates moves, pass, necro, single_target, multi_target, etc.
         """
         actions = []
         living_side = [(i, pc) for (i, pc) in enumerate(self.all_pieces)
                        if pc["side"] == self.turn_side and not pc.get("dead", False)]
         if len(living_side) == 0:
-            return actions
+            return actions  # none
 
-        # Build blocked hex set
+        # We'll gather references to enemies for attacks
+        if self.turn_side == "player":
+            enemies = [e for e in self.enemy_pieces if not e.get("dead", False)]
+        else:
+            enemies = [p for p in self.player_pieces if not p.get("dead", False)]
+
+        # Build blocked set
         blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
 
-        # For LOS checks, we'll pass in all pieces:
-        all_pieces_list = self.all_pieces  # for line_of_sight
-
-        # gather all enemy pieces for single or multi target
-        if self.turn_side == "player":
-            enemies = [ep for ep in self.enemy_pieces if not ep.get("dead", False)]
-        else:
-            enemies = [pp for pp in self.player_pieces if not pp.get("dead", False)]
-
-        # We'll build each piece's possible sub-actions
         for (pidx, piece) in living_side:
             pclass = pieces_data["classes"][piece["class"]]
-            # 1) Moves
+            # 1) Move
             if "move" in pclass["actions"]:
-                max_range = pclass["actions"]["move"]["range"]
-                # for each hex
+                mrange = pclass["actions"]["move"]["range"]
                 for (q, r) in self.all_hexes:
-                    dist = hex_distance(piece["q"], piece["r"], q, r)
-                    if dist <= max_range and not self._occupied_or_blocked(q, r):
-                        # also require it's not the same spot
-                        if not (q == piece["q"] and r == piece["r"]):
-                            actions.append((pidx, {"type": "move", "dest": (q, r)}))
-
+                    if (q, r) != (piece["q"], piece["r"]):
+                        if hex_distance(piece["q"], piece["r"], q, r) <= mrange:
+                            if not self._occupied_or_blocked(q, r):
+                                actions.append((pidx, {"type": "move", "dest": (q, r)}))
             # 2) pass
             actions.append((pidx, {"type": "pass"}))
 
-            # 3) For each named action besides 'move', we see if it's an "aoe", "single_target_attack",
-            #    or "multi_target_attack".
+            # 3) other actions
             for aname, adata in pclass["actions"].items():
                 if aname == "move":
                     continue
-                # If it's necro => treat special
                 if aname == "necrotizing_consecrate":
-                    # always valid if piece can do it
                     actions.append((pidx, {"type": "aoe", "name": "necrotizing_consecrate"}))
                     continue
 
+                # single/multi/aoe
                 atype = adata["action_type"]
+                rng = adata.get("range", 0)
+                requires_los = adata.get("requires_los", False)
+
+                # Single
                 if atype == "single_target_attack":
-                    # for each enemy in range+LOS => sub-action
-                    rng = adata["range"]
-                    requires_los = adata.get("requires_los", False)
-                    # find enemies in range
                     for enemyP in enemies:
                         dist = hex_distance(piece["q"], piece["r"], enemyP["q"], enemyP["r"])
                         if dist <= rng:
                             # check LOS
                             if (not requires_los) or line_of_sight(piece["q"], piece["r"],
                                                                    enemyP["q"], enemyP["r"],
-                                                                   blocked_hexes,
-                                                                   all_pieces_list):
+                                                                   blocked_hexes, self.all_pieces):
                                 actions.append((pidx, {
                                     "type": "single_target_attack",
-                                    "action_name": aname,   # e.g. "dark_bolt"
+                                    "action_name": aname,
                                     "target_piece": enemyP,
                                 }))
-
                 elif atype == "multi_target_attack":
-                    # e.g. 'precise_shot' range=2, max_num_targets=2
-                    rng = adata["range"]
                     max_tg = adata.get("max_num_targets", 1)
-                    requires_los = adata.get("requires_los", False)
-                    # gather all enemies in range+los
                     in_range_enemies = []
-                    for enemyP in enemies:
-                        dist = hex_distance(piece["q"], piece["r"], enemyP["q"], enemyP["r"])
+                    for eP in enemies:
+                        dist = hex_distance(piece["q"], piece["r"], eP["q"], eP["r"])
                         if dist <= rng:
                             if (not requires_los) or line_of_sight(piece["q"], piece["r"],
-                                                                   enemyP["q"], enemyP["r"],
-                                                                   blocked_hexes,
-                                                                   all_pieces_list):
-                                in_range_enemies.append(enemyP)
-                    # now produce subsets up to max_tg
-                    # e.g. if 2, produce all combos of size 1 or 2
-                    # or you might want exactly 2. We'll do 1..max_tg
-                    for size in range(1, max_tg+1):
+                                                                   eP["q"], eP["r"],
+                                                                   blocked_hexes, self.all_pieces):
+                                in_range_enemies.append(eP)
+                    # produce combos
+                    for size in range(1, max_tg + 1):
                         for combo in combinations(in_range_enemies, size):
-                            # sub-action
                             actions.append((pidx, {
                                 "type": "multi_target_attack",
                                 "action_name": aname,
-                                "targets": list(combo),
+                                "targets": list(combo)
                             }))
-
                 elif atype == "aoe":
-                    # we can do an area-based approach, but let's keep it simpler:
-                    # We interpret "range" => center must be in that range from piece
-                    # Then we do each center in range => sub-action
-                    rng = adata["range"]
-                    radius = adata["radius"]
-                    requires_los = adata.get("requires_los", False)
-                    # for each (q,r) => if dist <= rng => if requiresLOS => check LOS
-                    # Then the effect hits enemies in radius => done
-                    # This can be many subactions. We'll add them if you want.
-                    # But your map.js does "click the center hex." 
-                    # We'll replicate that approach:
-                    for (hq, hr) in self.all_hexes:
-                        dist = hex_distance(piece["q"], piece["r"], hq, hr)
-                        if dist <= rng:
-                            if not requires_los or line_of_sight(piece["q"], piece["r"], hq, hr,
-                                                                 blocked_hexes, all_pieces_list):
-                                actions.append((pidx, {
-                                    "type": "aoe",
-                                    "action_name": aname,
-                                    "center": (hq, hr),
-                                    "radius": radius
-                                }))
-
-                else:
-                    # e.g. swap_position or other
-                    # skipping for brevity
+                    # e.g. 'sweep', 'elemental_blast' if you want to do center-based. For brevity,
+                    # let's skip enumerating all center hexes. Or do so if you prefer:
                     pass
 
-        # Now we have a big list => we cap at max_actions_for_side
         return actions[: self.max_actions_for_side]
 
     def _occupied_or_blocked(self, q, r):
-        """Return True if that hex is blocked or occupied by a living piece."""
         blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
         if (q, r) in blocked_hexes:
             return True
         for p in self.all_pieces:
-            if not p.get("dead", False) and p["q"] == q and p["r"] == r:
+            if not p.get("dead", False) and (p["q"], p["r"]) == (q, r):
                 return True
         return False
 
     def _could_have_attacked(self, piece):
-        """
-        Return True if piece has any single_target_attack, multi_target_attack, or aoe
-        that can hit at least one living enemy. We do line_of_sight checks if required,
-        etc. Then if the piece chooses not to do one of those actions => small negative.
-        """
+        """Return True if piece has an actual single/multi/aoe attack that can hit at least one living enemy."""
         if piece["side"] == "player":
             enemies = [e for e in self.enemy_pieces if not e.get("dead", False)]
         else:
             enemies = [p for p in self.player_pieces if not p.get("dead", False)]
-        if len(enemies) == 0:
+        if not enemies:
             return False
 
         pclass = pieces_data["classes"][piece["class"]]
+        blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
         for aname, adata in pclass["actions"].items():
             if aname == "move":
                 continue
             atype = adata["action_type"]
             rng = adata.get("range", 0)
             requires_los = adata.get("requires_los", False)
+
             # single
             if atype == "single_target_attack":
                 for e in enemies:
                     dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
                     if dist <= rng:
-                        # check LOS
-                        blocked = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
-                        if not requires_los or line_of_sight(piece["q"], piece["r"],
-                                                             e["q"], e["r"],
-                                                             blocked,
-                                                             self.all_pieces):
+                        if (not requires_los) or line_of_sight(piece["q"], piece["r"], e["q"], e["r"],
+                                                               blocked_hexes, self.all_pieces):
                             return True
             elif atype == "multi_target_attack":
-                # if there's at least 1 enemy in range => True
                 for e in enemies:
                     dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
                     if dist <= rng:
-                        blocked = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
-                        if not requires_los or line_of_sight(piece["q"], piece["r"],
-                                                             e["q"], e["r"],
-                                                             blocked,
-                                                             self.all_pieces):
+                        if (not requires_los) or line_of_sight(piece["q"], piece["r"], e["q"], e["r"],
+                                                               blocked_hexes, self.all_pieces):
                             return True
             elif atype == "aoe":
-                # if there's at least 1 enemy => True
-                # e.g. necro range=100 => sure
+                # e.g. necro => if there's any living enemy => can be attacked
                 if len(enemies) > 0:
                     return True
         return False
 
     def _schedule_necro(self, piece):
-        # basically your code for necrotizing_consecrate
-        piece_class = pieces_data["classes"][piece["class"]]
-        necro_data = piece_class["actions"]["necrotizing_consecrate"]
+        pclass = pieces_data["classes"][piece["class"]]
+        necro_data = pclass["actions"]["necrotizing_consecrate"]
         c_speed = necro_data.get("cast_speed", 0)
         if c_speed > 0:
-            tturn = self.turn_number + c_speed
-            event = {
+            trig = self.turn_number + c_speed
+            evt = {
                 "turn_number": self.turn_number,
                 "turn_side": piece["side"],
                 "reward": 0.0,
                 "positions": self._log_positions(),
-                "desc": f"{piece['class']} ({piece['label']}) started necro => triggers turn {tturn}"
+                "desc": f"{piece['class']}({piece['label']}) starts necro => triggers on turn {trig}"
             }
-            self.current_episode.append(event)
+            self.current_episode.append(evt)
             self.delayedAttacks.append({
                 "caster_side": piece["side"],
                 "caster_label": piece["label"],
-                "trigger_turn": tturn,
+                "trigger_turn": trig,
                 "action_name": "necrotizing_consecrate"
             })
         else:
@@ -501,26 +418,26 @@ class HexPuzzleEnv(gym.Env):
                 kills = sum(1 for p in self.player_pieces if not p.get("dead", False))
                 for p in self.player_pieces:
                     self._kill_piece(p)
-                event = {
+                evt = {
                     "turn_number": self.turn_number,
                     "turn_side": "enemy",
                     "reward": 2 * kills,
                     "positions": self._log_positions(),
-                    "desc": f"Immediate necro by enemy kills {kills} players"
+                    "desc": f"Immediate necro by enemy kills {kills}"
                 }
-                self.current_episode.append(event)
+                self.current_episode.append(evt)
             else:
                 kills = sum(1 for e in self.enemy_pieces if not e.get("dead", False))
                 for e in self.enemy_pieces:
                     self._kill_piece(e)
-                event = {
+                evt = {
                     "turn_number": self.turn_number,
                     "turn_side": "player",
                     "reward": 2 * kills,
                     "positions": self._log_positions(),
-                    "desc": f"Immediate necro by player kills {kills} enemies"
+                    "desc": f"Immediate necro by player kills {kills}"
                 }
-                self.current_episode.append(event)
+                self.current_episode.append(evt)
 
     def _check_delayed_attacks(self):
         to_remove = []
@@ -532,33 +449,32 @@ class HexPuzzleEnv(gym.Env):
                     for p in self.player_pieces:
                         self._kill_piece(p)
                     extra = 2 * kills
-                    event_dict = {
+                    ed = {
                         "turn_number": self.turn_number,
                         "turn_side": "enemy",
                         "reward": extra,
                         "positions": self._log_positions(),
-                        "desc": f"Delayed necro by enemy kills {kills} player piece(s)."
+                        "desc": f"Delayed necro by enemy kills {kills} players"
                     }
-                    self.current_episode.append(event_dict)
+                    self.current_episode.append(ed)
                 else:
                     kills = sum(1 for e in self.enemy_pieces if not e.get("dead", False))
                     for e in self.enemy_pieces:
                         self._kill_piece(e)
                     extra = 2 * kills
-                    event_dict = {
+                    ed = {
                         "turn_number": self.turn_number,
                         "turn_side": "player",
                         "reward": extra,
                         "positions": self._log_positions(),
-                        "desc": f"Delayed necro by player kills {kills} enemy piece(s)."
+                        "desc": f"Delayed necro by player kills {kills} enemies"
                     }
-                    self.current_episode.append(event_dict)
+                    self.current_episode.append(ed)
                 to_remove.append(i)
         for idx in reversed(to_remove):
             self.delayedAttacks.pop(idx)
 
     def _apply_end_conditions(self, base_reward):
-        # same as your code
         rew = base_reward
         term = False
         trunc = False
@@ -566,10 +482,11 @@ class HexPuzzleEnv(gym.Env):
         p_alive = [p for p in self.player_pieces if not p.get("dead", False)]
         e_alive = [e for e in self.enemy_pieces if not e.get("dead", False)]
 
-        # priest check
+        # Priest checks
         player_priest_alive = any(p["class"] == "Priest" for p in p_alive)
         enemy_priest_alive = any(e["class"] == "Priest" for e in e_alive)
 
+        # Both sides wiped?
         if len(p_alive) == 0 and len(e_alive) == 0:
             rew -= 10
             term = True
@@ -588,6 +505,7 @@ class HexPuzzleEnv(gym.Env):
                 term = True
 
         if not term:
+            # If player's turn, if enemy priest is dead => +20, or if player's priest is dead => -20
             if self.turn_side == "player":
                 if not enemy_priest_alive:
                     rew += 20
@@ -607,6 +525,7 @@ class HexPuzzleEnv(gym.Env):
             if self.turn_number >= self.max_turns:
                 rew -= 10
                 trunc = True
+
         return rew, term, trunc
 
     def _kill_piece(self, piece):
@@ -634,24 +553,24 @@ class HexPuzzleEnv(gym.Env):
 
     def _get_action_mask(self):
         """
-        We'll build self._build_action_list() => we produce a mask of length self.max_actions_for_side,
-        with 'True' up to len( that list ) and 'False' afterwards. 
+        We produce a mask of shape (max_actions_for_side,). The first len(valid_actions) are True,
+        the rest are False.
         """
         if self.done_forced:
-            dummy = np.zeros(self.max_actions_for_side, dtype=bool)
-            dummy[0] = True
-            return dummy
+            mask = np.zeros(self.max_actions_for_side, dtype=bool)
+            mask[0] = True
+            return mask
 
         side_living = [pc for pc in self.all_pieces if pc["side"] == self.turn_side and not pc.get("dead", False)]
         if len(side_living) == 0:
-            # ends puzzle
-            dummy = np.zeros(self.max_actions_for_side, dtype=bool)
-            dummy[0] = True
-            return dummy
+            # forcibly end in step => just dummy
+            mask = np.zeros(self.max_actions_for_side, dtype=bool)
+            mask[0] = True
+            return mask
 
-        valid_actions = self._build_action_list()
+        val_acts = self._build_action_list()
         mask = np.zeros(self.max_actions_for_side, dtype=bool)
-        for i in range(len(valid_actions)):
+        for i in range(len(val_acts)):
             mask[i] = True
         return mask
 

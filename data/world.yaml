@@ -66,21 +66,21 @@ regions:
         subGridRadius: 3
         blockedHexes:
           - { q: 0, r: 2 }
-          # - { q: 1, r: 1 }
-          # - { q: -1, r: 0 }
+          - { q: 1, r: 1 }
+          - { q: -1, r: 0 }
         pieces:
           - { class: "Warlock",  label: "W", color: "#556b2f",
               side: "player",  q: -2,  r: 1 }
           - { class: "Sorcerer", label: "S", color: "#556b2f",
-              side: "player",  q: 1,  r: -2} #2 }
+              side: "player",  q: 1,  r: 2 } # -2}
           - { class: "Priest",   label: "P", color: "#556b2f",
               side: "player",  q: -1,  r: 1 }
           # - { class: "BloodWarden", label: "BW", color: "#dc143c",
           #     side: "player",   q: 0, r: 3 }
           - { class: "Guardian", label: "G", color: "#dc143c",
               side: "enemy",   q: 1,  r: -3 }
-          # - { class: "Guardian", label: "G", color: "#dc143c",
-          #     side: "enemy",   q: 0,  r: -2 }
+          - { class: "Guardian", label: "G", color: "#dc143c",
+              side: "enemy",   q: 0,  r: -2 }
           - { class: "Priest",   label: "P", color: "#dc143c",
               side: "enemy",   q: 0, r: -3 }
           - { class: "BloodWarden", label: "BW", color: "#dc143c",
