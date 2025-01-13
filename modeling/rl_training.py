@@ -25,9 +25,11 @@ with open(os.path.join("data", "pieces.yaml"), "r") as f:
 
 def hex_distance(q1, r1, q2, r2):
     """Cube distance in axial coords."""
-    return (abs(q1 - q2)
-          + abs(r1 - r2)
-          + abs((q1 + r1) - (q2 + r2))) // 2
+    return (
+        abs(q1 - q2)
+        + abs(r1 - r2)
+        + abs((q1 + r1) - (q2 + r2))
+    ) // 2
 
 
 def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
@@ -83,9 +85,10 @@ class HexPuzzleEnv(gym.Env):
       - single_target_attack
       - multi_target_attack
       - swap_position
-      - the symmetrical +5/-5 kills
+      - symmetrical +5/-5 kills
       - +30/-30 end-of-iteration logic
       - line_of_sight checks
+      - negative penalty if a Priest is successfully attacked
     """
     def __init__(self, puzzle_scenario, max_turns=10, render_mode=None):
         super().__init__()
@@ -132,8 +135,12 @@ class HexPuzzleEnv(gym.Env):
         return self.player_pieces + self.enemy_pieces
 
     def _init_pieces_from_scenario(self, scenario_dict):
-        self.player_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "player"]
-        self.enemy_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "enemy"]
+        self.player_pieces = [
+            p for p in scenario_dict["pieces"] if p["side"] == "player"
+        ]
+        self.enemy_pieces = [
+            p for p in scenario_dict["pieces"] if p["side"] == "enemy"
+        ]
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -164,7 +171,10 @@ class HexPuzzleEnv(gym.Env):
             return self._get_obs(), 0.0, True, False, {}
 
         # If no living pieces => forcibly end
-        side_living = [pc for pc in self.all_pieces if pc["side"] == self.turn_side and not pc.get("dead", False)]
+        side_living = [
+            pc for pc in self.all_pieces
+            if pc["side"] == self.turn_side and not pc.get("dead", False)
+        ]
         if len(side_living) == 0:
             end_reward, term, _ = self._apply_end_conditions(0.0)
             return self._finish_step(end_reward, term, False)
@@ -185,9 +195,14 @@ class HexPuzzleEnv(gym.Env):
 
         # If we *could* have attacked but didn't => mild negative
         could_attack = self._could_have_attacked(piece)
-        is_attack = sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"]
+        is_attack = sub_action["type"] in [
+            "single_target_attack",
+            "multi_target_attack",
+            "aoe"
+        ]
         step_mod = 0.0
         if could_attack and not is_attack:
+            # Example: -4 if you skip an attack
             step_mod -= 4.0
 
         # apply sub_action
@@ -212,20 +227,16 @@ class HexPuzzleEnv(gym.Env):
             # We'll swap our 'piece' with sub_action["target_piece"].
             target_piece = sub_action["target_piece"]
             if target_piece is not None and not target_piece.get("dead", False):
-                # swap coordinates
                 old_q, old_r = piece["q"], piece["r"]
                 piece["q"], piece["r"] = target_piece["q"], target_piece["r"]
                 target_piece["q"], target_piece["r"] = old_q, old_r
             else:
-                step_mod -= 1.0  # invalid if target is dead or missing
+                step_mod -= 1.0
 
         final_reward, terminated, truncated = self._apply_end_conditions(step_mod)
         return self._finish_step(final_reward, terminated, truncated)
 
     def _finish_step(self, reward, terminated, truncated):
-        """
-        Incorporate the final step reward, close out if needed, or swap side.
-        """
         step_data = {
             "turn_number": self.turn_number,
             "turn_side": self.turn_side,
@@ -250,18 +261,15 @@ class HexPuzzleEnv(gym.Env):
         return obs, reward, terminated, truncated, {}
 
     def _build_action_list(self):
-        """
-        Return a list of (piece_index, sub_action_dict).
-        The new "swap_position" logic is added here.
-        """
         actions = []
-        living_side = [(i, pc)
-                       for (i, pc) in enumerate(self.all_pieces)
-                       if pc["side"] == self.turn_side and not pc.get("dead", False)]
+        living_side = [
+            (i, pc)
+            for (i, pc) in enumerate(self.all_pieces)
+            if pc["side"] == self.turn_side and not pc.get("dead", False)
+        ]
         if len(living_side) == 0:
             return actions
 
-        # We'll define "enemies" and "allies" for convenience
         if self.turn_side == "player":
             enemies = [e for e in self.enemy_pieces if not e.get("dead", False)]
             allies = [p for p in self.player_pieces if not p.get("dead", False)]
@@ -285,7 +293,7 @@ class HexPuzzleEnv(gym.Env):
             # (2) pass
             actions.append((pidx, {"type": "pass"}))
 
-            # (3) other
+            # (3) other (attack, swap, necro)
             for aname, adata in pclass["actions"].items():
                 if aname == "move":
                     continue
@@ -302,9 +310,11 @@ class HexPuzzleEnv(gym.Env):
                     for enemyP in enemies:
                         dist = hex_distance(piece["q"], piece["r"], enemyP["q"], enemyP["r"])
                         if dist <= rng:
-                            if (not requires_los) or line_of_sight(piece["q"], piece["r"],
-                                                                   enemyP["q"], enemyP["r"],
-                                                                   blocked_hexes, self.all_pieces):
+                            if (not requires_los) or line_of_sight(
+                                piece["q"], piece["r"],
+                                enemyP["q"], enemyP["r"],
+                                blocked_hexes, self.all_pieces
+                            ):
                                 actions.append((pidx, {
                                     "type": "single_target_attack",
                                     "action_name": aname,
@@ -317,9 +327,11 @@ class HexPuzzleEnv(gym.Env):
                     for eP in enemies:
                         dist = hex_distance(piece["q"], piece["r"], eP["q"], eP["r"])
                         if dist <= rng:
-                            if (not requires_los) or line_of_sight(piece["q"], piece["r"],
-                                                                   eP["q"], eP["r"],
-                                                                   blocked_hexes, self.all_pieces):
+                            if (not requires_los) or line_of_sight(
+                                piece["q"], piece["r"],
+                                eP["q"], eP["r"],
+                                blocked_hexes, self.all_pieces
+                            ):
                                 in_range_enemies.append(eP)
                     for size in range(1, max_tg + 1):
                         for combo in combinations(in_range_enemies, size):
@@ -330,32 +342,28 @@ class HexPuzzleEnv(gym.Env):
                             }))
 
                 elif atype == "swap_position":
-                    # We'll find possible pieces to swap with.
-                    # If ally_only is True => only same side. Else => any side.
-                    # Then we check distance <= rng and LOS if needed.
-                    # Then we add a sub_action { type: "swap_position", target_piece: ... }
-                    # Note: a "target_piece" might be among either allies or enemies if ally_only is False.
+                    # check all possible targets
                     if ally_only:
-                        # can only swap with ally
                         possible_targets = allies
                     else:
-                        # can swap with ally or enemy
-                        possible_targets = self.all_pieces  # anyone alive
-                    # remove self
-                    possible_targets = [x for x in possible_targets if x is not piece and not x.get("dead",False)]
-
+                        possible_targets = self.all_pieces  # can swap with anyone
+                    possible_targets = [
+                        x for x in possible_targets
+                        if x is not piece and not x.get("dead", False)
+                    ]
                     for tgt in possible_targets:
                         dist = hex_distance(piece["q"], piece["r"], tgt["q"], tgt["r"])
                         if dist <= rng:
-                            if (not requires_los) or line_of_sight(piece["q"], piece["r"],
-                                                                   tgt["q"], tgt["r"],
-                                                                   blocked_hexes, self.all_pieces):
+                            if (not requires_los) or line_of_sight(
+                                piece["q"], piece["r"],
+                                tgt["q"], tgt["r"],
+                                blocked_hexes, self.all_pieces
+                            ):
                                 actions.append((pidx, {
                                     "type": "swap_position",
                                     "action_name": aname,
                                     "target_piece": tgt
                                 }))
-
                 elif atype == "aoe":
                     # e.g. other aoe logic
                     pass
@@ -397,11 +405,13 @@ class HexPuzzleEnv(gym.Env):
                 for e in enemies:
                     dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
                     if dist <= rng:
-                        if (not requires_los) or line_of_sight(piece["q"], piece["r"], e["q"], e["r"],
-                                                               blocked_hexes, self.all_pieces):
+                        if (not requires_los) or line_of_sight(
+                            piece["q"], piece["r"],
+                            e["q"], e["r"],
+                            blocked_hexes, self.all_pieces
+                        ):
                             return True
             elif atype == "aoe":
-                # If any enemy is alive => can do an aoe attack
                 if len(enemies) > 0:
                     return True
         return False
@@ -409,8 +419,7 @@ class HexPuzzleEnv(gym.Env):
     def _schedule_necro(self, piece):
         """
         If necro has cast_speed > 0 => schedule it;
-        else apply immediate effect. We remove old direct kills logic,
-        because each kill calls _kill_piece => +5/-5.
+        else apply immediate effect.
         """
         pclass = pieces_data["classes"][piece["class"]]
         necro_data = pclass["actions"]["necrotizing_consecrate"]
@@ -432,7 +441,7 @@ class HexPuzzleEnv(gym.Env):
                 "action_name": "necrotizing_consecrate"
             })
         else:
-            # immediate effect: kill all opposing side's pieces => each kill => +5 or -5
+            # immediate effect
             if piece["side"] == "enemy":
                 for p in self.player_pieces:
                     if not p.get("dead", False):
@@ -527,14 +536,27 @@ class HexPuzzleEnv(gym.Env):
         """
         Actually kill the piece => if piece.side == self.turn_side => -5, else => +5.
         Then mark dead, record stats, etc.
+        
+        ADDITION: if the piece is a Priest, impose an extra negative penalty on that piece's side
+        to reflect that "the Priest was successfully attacked."
         """
         if not piece.get("dead", False):
+            # Normal symmetrical logic
             if piece["side"] == self.turn_side:
                 # we just killed our own piece => -5
                 self.current_episode[-1]["reward"] += -5
             else:
                 # we killed the enemy piece => +5
                 self.current_episode[-1]["reward"] += +5
+
+            # If the piece is a Priest => impose an additional negative on that piece's side
+            if piece["class"] == "Priest":
+                # The side that owned this Priest experiences a further penalty
+                # We'll say -3 (tweak as you see fit).
+                # If the Priest's side is 'player' but we are 'enemy',
+                # we *deduct* from the environment's reward. It's a single-agent environment controlling both,
+                # so we simply do `-3`.
+                self.current_episode[-1]["reward"] -= 3
 
             if piece["class"] != "BloodWarden":
                 self.non_bloodwarden_kills += 1
@@ -567,8 +589,10 @@ class HexPuzzleEnv(gym.Env):
             mask[0] = True
             return mask
 
-        side_living = [pc for pc in self.all_pieces
-                       if pc["side"] == self.turn_side and not pc.get("dead", False)]
+        side_living = [
+            pc for pc in self.all_pieces
+            if pc["side"] == self.turn_side and not pc.get("dead", False)
+        ]
         if len(side_living) == 0:
             mask = np.zeros(self.max_actions_for_side, dtype=bool)
             mask[0] = True
@@ -599,7 +623,7 @@ def main():
     vec_env = DummyVecEnv([make_env_fn(scenario_copy)])
     model = MaskablePPO("MlpPolicy", vec_env, verbose=1)
 
-    print("Training for 2 minutes (demo). Now includes 'swap_position'!")
+    print("Training for 2 minutes (demo). Now includes an extra penalty if a Priest is successfully attacked.")
     iteration_count_before = 0
     start_time = time.time()
     time_limit = 2 * 60  # 2 minutes
@@ -642,17 +666,13 @@ def main():
         elif rew == -20:
             outcome_str = f"Iteration {i+1}: time-limit penalty => -20"
         else:
-            outcome_str = (f"Iteration {i+1}: final reward={rew}, side={side}, nb_kills={nbk}")
+            outcome_str = (
+                f"Iteration {i+1}: final reward={rew}, side={side}, nb_kills={nbk}"
+            )
         iteration_outcomes.append(outcome_str)
 
     np.save("actions_log.npy", np.array(all_episodes, dtype=object), allow_pickle=True)
     print("Saved actions_log.npy with scenario.")
-
-    # Optionally, print outcomes
-    # print("\n=== Iteration Outcomes ===")
-    # for line in iteration_outcomes:
-    #     print(line)
-    # print("==========================\n")
 
 
 if __name__ == "__main__":
