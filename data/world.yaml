@@ -83,8 +83,8 @@ regions:
               side: "enemy",   q: 0,  r: -2 }
           - { class: "Priest",   label: "P", color: "#dc143c",
               side: "enemy",   q: 0, r: -3 }
-          - { class: "BloodWarden", label: "BW", color: "#dc143c",
-              side: "enemy",   q: 3, r: -3 }
+          # - { class: "BloodWarden", label: "BW", color: "#dc143c",
+          #     side: "enemy",   q: 3, r: -3 }
           - { class: "Hunter",   label: "H", color: "#dc143c",
               side: "enemy",   q: -3,  r: 0 }
 
