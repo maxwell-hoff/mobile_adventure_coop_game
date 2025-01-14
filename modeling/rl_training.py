@@ -1,9 +1,11 @@
+import argparse
 import gymnasium as gym
 import numpy as np
 import random
 import yaml
 import os
 import time
+import sys
 
 from copy import deepcopy
 from itertools import combinations
@@ -13,16 +15,26 @@ from sb3_contrib.common.maskable.utils import get_action_masks
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+
+# --------------------------------------------------
 # Force a fixed seed
+# --------------------------------------------------
 np.random.seed(42)
 random.seed(42)
 
+
+# --------------------------------------------------
+# Load data from YAML
+# --------------------------------------------------
 with open(os.path.join("data", "world.yaml"), "r") as f:
     world_data = yaml.safe_load(f)
 with open(os.path.join("data", "pieces.yaml"), "r") as f:
     pieces_data = yaml.safe_load(f)
 
 
+# --------------------------------------------------
+# Utility functions
+# --------------------------------------------------
 def hex_distance(q1, r1, q2, r2):
     """Cube distance in axial coords."""
     return (
@@ -75,6 +87,9 @@ def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
     return True
 
 
+# --------------------------------------------------
+# Environment
+# --------------------------------------------------
 class HexPuzzleEnv(gym.Env):
     """
     A single-agent environment controlling both sides (player & enemy).
@@ -89,13 +104,20 @@ class HexPuzzleEnv(gym.Env):
       - +30/-30 end-of-iteration logic
       - line_of_sight checks
       - negative penalty if a Priest is successfully attacked
+
+    NEW FEATURE:
+      * If `self.randomize_positions` is True, we randomize all piece placements each reset.
+        Otherwise, we use the puzzle_scenario's original positions.
     """
-    def __init__(self, puzzle_scenario, max_turns=10, render_mode=None):
+    def __init__(self, puzzle_scenario, max_turns=10, render_mode=None, randomize_positions=False):
         super().__init__()
         self.original_scenario = deepcopy(puzzle_scenario)
         self.scenario = deepcopy(puzzle_scenario)
         self.grid_radius = puzzle_scenario["subGridRadius"]
         self.max_turns = max_turns
+
+        # Whether to randomize piece placements
+        self.randomize_positions = randomize_positions
 
         self._init_pieces_from_scenario(self.scenario)
 
@@ -142,19 +164,62 @@ class HexPuzzleEnv(gym.Env):
             p for p in scenario_dict["pieces"] if p["side"] == "enemy"
         ]
 
+    def _randomize_piece_positions(self):
+        """
+        Randomly places each piece in a distinct, unblocked hex (if possible).
+        We keep the side, class, label, etc., the same—only randomize (q,r).
+        """
+        # Collect all unblocked hexes
+        blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
+        valid_hexes = [
+            (q, r)
+            for (q, r) in self.all_hexes
+            if (q, r) not in blocked_hexes
+        ]
+
+        # We'll shuffle or sample positions for all pieces
+        # total_pieces = number of player + number of enemy
+        total_pieces_needed = len(self.player_pieces) + len(self.enemy_pieces)
+        if total_pieces_needed > len(valid_hexes):
+            print("[WARNING] Not enough valid hexes to place all pieces randomly!")
+            # We'll let some overlap if not enough hexes exist, or forcibly end.
+            # For now, let's do a simple approach: we won't randomize if we can't fit them
+            return
+
+        # Randomly pick distinct hexes
+        chosen_hexes = random.sample(valid_hexes, total_pieces_needed)
+
+        # Reassign
+        # We'll first do the player pieces, then enemy pieces, so it remains consistent
+        idx = 0
+        for p in self.player_pieces:
+            (q, r) = chosen_hexes[idx]
+            p["q"], p["r"] = q, r
+            idx += 1
+        for e in self.enemy_pieces:
+            (q, r) = chosen_hexes[idx]
+            e["q"], e["r"] = q, r
+            idx += 1
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         if len(self.current_episode) > 0:
             self.all_episodes.append(self.current_episode)
         self.current_episode = []
 
+        # Re-copy the original scenario
         self.scenario = deepcopy(self.original_scenario)
         self._init_pieces_from_scenario(self.scenario)
+
         self.turn_number = 1
         self.turn_side = "player"
         self.done_forced = False
         self.non_bloodwarden_kills = 0
         self.delayedAttacks.clear()
+
+        # If randomize_positions is True, shuffle piece coords
+        if self.randomize_positions:
+            self._randomize_piece_positions()
 
         init_dict = {
             "turn_number": 0,
@@ -364,6 +429,7 @@ class HexPuzzleEnv(gym.Env):
                                     "action_name": aname,
                                     "target_piece": tgt
                                 }))
+
                 elif atype == "aoe":
                     # e.g. other aoe logic
                     pass
@@ -382,7 +448,6 @@ class HexPuzzleEnv(gym.Env):
     def _could_have_attacked(self, piece):
         """
         Return True if piece can do a single/multi/aoe attack that would hit at least one enemy in range.
-        We only check feasibility, not whether the piece eventually chooses it.
         """
         if piece["side"] == "player":
             enemies = [e for e in self.enemy_pieces if not e.get("dead", False)]
@@ -417,10 +482,7 @@ class HexPuzzleEnv(gym.Env):
         return False
 
     def _schedule_necro(self, piece):
-        """
-        If necro has cast_speed > 0 => schedule it;
-        else apply immediate effect.
-        """
+        """If necro has cast_speed > 0 => schedule it; else apply immediate effect."""
         pclass = pieces_data["classes"][piece["class"]]
         necro_data = pclass["actions"]["necrotizing_consecrate"]
         c_speed = necro_data.get("cast_speed", 0)
@@ -536,9 +598,8 @@ class HexPuzzleEnv(gym.Env):
         """
         Actually kill the piece => if piece.side == self.turn_side => -5, else => +5.
         Then mark dead, record stats, etc.
-        
-        ADDITION: if the piece is a Priest, impose an extra negative penalty on that piece's side
-        to reflect that "the Priest was successfully attacked."
+
+        If the piece is a Priest => impose an additional negative penalty.
         """
         if not piece.get("dead", False):
             # Normal symmetrical logic
@@ -549,13 +610,7 @@ class HexPuzzleEnv(gym.Env):
                 # we killed the enemy piece => +5
                 self.current_episode[-1]["reward"] += +5
 
-            # If the piece is a Priest => impose an additional negative on that piece's side
             if piece["class"] == "Priest":
-                # The side that owned this Priest experiences a further penalty
-                # We'll say -3 (tweak as you see fit).
-                # If the Priest's side is 'player' but we are 'enemy',
-                # we *deduct* from the environment's reward. It's a single-agent environment controlling both,
-                # so we simply do `-3`.
                 self.current_episode[-1]["reward"] -= 3
 
             if piece["class"] != "BloodWarden":
@@ -608,25 +663,38 @@ class HexPuzzleEnv(gym.Env):
         return self._get_action_mask()
 
 
-def make_env_fn(scenario_dict):
+def make_env_fn(scenario_dict, randomize=False):
     def _init():
-        env = HexPuzzleEnv(puzzle_scenario=scenario_dict, max_turns=10)
+        env = HexPuzzleEnv(puzzle_scenario=scenario_dict,
+                           max_turns=10,
+                           randomize_positions=randomize)
         env = ActionMasker(env, lambda e: e.action_masks())
         return env
     return _init
 
 
 def main():
+    # 1) Parse arguments
+    import argparse
+    parser = argparse.ArgumentParser(description="Hex Puzzle RL Training.")
+    parser.add_argument("--randomize", action="store_true",
+                        help="If set, randomize initial piece positions each reset.")
+    args = parser.parse_args()
+
+    # 2) Load the scenario (the 'intro puzzle' scenario)
     scenario = world_data["regions"][0]["puzzleScenarios"][0]
     scenario_copy = deepcopy(scenario)
 
-    vec_env = DummyVecEnv([make_env_fn(scenario_copy)])
+    # 3) Build the training environment
+    vec_env = DummyVecEnv([make_env_fn(scenario_copy, randomize=args.randomize)])
+
+    # 4) Build the model
     model = MaskablePPO("MlpPolicy", vec_env, verbose=1)
 
-    print("Training for 2 minutes (demo). Now includes an extra penalty if a Priest is successfully attacked.")
+    print("Training for 2 minutes (demo). If randomize is on, the piece positions get shuffled each reset.")
     iteration_count_before = 0
     start_time = time.time()
-    time_limit = 2 * 60  # 2 minutes
+    time_limit = 2 * 60  # 2 minutes for the example
 
     while True:
         model.learn(total_timesteps=1000)
@@ -636,6 +704,7 @@ def main():
             print("Time limit => stop training.")
             break
 
+        # Simple check for side-based outcomes (not strictly needed):
         all_eps = vec_env.envs[0].all_episodes
         for i, ep in enumerate(all_eps[iteration_count_before:], start=iteration_count_before):
             if len(ep) == 0:
@@ -647,7 +716,7 @@ def main():
                 print(f"Player side apparently wiped out the enemy in iteration {i+1}.")
         iteration_count_before = len(all_eps)
 
-    # Summaries
+    # 5) Summaries
     all_episodes = vec_env.envs[0].all_episodes
     iteration_outcomes = []
     for i, episode in enumerate(all_episodes):
@@ -673,6 +742,16 @@ def main():
 
     np.save("actions_log.npy", np.array(all_episodes, dtype=object), allow_pickle=True)
     print("Saved actions_log.npy with scenario.")
+
+    # 6) If we trained with randomization, let's do a quick test on the *fixed* scenario
+    if args.randomize:
+        print("\nRandomization was used, so let's do a quick test of the final model on the FIXED layout:")
+        from stable_baselines3.common.evaluation import evaluate_policy
+
+        # Build a new environment with randomize=False
+        test_env = DummyVecEnv([make_env_fn(scenario_copy, randomize=False)])
+        mean_reward, std_reward = evaluate_policy(model, test_env, n_eval_episodes=5)
+        print(f"Test on FIXED scenario -> mean_reward={mean_reward:.2f}, std={std_reward:.2f}")
 
 
 if __name__ == "__main__":
