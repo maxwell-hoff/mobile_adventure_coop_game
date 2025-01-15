@@ -619,16 +619,14 @@ def make_env_fn(scenario_dict, randomize=False):
 
 
 def _run_one_episode(model, env):
-    """
-    Run a single episode with a trained model in the given env,
-    storing the transitions inside env.envs[0].all_episodes.
-    """
-    obs, _ = env.reset()
+    obs = env.reset()  # A DummyVecEnv reset() returns only (obs)
     done, state = False, None
+
     while not done:
         action, state = model.predict(obs, state=state, deterministic=True)
-        obs, reward, terminated, truncated, info = env.step(action)
-        done = terminated or truncated
+        # UNPACK 4 items from step => old Gym style
+        obs, reward, done, info = env.step(action)
+        done = True
 
 
 def main():
@@ -646,7 +644,7 @@ def main():
 
     print("Training for 2 minutes (demo). Negative penalty if Priest is attacked, etc.")
     start_time = time.time()
-    time_limit = 8 * 3600
+    time_limit = 2 * 60
 
     iteration_count_before = 0
     while True:
