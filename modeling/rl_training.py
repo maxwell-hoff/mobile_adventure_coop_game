@@ -681,11 +681,21 @@ def main():
 
     # Build the environment (for training).
     vec_env = DummyVecEnv([make_env_fn(scenario_copy, randomize=args.randomize)])
-    model = MaskablePPO("MlpPolicy", vec_env, verbose=1)
+    model = MaskablePPO(
+        "MlpPolicy", 
+        vec_env, 
+        verbose=1,
+        learning_rate=1e-5,    # more stable for long runs
+        n_steps=4096,          # or 4096, 8192
+        batch_size=512,        # must divide n_steps * n_envs
+        clip_range=0.2,        # default
+        ent_coef=0.0,          # maybe keep at 0.0 or small
+        max_grad_norm=0.3      # default is 0.5, you could reduce further to 0.3
+    )
 
     print("Training for 2 minutes (demo). Negative penalty if Priest is attacked, etc.")
     start_time = time.time()
-    time_limit = 10 * 60
+    time_limit = 1 * 3600
 
     iteration_count_before = 0
     while True:
