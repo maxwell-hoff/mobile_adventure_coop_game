@@ -81,21 +81,7 @@ def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
 class HexPuzzleEnv(gym.Env):
     """
     A single-agent environment controlling both sides (player & enemy).
-    Includes:
-      - move
-      - pass
-      - necrotizing_consecrate (aoe)
-      - single_target_attack
-      - multi_target_attack
-      - swap_position
-      - symmetrical +5/-5 kills
-      - +30/-30 end-of-iteration logic
-      - line_of_sight checks
-      - negative penalty if a Priest is successfully attacked
-
-    NEW FEATURE:
-      * If `randomize_positions` is True, we randomize all piece placements each reset.
-        Otherwise, we use the puzzle_scenario's original positions.
+    Guardian "sweep" is an aoe that hits all adjacent enemies.
     """
     def __init__(self, puzzle_scenario, max_turns=10, render_mode=None, randomize_positions=False):
         super().__init__()
@@ -153,9 +139,6 @@ class HexPuzzleEnv(gym.Env):
         ]
 
     def _randomize_piece_positions(self):
-        """
-        Randomly places each piece in a distinct, unblocked hex (if possible).
-        """
         blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
         valid_hexes = [
             (q, r) for (q, r) in self.all_hexes
@@ -208,6 +191,7 @@ class HexPuzzleEnv(gym.Env):
         return self._get_obs(), {}
 
     def step(self, action_idx):
+        # If forced done, produce the Gymnasium 5 items
         if self.done_forced:
             return self._get_obs(), 0.0, True, False, {}
 
@@ -236,6 +220,7 @@ class HexPuzzleEnv(gym.Env):
         is_attack = sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"]
         step_mod = 0.0
         if could_attack and not is_attack:
+            # If piece could have attacked but didn't => penalty
             step_mod -= 4.0
 
         atype = sub_action["type"]
@@ -243,18 +228,30 @@ class HexPuzzleEnv(gym.Env):
             (q, r) = sub_action["dest"]
             piece["q"] = q
             piece["r"] = r
+
         elif atype == "pass":
             step_mod -= 1.0
-        elif atype == "aoe" and sub_action.get("name") == "necrotizing_consecrate":
-            self._schedule_necro(piece)
+
+        elif atype == "aoe":
+            # Distinguish Guardian's "sweep" vs. BloodWarden's "necrotizing_consecrate"
+            if sub_action.get("name") == "necrotizing_consecrate":
+                self._schedule_necro(piece)  # Original logic for BloodWarden
+            else:
+                # A normal aoe: kill everything in sub_action["targets"]
+                for tgt in sub_action["targets"]:
+                    if not tgt.get("dead", False):
+                        self._kill_piece(tgt)
+
         elif atype == "single_target_attack":
             target_piece = sub_action["target_piece"]
             if target_piece is not None and not target_piece.get("dead", False):
                 self._kill_piece(target_piece)
+
         elif atype == "multi_target_attack":
             for tgt in sub_action["targets"]:
                 if not tgt.get("dead", False):
                     self._kill_piece(tgt)
+
         elif atype == "swap_position":
             target_piece = sub_action["target_piece"]
             if target_piece is not None and not target_piece.get("dead", False):
@@ -312,6 +309,8 @@ class HexPuzzleEnv(gym.Env):
 
         for (pidx, piece) in living_side:
             pclass = pieces_data["classes"][piece["class"]]
+
+            # Move
             if "move" in pclass["actions"]:
                 mrange = pclass["actions"]["move"]["range"]
                 for (q, r) in self.all_hexes:
@@ -320,12 +319,15 @@ class HexPuzzleEnv(gym.Env):
                             if not self._occupied_or_blocked(q, r):
                                 actions.append((pidx, {"type": "move", "dest": (q, r)}))
 
+            # Pass
             actions.append((pidx, {"type": "pass"}))
 
+            # Now handle all other actions from pieces.yaml
             for aname, adata in pclass["actions"].items():
                 if aname == "move":
                     continue
                 if aname == "necrotizing_consecrate":
+                    # Keep existing logic for BloodWarden
                     actions.append((pidx, {"type": "aoe", "name": "necrotizing_consecrate"}))
                     continue
 
@@ -334,6 +336,7 @@ class HexPuzzleEnv(gym.Env):
                 requires_los = adata.get("requires_los", False)
                 ally_only = adata.get("ally_only", False)
 
+                # Single-target
                 if atype == "single_target_attack":
                     for enemyP in enemies:
                         dist = hex_distance(piece["q"], piece["r"], enemyP["q"], enemyP["r"])
@@ -349,6 +352,7 @@ class HexPuzzleEnv(gym.Env):
                                     "target_piece": enemyP,
                                 }))
 
+                # Multi-target
                 elif atype == "multi_target_attack":
                     max_tg = adata.get("max_num_targets", 1)
                     in_range_enemies = []
@@ -369,8 +373,8 @@ class HexPuzzleEnv(gym.Env):
                                 "targets": list(combo)
                             }))
 
+                # Swap
                 elif atype == "swap_position":
-                    # can swap with ally or enemy depending on ally_only
                     if ally_only:
                         possible_targets = allies
                     else:
@@ -393,8 +397,29 @@ class HexPuzzleEnv(gym.Env):
                                     "target_piece": tgt
                                 }))
 
+                # AOE (e.g. Guardian "sweep")
                 elif atype == "aoe":
-                    pass
+                    # We'll assume "radius" for the AOE
+                    radius = adata.get("radius", 0)
+                    in_range_enemies = []
+                    for eP in enemies:
+                        dist = hex_distance(piece["q"], piece["r"], eP["q"], eP["r"])
+                        if dist <= radius:
+                            # also check LOS if needed
+                            if (not requires_los) or line_of_sight(
+                                piece["q"], piece["r"],
+                                eP["q"], eP["r"],
+                                blocked_hexes, self.all_pieces
+                            ):
+                                in_range_enemies.append(eP)
+
+                    if len(in_range_enemies) > 0:
+                        actions.append((pidx, {
+                            "type": "aoe",
+                            "action_name": aname,
+                            "name": aname,  # store the name for step() logic
+                            "targets": in_range_enemies
+                        }))
 
         return actions[: self.max_actions_for_side]
 
@@ -408,6 +433,10 @@ class HexPuzzleEnv(gym.Env):
         return False
 
     def _could_have_attacked(self, piece):
+        """
+        Quick check if this piece had ANY valid attack action (single, multi, or AOE)
+        it could have performed on an enemy. If yes, but it didn't => penalty.
+        """
         if piece["side"] == "player":
             enemies = [e for e in self.enemy_pieces if not e.get("dead", False)]
         else:
@@ -436,8 +465,18 @@ class HexPuzzleEnv(gym.Env):
                         ):
                             return True
             elif atype == "aoe":
-                if len(enemies) > 0:
-                    return True
+                # e.g. Guardian's "sweep"
+                radius = adata.get("radius", 0)
+                # If we have ANY enemy within that radius => piece could have attacked
+                for e in enemies:
+                    dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
+                    if dist <= radius:
+                        if (not requires_los) or line_of_sight(
+                            piece["q"], piece["r"],
+                            e["q"], e["r"],
+                            blocked_hexes, self.all_pieces
+                        ):
+                            return True
         return False
 
     def _schedule_necro(self, piece):
@@ -461,7 +500,7 @@ class HexPuzzleEnv(gym.Env):
                 "action_name": "necrotizing_consecrate"
             })
         else:
-            # immediate effect
+            # immediate effect => kills all enemies
             if piece["side"] == "enemy":
                 for p in self.player_pieces:
                     if not p.get("dead", False):
@@ -619,14 +658,16 @@ def make_env_fn(scenario_dict, randomize=False):
 
 
 def _run_one_episode(model, env):
-    obs = env.reset()  # A DummyVecEnv reset() returns only (obs)
+    # If 'env' is a DummyVecEnv, reset() returns only obs
+    obs = env.reset()
     done, state = False, None
 
     while not done:
         action, state = model.predict(obs, state=state, deterministic=True)
-        # UNPACK 4 items from step => old Gym style
         obs, reward, done, info = env.step(action)
+        # done might be True if either terminated or truncated
         done = True
+
 
 
 def main():
@@ -644,7 +685,7 @@ def main():
 
     print("Training for 2 minutes (demo). Negative penalty if Priest is attacked, etc.")
     start_time = time.time()
-    time_limit = 2 * 60
+    time_limit = 10 * 60
 
     iteration_count_before = 0
     while True:
@@ -673,12 +714,9 @@ def main():
     if args.randomize:
         print("\nPerforming 1 test iteration on the FIXED scenario, appended as an extra iteration.")
         test_env = DummyVecEnv([make_env_fn(scenario_copy, randomize=False)])
-        # run a single episode
-        _run_one_episode(model, test_env)
+        _run_one_episode(model, test_env)  # single episode
 
-        # Append that single test episode to our 'all_episodes'
-        # test_env.envs[0].all_episodes is presumably [the single episode].
-        # We'll shift iteration indexing so it appears as an extra iteration at the end.
+        # Append that single test episode
         all_episodes += test_env.envs[0].all_episodes
 
     iteration_outcomes = []
@@ -706,10 +744,6 @@ def main():
     # Save them out
     np.save("actions_log.npy", np.array(all_episodes, dtype=object), allow_pickle=True)
     print("Saved actions_log.npy with scenario, including final test iteration if randomize was used.")
-
-    # Optionally print outcomes
-    # for line in iteration_outcomes:
-    #     print(line)
 
 
 if __name__ == "__main__":
