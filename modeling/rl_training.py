@@ -239,7 +239,9 @@ class HexPuzzleEnv(gym.Env):
                 step_mod -= 1.0
 
         final_reward, terminated, truncated = self._apply_end_conditions(step_mod)
-        return self._finish_step(final_reward, terminated, truncated)
+        next_obs, rew, ter, tru, info = self._finish_step(final_reward, terminated, truncated)
+
+        return next_obs, rew, ter, tru, info
 
     def _finish_step(self, reward, terminated, truncated):
         step_data = {
@@ -248,6 +250,11 @@ class HexPuzzleEnv(gym.Env):
             "reward": reward,
             "positions": self._log_positions()
         }
+        # If we have MCTS debug info from mcts_policy, attach it here:
+        if hasattr(self, "mcts_debug"):
+            step_data["mcts_debug"] = self.mcts_debug
+            del self.mcts_debug  # clear it so we don't carry stale info
+
         if terminated or truncated:
             step_data["non_bloodwarden_kills"] = self.non_bloodwarden_kills
             self.done_forced = True
@@ -635,8 +642,6 @@ def mcts_policy(env, max_iterations=50):
     Perform MCTS from the current env state, returning the best action.
     Now used for BOTH 'player' and 'enemy' sides.
     """
-    # Original code had: if env.turn_side == "enemy": do random.
-    # We'll remove that; we do MCTS for both sides.
 
     root_obs = env.get_obs()
     root_key = obs_to_key(root_obs, env.turn_side)
@@ -672,6 +677,21 @@ def mcts_policy(env, max_iterations=50):
         if st[0] > bestN:
             bestN = st[0]
             bestA = a_idx
+
+    # We want to store the dictionary: action_idx -> (N, Q).
+    # Possibly also store node.actions and the environment's build_action_list().
+    # We attach it to env so that env.step(...) can copy it into the logs.
+    mcts_debug_info = {}
+    for a_idx, (visits, qval) in node.stats.items():
+        mcts_debug_info[a_idx] = {
+            "visits": visits,
+            "q_value": round(qval, 3),
+        }
+
+    # Also store the final chosen action:
+    mcts_debug_info["chosen_action_idx"] = bestA
+    env.mcts_debug = mcts_debug_info  # store on env
+
     return bestA if bestA is not None else 0
 
 def mcts_search(env_copy, path, depth=0, max_depth=20):
@@ -727,6 +747,9 @@ def mcts_search(env_copy, path, depth=0, max_depth=20):
         else:
             # selection => pick child by UCB
             a_idx = best_uct_action(node)
+            if a_idx is None:
+                # No action found => fallback or just return the current reward
+                return env_copy.current_episode[-1]["reward"]
             path.append((node_key, a_idx))
 
             obs2, rew, term, trunc, _ = env_copy.step(a_idx)
@@ -855,7 +878,7 @@ def main():
 
         print("Training PPO for up to 1 hour.")
         start_time = time.time()
-        time_limit = 3600  # 1 hour
+        time_limit = 60 * 20  # 1 hour
 
         iteration_count_before = 0
         while True:
@@ -906,7 +929,7 @@ def main():
     elif args.approach == "mcts":
         print("Running MCTS approach. Both Player and Enemy side uses MCTS")
         start_time = time.time()
-        time_limit = 60 * 10
+        time_limit = 60 * 20
         all_episodes = []
         ep_count = 0
 
@@ -918,7 +941,7 @@ def main():
                 break
 
             env = make_env_fn(scenario_copy, randomize=args.randomize)()
-            eps = run_mcts_episode(env, max_iterations=2000)
+            eps = run_mcts_episode(env, max_iterations=500)
             # obs, info = env.reset()
             # done = False
 

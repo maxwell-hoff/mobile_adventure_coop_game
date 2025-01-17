@@ -145,6 +145,38 @@ def handle_navigation(event, pi, ni, ps, ns):
                     print(f"Invalid iteration: must be between 1 and {len(all_iterations)}.")
             except ValueError:
                 print("Invalid integer input. Ignoring...")
+        
+        elif event.key == pygame.K_d:
+            # user wants MCTS debug
+            print("Press 'd': View MCTS debug info for (iteration, step).")
+            try:
+                it_input = input("Enter iteration #: ")
+                st_input = input("Enter step #: ")
+                it_idx = int(it_input) - 1
+                st_idx = int(st_input) - 1
+                # Now let's try to get that step_data
+                if 0 <= it_idx < len(all_iterations):
+                    steps = all_iterations[it_idx]
+                    if 0 <= st_idx < len(steps):
+                        sdata = steps[st_idx]
+                        debug = sdata.get("mcts_debug", None)
+                        if debug is None:
+                            print("No MCTS debug data for that step.")
+                        else:
+                            print(f"\nMCTS debug for Iter={it_idx+1}, Step={st_idx+1}:")
+                            for k,v in debug.items():
+                                if k == "chosen_action_idx":
+                                    print(f"  chosen_action_idx = {v}")
+                                else:
+                                    print(f"  action {k} => visits={v['visits']}, q_value={v['q_value']}")
+                        input("Press Enter to continue...")
+                    else:
+                        print("Step out of range.")
+                else:
+                    print("Iteration out of range.")
+            except ValueError:
+                print("Invalid integer input. Ignoring...")
+
 
 def update_piece_positions(step_data):
     """
