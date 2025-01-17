@@ -632,21 +632,18 @@ mcts_tree = {}  # global dictionary: (obs_bytes, turn_side) -> MCTSNode
 
 def mcts_policy(env, max_iterations=50):
     """
-    Perform MCTS from the current env state, return best action.
+    Perform MCTS from the current env state, returning the best action.
+    Now used for BOTH 'player' and 'enemy' sides.
     """
-    # if it's player's turn => do MCTS, else do random
-    if env.turn_side == "enemy":
-        valid = env.build_action_list()
-        return random.randint(0, len(valid)-1) if valid else 0
+    # Original code had: if env.turn_side == "enemy": do random.
+    # We'll remove that; we do MCTS for both sides.
 
-    # MCTS for player
     root_obs = env.get_obs()
     root_key = obs_to_key(root_obs, env.turn_side)
 
-    # create node if missing
+    # Create node if missing
     if root_key not in mcts_tree:
         node = MCTSNode(root_obs.tobytes(), env.turn_side)
-        # gather valid actions
         val_acts = env.build_action_list()
         node.actions = list(range(len(val_acts)))
         node.untried = list(range(len(val_acts)))
@@ -660,17 +657,16 @@ def mcts_policy(env, max_iterations=50):
     for _ in range(max_iterations):
         env_copy = deepcopy(env)
         search_path = []
-        # selection + expansion
         ret = mcts_search(env_copy, search_path)
         # backprop
         for (st_key, act_idx) in search_path:
             nnode = mcts_tree[st_key]
             st = nnode.stats[act_idx]
-            st[0] += 1  # visit count
-            st[1] += (ret - st[1]) / st[0]  # Q update
+            st[0] += 1
+            st[1] += (ret - st[1]) / st[0]
             nnode.visit_sum += 1
 
-    # after expansions => pick action with highest N
+    # pick best action by highest N
     bestA, bestN = None, -1
     for a_idx, st in node.stats.items():
         if st[0] > bestN:
@@ -749,6 +745,19 @@ def best_uct_action(node, c=1.4):
             best_score = uct
             bestA = a_idx
     return bestA
+
+def run_mcts_episode(env, max_iterations=50):
+    obs, info = env.reset()
+    done = False
+    while not done:
+        act_idx = mcts_policy(env, max_iterations=max_iterations)
+        obs2, rew, term, trunc, inf = env.step(act_idx)
+        done = term or trunc
+
+    # store final ep
+    if len(env.current_episode) > 0:
+        env.all_episodes.append(env.current_episode)
+    return env.all_episodes
 
 def rollout(env_copy, depth, max_depth):
     # random rollout
@@ -894,13 +903,13 @@ def main():
             ep_count += 1
             print(f"Tree-based episode {ep_count} finished, total episodes so far: {len(all_episodes)}")
 
-    else:
-        # approach == "mcts"
-        print("Running MCTS approach. Player side uses MCTS, enemy side is random.")
+    elif args.approach == "mcts":
+        print("Running MCTS approach. Both Player and Enemy side uses MCTS")
         start_time = time.time()
-        time_limit = 3600 * 9  # e.g. 1 minute
+        time_limit = 60 * 10
         all_episodes = []
         ep_count = 0
+
 
         while True:
             elapsed = time.time() - start_time
@@ -909,14 +918,15 @@ def main():
                 break
 
             env = make_env_fn(scenario_copy, randomize=args.randomize)()
-            obs, info = env.reset()
-            done = False
+            eps = run_mcts_episode(env, max_iterations=2000)
+            # obs, info = env.reset()
+            # done = False
 
-            while not done:
-                # MCTS for player, random for enemy
-                act_idx = mcts_policy(env, max_iterations=50)
-                obs2, rew, term, trunc, inf = env.step(act_idx)
-                done = term or trunc
+            # while not done:
+            #     # call MCTS for the current turn_side (could be 'player' or 'enemy')
+            #     act_idx = mcts_policy(env, max_iterations=50)
+            #     obs2, rew, term, trunc, inf = env.step(act_idx)
+            #     done = term or trunc
 
             # store final ep
             if len(env.current_episode) > 0:
