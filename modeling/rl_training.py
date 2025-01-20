@@ -17,14 +17,19 @@ from sb3_contrib.common.maskable.utils import get_action_masks
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-# Force a fixed seed
+# Force a fixed seed (you can remove or adjust if you want the randomness each run to differ)
 np.random.seed(42)
 random.seed(42)
 
+# Load scenario/world data:
 with open(os.path.join("data", "world.yaml"), "r") as f:
     world_data = yaml.safe_load(f)
 with open(os.path.join("data", "pieces.yaml"), "r") as f:
     pieces_data = yaml.safe_load(f)
+
+##################################
+# Utility / Helper functions
+##################################
 
 def hex_distance(q1, r1, q2, r2):
     """Cube distance in axial coords."""
@@ -77,20 +82,71 @@ def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
     return True
 
 
+##################################
+# Environment
+##################################
+
 class HexPuzzleEnv(gym.Env):
     """
-    Your existing environment code, unchanged, just copied here.
+    A hex-based puzzle environment with optional randomization of:
+      - radius
+      - blocked hexes
+      - piece composition (but ensuring at least 1 Priest per side)
+      - positions of pieces
     """
-    def __init__(self, puzzle_scenario, max_turns=10, render_mode=None, randomize_positions=False):
+    def __init__(
+        self,
+        puzzle_scenario,
+        max_turns=10,
+        render_mode=None,
+        # existing param for randomizing final positions of each piece:
+        randomize_positions=False,
+
+        # NEW randomization parameters (all default off for backward-compatibility):
+        randomize_radius=False,
+        radius_min=2,
+        radius_max=5,
+
+        randomize_blocked=False,
+        min_blocked=1,
+        max_blocked=5,
+
+        randomize_pieces=False,
+        # For each side, we ensure at least 1 Priest. Then we add additional pieces
+        # from some set. The user can define how many total pieces for each side (including the Priest).
+        # If you only want 2 total for player side, that means 1 Priest + 1 random.
+        player_min_pieces=3,
+        player_max_pieces=4,
+        enemy_min_pieces=3,
+        enemy_max_pieces=5,
+    ):
         super().__init__()
+
+        # Store the original scenario. We'll use this to revert each reset if randomization is off.
         self.original_scenario = deepcopy(puzzle_scenario)
         self.scenario = deepcopy(puzzle_scenario)
-        self.grid_radius = puzzle_scenario["subGridRadius"]
+
         self.max_turns = max_turns
+        self.render_mode = render_mode
 
-        # Whether to randomize piece placements
+        # randomization toggles
         self.randomize_positions = randomize_positions
+        self.randomize_radius = randomize_radius
+        self.radius_min = radius_min
+        self.radius_max = radius_max
+        self.randomize_blocked = randomize_blocked
+        self.min_blocked = min_blocked
+        self.max_blocked = max_blocked
+        self.randomize_pieces = randomize_pieces
+        self.player_min_pieces = player_min_pieces
+        self.player_max_pieces = player_max_pieces
+        self.enemy_min_pieces = enemy_min_pieces
+        self.enemy_max_pieces = enemy_max_pieces
 
+        # The base radius from the scenario:
+        self.grid_radius = self.scenario["subGridRadius"]
+
+        # Initialize pieces
         self._init_pieces_from_scenario(self.scenario)
 
         # Build all hex coords
@@ -99,7 +155,6 @@ class HexPuzzleEnv(gym.Env):
             for r in range(-self.grid_radius, self.grid_radius + 1):
                 if abs(q + r) <= self.grid_radius:
                     self.all_hexes.append((q, r))
-        self.num_positions = len(self.all_hexes)
 
         # We'll define a max so stable_baselines3 sees a fixed discrete action space:
         self.max_actions_for_side = 500
@@ -132,9 +187,87 @@ class HexPuzzleEnv(gym.Env):
         self.player_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "player"]
         self.enemy_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "enemy"]
 
+    def _build_all_hexes(self):
+        """Rebuild self.all_hexes from self.grid_radius."""
+        self.all_hexes = []
+        for q in range(-self.grid_radius, self.grid_radius + 1):
+            for r in range(-self.grid_radius, self.grid_radius + 1):
+                if abs(q + r) <= self.grid_radius:
+                    self.all_hexes.append((q, r))
+
+    def _randomize_scenario(self):
+        """
+        Randomly modify:
+          - subGridRadius
+          - blockedHexes
+          - piece composition
+        (only if those toggles are on). Then re-init scenario's pieces from scratch.
+        """
+        # 1) Possibly randomize radius
+        if self.randomize_radius:
+            self.scenario["subGridRadius"] = random.randint(self.radius_min, self.radius_max)
+        else:
+            self.scenario["subGridRadius"] = self.original_scenario["subGridRadius"]
+
+        self.grid_radius = self.scenario["subGridRadius"]
+        self._build_all_hexes()
+
+        # 2) Possibly randomize the blocked hexes
+        if self.randomize_blocked:
+            # how many do we block?
+            blocked_count = random.randint(self.min_blocked, self.max_blocked)
+            # pick them from all_hexes at random, ensuring we don't pick duplicates
+            chosen_blocked = random.sample(self.all_hexes, min(blocked_count, len(self.all_hexes)))
+            self.scenario["blockedHexes"] = [{"q": q, "r": r} for (q, r) in chosen_blocked]
+        else:
+            # revert to the original blocked
+            self.scenario["blockedHexes"] = deepcopy(self.original_scenario["blockedHexes"])
+
+        # 3) Possibly randomize the set of pieces
+        if self.randomize_pieces:
+            # We'll define some known classes for the player's side and the enemy's side.
+            # At minimum, each side must have 1 Priest. Then we fill the rest with random picks.
+
+            # Example available classes:
+            player_classes = ["Warlock", "Sorcerer", "Priest"]  # you can add more if you wish
+            enemy_classes = ["Guardian", "BloodWarden", "Hunter", "Priest"]
+
+            # Decide how many total pieces each side should have (including the guaranteed Priest).
+            p_count = random.randint(self.player_min_pieces, self.player_max_pieces)
+            e_count = random.randint(self.enemy_min_pieces, self.enemy_max_pieces)
+
+            # Always ensure 1 Priest on each side
+            # Then for the leftover slots, pick from the other classes
+            def pick_side_pieces(side, class_list, total_count):
+                # Always 1 priest:
+                pieces = [{"class": "Priest", "label": "P", "color": "#556b2f", "side": side, "q": 0, "r": 0}]
+                # The remainder:
+                remainder = total_count - 1
+                # Filter out Priest from random picks to avoid duplicates, or allow duplicates if you want:
+                # If you do NOT want duplicates, remove "Priest" from class_list:
+                other_classes = [c for c in class_list if c != "Priest"]
+                for _ in range(remainder):
+                    c = random.choice(other_classes)
+                    label = c[0] if c != "BloodWarden" else "BW"
+                    color = "#556b2f" if side == "player" else "#dc143c"
+                    pieces.append({"class": c, "label": label, "color": color, "side": side, "q": 0, "r": 0})
+                return pieces
+
+            new_player_pieces = pick_side_pieces("player", player_classes, p_count)
+            new_enemy_pieces = pick_side_pieces("enemy", enemy_classes, e_count)
+
+            self.scenario["pieces"] = new_player_pieces + new_enemy_pieces
+        else:
+            # revert to original
+            self.scenario["pieces"] = deepcopy(self.original_scenario["pieces"])
+
     def _randomize_piece_positions(self):
+        """
+        Shuffle the final piece coordinates on valid (non-blocked) hexes.
+        """
         blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
         valid_hexes = [(q, r) for (q, r) in self.all_hexes if (q, r) not in blocked_hexes]
+
         total_pieces_needed = len(self.player_pieces) + len(self.enemy_pieces)
         if total_pieces_needed > len(valid_hexes):
             print("[WARNING] Not enough valid hexes to place all pieces randomly!")
@@ -157,8 +290,18 @@ class HexPuzzleEnv(gym.Env):
             self.all_episodes.append(self.current_episode)
         self.current_episode = []
 
+        # Deepcopy the original scenario, then apply random modifications if toggles are on
         self.scenario = deepcopy(self.original_scenario)
+        self._randomize_scenario()  # modifies self.scenario if toggles are set
+
+        # Re-init pieces, radius, all_hexes
         self._init_pieces_from_scenario(self.scenario)
+        self.grid_radius = self.scenario["subGridRadius"]
+        self._build_all_hexes()
+
+        # final position randomization (the old behavior from randomize_positions)
+        if self.randomize_positions:
+            self._randomize_piece_positions()
 
         self.turn_number = 1
         self.turn_side = "player"
@@ -166,9 +309,7 @@ class HexPuzzleEnv(gym.Env):
         self.non_bloodwarden_kills = 0
         self.delayedAttacks.clear()
 
-        if self.randomize_positions:
-            self._randomize_piece_positions()
-
+        # Build initial step log
         init_dict = {
             "turn_number": 0,
             "turn_side": None,
@@ -176,6 +317,16 @@ class HexPuzzleEnv(gym.Env):
             "positions": self._log_positions()
         }
         self.current_episode.append(init_dict)
+
+        # Need to update observation_space to reflect new # of pieces:
+        self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
+        # Rebuild observation_space bounds:
+        self.observation_space = gym.spaces.Box(
+            low=-self.grid_radius,
+            high=self.grid_radius,
+            shape=(self.obs_size,),
+            dtype=np.float32
+        )
 
         return self.get_obs(), {}
 
@@ -201,6 +352,7 @@ class HexPuzzleEnv(gym.Env):
         if piece.get("dead", False) or piece["side"] != self.turn_side:
             return self._finish_step(-1.0, False, False)
 
+        # Scoring penalty if the piece could have attacked but instead does a different action
         could_attack = self._could_have_attacked(piece)
         is_attack = sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"]
         step_mod = 0.0
@@ -240,7 +392,6 @@ class HexPuzzleEnv(gym.Env):
 
         final_reward, terminated, truncated = self._apply_end_conditions(step_mod)
         next_obs, rew, ter, tru, info = self._finish_step(final_reward, terminated, truncated)
-
         return next_obs, rew, ter, tru, info
 
     def _finish_step(self, reward, terminated, truncated):
@@ -262,6 +413,7 @@ class HexPuzzleEnv(gym.Env):
         self.current_episode.append(step_data)
 
         if not (terminated or truncated):
+            # Switch sides
             if self.turn_side == "player":
                 self.turn_side = "enemy"
             else:
@@ -341,7 +493,6 @@ class HexPuzzleEnv(gym.Env):
                                 blocked_hexes, self.all_pieces
                             ):
                                 in_range_enemies.append(eP)
-                    from itertools import combinations
                     for size in range(1, max_tg + 1):
                         for combo in combinations(in_range_enemies, size):
                             actions.append((pidx, {
@@ -390,6 +541,7 @@ class HexPuzzleEnv(gym.Env):
                             "name": aname,
                             "targets": in_range_enemies
                         }))
+
         return actions[: self.max_actions_for_side]
 
     def _occupied_or_blocked(self, q, r):
@@ -546,11 +698,13 @@ class HexPuzzleEnv(gym.Env):
 
     def _kill_piece(self, piece):
         if not piece.get("dead", False):
+            # If it's your turn-side piece you kill, that's a negative. If it's the enemy, that's a positive.
             if piece["side"] == self.turn_side:
                 self.current_episode[-1]["reward"] += -5
             else:
                 self.current_episode[-1]["reward"] += +5
 
+            # Additional penalty if you kill a priest at the same time:
             if piece["class"] == "Priest":
                 self.current_episode[-1]["reward"] -= 3
 
@@ -597,12 +751,38 @@ class HexPuzzleEnv(gym.Env):
         return self._get_action_mask()
 
 
-def make_env_fn(scenario_dict, randomize=False):
+def make_env_fn(
+    scenario_dict,
+    randomize_positions=False,
+    randomize_radius=False,
+    radius_min=2,
+    radius_max=5,
+    randomize_blocked=False,
+    min_blocked=1,
+    max_blocked=5,
+    randomize_pieces=False,
+    player_min_pieces=3,
+    player_max_pieces=4,
+    enemy_min_pieces=3,
+    enemy_max_pieces=5
+):
+    """Factory for creating the HexPuzzleEnv with desired randomization params."""
     def _init():
         env = HexPuzzleEnv(
             puzzle_scenario=scenario_dict,
             max_turns=10,
-            randomize_positions=randomize
+            randomize_positions=randomize_positions,
+            randomize_radius=randomize_radius,
+            radius_min=radius_min,
+            radius_max=radius_max,
+            randomize_blocked=randomize_blocked,
+            min_blocked=min_blocked,
+            max_blocked=max_blocked,
+            randomize_pieces=randomize_pieces,
+            player_min_pieces=player_min_pieces,
+            player_max_pieces=player_max_pieces,
+            enemy_min_pieces=enemy_min_pieces,
+            enemy_max_pieces=enemy_max_pieces
         )
         env = ActionMasker(env, lambda e: e.action_masks())
         return env
@@ -843,27 +1023,72 @@ def run_tree_search(env):
 ############################
 
 def _run_one_episode(model, env):
-    obs = env.reset()
+    obs, info = env.reset()
     done, state = False, None
     while not done:
         action, state = model.predict(obs, state=state, deterministic=True)
-        obs, reward, done, info = env.step(action)
-        done = done
+        obs, reward, done, _, info = env.step(action)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Hex Puzzle RL with optional randomization.")
     parser.add_argument("--randomize", action="store_true",
-                        help="If set, randomize initial piece positions each reset.")
+                        help="If set, randomize piece positions each reset (the old behavior).")
+
     parser.add_argument("--approach", choices=["ppo", "tree", "mcts"], default="ppo",
                         help="Which approach to use: 'ppo', 'tree', or 'mcts'. Default is ppo.")
+
+    # Additional toggles for radius, blocked, piece composition:
+    parser.add_argument("--randomize-radius", action="store_true",
+                        help="Randomize puzzle subGridRadius each reset.")
+    parser.add_argument("--radius-min", type=int, default=2,
+                        help="Minimum radius if randomize-radius is used.")
+    parser.add_argument("--radius-max", type=int, default=5,
+                        help="Maximum radius if randomize-radius is used.")
+
+    parser.add_argument("--randomize-blocked", action="store_true",
+                        help="Randomize blocked hexes each reset.")
+    parser.add_argument("--min-blocked", type=int, default=1,
+                        help="Minimum # of blocked hexes if randomize-blocked is used.")
+    parser.add_argument("--max-blocked", type=int, default=5,
+                        help="Maximum # of blocked hexes if randomize-blocked is used.")
+
+    parser.add_argument("--randomize-pieces", action="store_true",
+                        help="Randomize the actual piece composition each reset (ensure 1 Priest/side).")
+
+    parser.add_argument("--player-min-pieces", type=int, default=3,
+                        help="Min # of pieces for player's side (including Priest) if randomize-pieces.")
+    parser.add_argument("--player-max-pieces", type=int, default=4,
+                        help="Max # of pieces for player's side (including Priest) if randomize-pieces.")
+    parser.add_argument("--enemy-min-pieces", type=int, default=3,
+                        help="Min # of pieces for enemy side (including Priest) if randomize-pieces.")
+    parser.add_argument("--enemy-max-pieces", type=int, default=5,
+                        help="Max # of pieces for enemy side (including Priest) if randomize-pieces.")
+
     args = parser.parse_args()
 
     scenario = world_data["regions"][0]["puzzleScenarios"][0]
     scenario_copy = deepcopy(scenario)
 
+    # Build our environment factory:
+    env_fn = make_env_fn(
+        scenario_copy,
+        randomize_positions=args.randomize,
+        randomize_radius=args.randomize_radius,
+        radius_min=args.radius_min,
+        radius_max=args.radius_max,
+        randomize_blocked=args.randomize_blocked,
+        min_blocked=args.min_blocked,
+        max_blocked=args.max_blocked,
+        randomize_pieces=args.randomize_pieces,
+        player_min_pieces=args.player_min_pieces,
+        player_max_pieces=args.player_max_pieces,
+        enemy_min_pieces=args.enemy_min_pieces,
+        enemy_max_pieces=args.enemy_max_pieces
+    )
+
     if args.approach == "ppo":
-        vec_env = DummyVecEnv([make_env_fn(scenario_copy, randomize=args.randomize)])
+        vec_env = DummyVecEnv([env_fn])
         model = MaskablePPO(
             "MlpPolicy",
             vec_env,
@@ -876,9 +1101,9 @@ def main():
             max_grad_norm=0.3
         )
 
-        print("Training PPO for up to 1 hour.")
+        print("Training PPO for up to ~20 minutes (modify as needed).")
         start_time = time.time()
-        time_limit = 60 * 20  # 1 hour
+        time_limit = 60 * 20  # 20 minutes
 
         iteration_count_before = 0
         while True:
@@ -901,9 +1126,10 @@ def main():
 
         # gather episodes
         all_episodes = vec_env.envs[0].all_episodes
+
         if args.randomize:
-            print("\nPerforming 1 test iteration on the FIXED scenario.")
-            test_env = DummyVecEnv([make_env_fn(scenario_copy, randomize=False)])
+            print("\nPerforming 1 test iteration on the FIXED scenario (no randomization) to see how it does.")
+            test_env = DummyVecEnv([make_env_fn(scenario_copy)])  # no randomization
             _run_one_episode(model, test_env)
             all_episodes += test_env.envs[0].all_episodes
 
@@ -920,7 +1146,7 @@ def main():
                 print("Time limit => stop tree-based approach.")
                 break
 
-            env = make_env_fn(scenario_copy, randomize=args.randomize)()
+            env = env_fn()
             run_tree_search(env)
             all_episodes.extend(env.all_episodes)
             ep_count += 1
@@ -929,10 +1155,9 @@ def main():
     elif args.approach == "mcts":
         print("Running MCTS approach. Both Player and Enemy side uses MCTS")
         start_time = time.time()
-        time_limit = 3600 * 60
+        time_limit = 60 # in seconds
         all_episodes = []
         ep_count = 0
-
 
         while True:
             elapsed = time.time() - start_time
@@ -940,18 +1165,8 @@ def main():
                 print("Time limit => stop MCTS approach.")
                 break
 
-            env = make_env_fn(scenario_copy, randomize=args.randomize)()
-            eps = run_mcts_episode(env, max_iterations=750)
-            # obs, info = env.reset()
-            # done = False
-
-            # while not done:
-            #     # call MCTS for the current turn_side (could be 'player' or 'enemy')
-            #     act_idx = mcts_policy(env, max_iterations=50)
-            #     obs2, rew, term, trunc, inf = env.step(act_idx)
-            #     done = term or trunc
-
-            # store final ep
+            env = env_fn()
+            eps = run_mcts_episode(env, max_iterations=2000)
             if len(env.current_episode) > 0:
                 env.all_episodes.append(env.current_episode)
             all_episodes.extend(env.all_episodes)
@@ -970,18 +1185,23 @@ def main():
         nbk = final.get("non_bloodwarden_kills", 0)
 
         if rew >= 30:
-            outcome_str = f"Iteration {i+1}: {side.upper()} side WINS (nb_kills={nbk})"
+            outcome_str = f"Iteration {i+1}: {side.upper()} side WINS (nb_kills={nbk}) => final reward={rew}"
         elif rew <= -30:
-            outcome_str = f"Iteration {i+1}: {side.upper()} side LOSES => -30 (nb_kills={nbk})"
+            outcome_str = f"Iteration {i+1}: {side.upper()} side LOSES => -30 (nb_kills={nbk}), reward={rew}"
         elif rew == -20:
             outcome_str = f"Iteration {i+1}: time-limit penalty => -20"
         else:
             outcome_str = f"Iteration {i+1}: final reward={rew}, side={side}, nb_kills={nbk}"
         iteration_outcomes.append(outcome_str)
 
+    # Save episodes if desired
     np.save("actions_log.npy", np.array(all_episodes, dtype=object), allow_pickle=True)
-    print(f"Saved actions_log.npy with scenario data. Approach = {args.approach}")
+    print(f"\nSaved actions_log.npy with scenario data. Approach = {args.approach}")
     print(f"Collected {len(all_episodes)} total episodes.")
+
+    # Optional: print final iteration outcomes
+    for line in iteration_outcomes[-10:]:
+        print(line)
 
 
 if __name__ == "__main__":
