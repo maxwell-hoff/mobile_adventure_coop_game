@@ -59,6 +59,9 @@ def enemy_action():
     We'll run 1 step of MCTS or PPO for the "enemy" side,
     and return the chosen action in JSON.
     """
+    from modeling.rl_training import mcts_tree
+    global mcts_tree  # or import the module-level name
+    mcts_tree.clear()  # <-- force a fresh MCTS dictionary each time
     data = request.get_json()
     if not data:
         return jsonify({"error": "No JSON provided"}), 400
@@ -74,6 +77,7 @@ def enemy_action():
     # We ensure enemy side is set:
     env.turn_side = "enemy"
     env.done_forced = False
+    env.reset()
 
     # Build valid actions to ensure there's something:
     valid_actions = env.build_action_list()
