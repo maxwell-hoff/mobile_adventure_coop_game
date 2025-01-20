@@ -929,7 +929,7 @@ def main():
     elif args.approach == "mcts":
         print("Running MCTS approach. Both Player and Enemy side uses MCTS")
         start_time = time.time()
-        time_limit = 60 * 20
+        time_limit = 3600 * 60
         all_episodes = []
         ep_count = 0
 
@@ -941,7 +941,7 @@ def main():
                 break
 
             env = make_env_fn(scenario_copy, randomize=args.randomize)()
-            eps = run_mcts_episode(env, max_iterations=500)
+            eps = run_mcts_episode(env, max_iterations=750)
             # obs, info = env.reset()
             # done = False
 
