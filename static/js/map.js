@@ -8,9 +8,9 @@ let currentHexSelector = null;
 let pieceSelections = new Map(); // Make this global
 let puzzleScenario = null;
 let battleLog = [];
-let blockedHexes = new Set(); // Add this global variable
-let delayedAttacks = []; // Array to store attacks that are delayed due to cast_speed
-let turnCounter = 0; // Track number of turns completed
+let blockedHexes = new Set(); 
+let delayedAttacks = []; 
+let turnCounter = 0; 
 
 const HEX_SIZE = 30; // radius of each hex
 const SQRT3 = Math.sqrt(3);
@@ -39,15 +39,11 @@ function hexPolygonPoints(cx, cy) {
   return points.join(" ");
 }
 
-/** 
- * For a single hex (q,r), return an array of edges, 
- * each edge is [ [x1, y1], [x2, y2] ] in pixel coords.
- */
+/** Return an array of edges for hex (q,r). Each edge => [ [x1,y1],[x2,y2] ] */
 function getHexEdges(q, r) {
   const center = axialToPixel(q, r);
   let edges = [];
   let corners = [];
-  // compute 6 corners
   for (let i = 0; i < 6; i++) {
     let angle_deg = 60*i + 30;
     let rad = Math.PI/180 * angle_deg;
@@ -55,7 +51,6 @@ function getHexEdges(q, r) {
     let py = center.y + HEX_SIZE * Math.sin(rad);
     corners.push({ x:px, y:py });
   }
-  // Each edge is corner[i] -> corner[i+1], wrapping at i=5
   for (let i = 0; i < 6; i++) {
     let c1 = corners[i];
     let c2 = corners[(i+1) % 6];
@@ -64,12 +59,8 @@ function getHexEdges(q, r) {
   return edges;
 }
 
-/** 
- * Return axial neighbors for pointy-top in axial coords 
- * (q+/-1, r?), etc. 
- */
+/** Axial neighbors (q +/- 1, r +/- 1, etc.). */
 function getHexNeighbors(q, r) {
-  // Standard pointy axial neighbors
   return [
     {q: q+1, r: r},
     {q: q-1, r: r},
@@ -1837,6 +1828,7 @@ function setupPlayerControls(scenario) {
 
     pieceSelections.clear();
     drawHexDetailView(currentRegion, currentSection);
+    enemyTurn();
   });
 
   // Initial validation
@@ -1846,4 +1838,142 @@ function setupPlayerControls(scenario) {
   updateActionDescriptions();
   
   return pieceSelections; // Return this so we can use it in hex click handlers
+}
+
+async function enemyTurn() {
+  if (!puzzleScenario) {
+    console.warn("No puzzle scenario to act on.");
+    return;
+  }
+  // We'll pick approach = "mcts" by default. Or "ppo" if you have a PPO model
+  const approach = "mcts"; // or "ppo"
+
+  const bodyData = {
+    scenario: puzzleScenario,
+    approach: approach
+  };
+
+  try {
+    const resp = await fetch("/api/enemy_action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bodyData)
+    });
+    if (!resp.ok) {
+      console.error("Server error calling /api/enemy_action");
+      return;
+    }
+    const result = await resp.json();
+    if (result.error) {
+      console.log("No valid actions or error from server:", result.error);
+      return;
+    }
+    // result => { piece_label, action_idx, sub_action: { ... }, etc. }
+    applyEnemyActionToScenario(result);
+
+    // Re-draw to see the updated scenario
+    drawHexDetailView(currentRegion, currentSection);
+  } catch (err) {
+    console.error("Failed to fetch enemy action:", err);
+  }
+}
+
+/**
+ * Takes the action returned by the server and updates puzzleScenario in place,
+ * so that the enemy piece is moved or does the correct attack, etc.
+ */
+function applyEnemyActionToScenario(actionResult) {
+  const subAction = actionResult.sub_action;
+  const pieceLabel = actionResult.piece_label;
+  
+  const piece = puzzleScenario.pieces.find(p => p.label === pieceLabel);
+  if (!piece) {
+    console.warn("Enemy piece not found:", pieceLabel);
+    return;
+  }
+
+  switch (subAction.type) {
+    case "move":
+      if (subAction.dest) {
+        const [q, r] = subAction.dest;
+        piece.q = q;
+        piece.r = r;
+        addBattleLog(`Enemy ${piece.class} (${piece.label}) moved to (${q},${r})`);
+      }
+      break;
+
+    case "pass":
+      addBattleLog(`Enemy ${piece.class} (${piece.label}) passed`);
+      break;
+
+    case "swap_position":
+      {
+        const tgt = subAction.target_piece;
+        if (tgt) {
+          // find the target in puzzleScenario
+          const swapPiece = puzzleScenario.pieces.find(pp => pp.label === tgt.label);
+          if (swapPiece) {
+            // swap coords
+            const oldQ = piece.q, oldR = piece.r;
+            piece.q = swapPiece.q; piece.r = swapPiece.r;
+            swapPiece.q = oldQ; swapPiece.r = oldR;
+            addBattleLog(`Enemy ${piece.class} (${piece.label}) swapped with ${swapPiece.class} (${swapPiece.label})`);
+          }
+        }
+      }
+      break;
+
+    case "single_target_attack":
+      {
+        const tgt = subAction.target_piece;
+        if (tgt) {
+          // remove that piece from scenario, or mark dead
+          const idx = puzzleScenario.pieces.findIndex(pp => pp.label === tgt.label);
+          if (idx >= 0) {
+            const removed = puzzleScenario.pieces[idx];
+            // Just remove it from array for simplicity
+            puzzleScenario.pieces.splice(idx, 1);
+            addBattleLog(`Enemy ${piece.class} (${piece.label}) killed ${removed.class} (${removed.label})`);
+          }
+        }
+      }
+      break;
+
+    case "multi_target_attack":
+      {
+        const targets = subAction.targets || [];
+        targets.forEach(tgt => {
+          // remove each piece
+          const idx = puzzleScenario.pieces.findIndex(pp => pp.label === tgt.label);
+          if (idx >= 0) {
+            const removed = puzzleScenario.pieces[idx];
+            puzzleScenario.pieces.splice(idx, 1);
+            addBattleLog(`Enemy ${piece.class} (${piece.label}) multi-attack killed ${removed.class} (${removed.label})`);
+          }
+        });
+      }
+      break;
+
+    case "aoe":
+      {
+        // If subAction.targets is an array of targets, kill them
+        const arr = subAction.targets || [];
+        arr.forEach(tgt => {
+          const idx = puzzleScenario.pieces.findIndex(pp => pp.label === tgt.label);
+          if (idx >= 0) {
+            const removed = puzzleScenario.pieces[idx];
+            puzzleScenario.pieces.splice(idx, 1);
+            addBattleLog(`Enemy ${piece.class} (${piece.label}) AOE killed ${removed.class} (${removed.label})`);
+          }
+        });
+      }
+      break;
+
+    default:
+      console.log("Unknown sub_action.type:", subAction.type);
+      break;
+  }
+
+  // If your puzzle scenario needs any other updates (like if a piece is "dead" but not removed),
+  // do it here. Then your scenario is consistent for the next re-draw.
 }
