@@ -50,10 +50,6 @@ def map_data():
 # ---------------------------------------
 @app.route("/api/enemy_action", methods=["POST"])
 def enemy_action():
-    from modeling.rl_training import mcts_tree
-    global mcts_tree
-    mcts_tree.clear()
-    
     data = request.get_json()
     scenario_in = data.get("scenario")
     approach = data.get("approach", "mcts")
@@ -61,41 +57,44 @@ def enemy_action():
     if not scenario_in:
         return jsonify({"error": "No scenario provided"}), 400
 
-    # Build an environment from the scenario:
+    # 1) Rebuild environment from scenario
     env = HexPuzzleEnv(puzzle_scenario=scenario_in, max_turns=10, randomize_positions=False)
-    
-    # This call used to do env.reset() => randomizing + resetting
-    # Instead, we now do:
     env.sync_with_puzzle_scenario(scenario_in, turn_side="enemy")
 
-    # Now build the action list for 'enemy' side
-    valid_actions = env.build_action_list()
-    if not valid_actions:
-        return jsonify({"error": "No valid actions for enemy side."}), 200
+    # 2) While env.turn_side == "enemy" and we have valid actions, pick one
+    #    This means *all* enemy moves happen in one request.
+    actions_taken = []
+    while env.turn_side == "enemy":
+        valid_actions = env.build_action_list()
+        if not valid_actions:
+            break
 
-    # MCTS or PPO
-    if approach == "mcts":
-        action_idx = mcts_policy(env, max_iterations=50)
-    else:
-        if not ppo_model:
-            return jsonify({"error": "No PPO model loaded"}), 500
-        obs = env.get_obs()
-        action_idx, _ = ppo_model.predict(obs, deterministic=True)
+        if approach == "mcts":
+            action_idx = mcts_policy(env, max_iterations=50)
+        else:
+            # PPO or random, etc.
+            action_idx = random.randint(0, len(valid_actions)-1)
 
-    if action_idx < 0 or action_idx >= len(valid_actions):
-        return jsonify({"error": f"Chosen action_idx {action_idx} out of range"}), 200
+        # Step
+        obs2, reward, done, truncated, _ = env.step(action_idx)
+        (pidx, chosen_subaction) = valid_actions[action_idx]
+        piece_label = env.all_pieces[pidx].get("label", "?")
 
-    pidx, sub_action = valid_actions[action_idx]
-    piece = env.all_pieces[pidx]
+        actions_taken.append({
+            "piece_label": piece_label,
+            "sub_action": chosen_subaction
+        })
 
-    # Return the minimal info needed:
-    resp = {
-        "piece_label": piece.get("label", "?"),
-        "action_idx": action_idx,
-        "pidx": pidx,
-        "sub_action": sub_action
-    }
-    return jsonify(resp), 200
+        if done:
+            break
+
+    # 3) Return list of all sub_actions so frontend can apply each one in order
+    #    If you only want a single sub_action per request, skip this approach
+    if not actions_taken:
+        return jsonify({"error":"No valid actions for enemy side."}), 200
+    
+    return jsonify({"actions": actions_taken}), 200
+
 
 if __name__ == "__main__":
     app.run(debug=True)

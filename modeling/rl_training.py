@@ -398,6 +398,10 @@ class HexPuzzleEnv(gym.Env):
         return next_obs, rew, ter, tru, info
 
     def _finish_step(self, reward, terminated, truncated):
+        """
+        Called at the end of each .step() to finalize the step's
+        data in self.current_episode, and possibly flip turn side.
+        """
         step_data = {
             "turn_number": self.turn_number,
             "turn_side": self.turn_side,
@@ -406,28 +410,30 @@ class HexPuzzleEnv(gym.Env):
         }
         if hasattr(self, "mcts_debug"):
             step_data["mcts_debug"] = self.mcts_debug
-            del self.mcts_debug
+            del self.mcts_debug  # clear for next step
 
+        # If we are terminating or truncating, mark it done
         if terminated or truncated:
             step_data["non_bloodwarden_kills"] = self.non_bloodwarden_kills
             self.done_forced = True
 
         self.current_episode.append(step_data)
 
+        # If not done yet, maybe switch sides if all living pieces have moved
         if not (terminated or truncated):
-            # Check if all living pieces on the current side have moved
             if self._all_side_pieces_have_moved(self.turn_side):
-                # Now we flip to the other side
+                # Switch from player -> enemy OR enemy -> player
                 if self.turn_side == "player":
                     self.turn_side = "enemy"
                 else:
                     self.turn_side = "player"
                     self.turn_number += 1
 
-                # Reset "moved_this_turn" for everyone
+                # Reset the "moved_this_turn" flag
                 for pc in self.all_pieces:
                     pc["moved_this_turn"] = False
 
+                # Possibly trigger delayed attacks
                 self._check_delayed_attacks()
 
         obs = self.get_obs()
@@ -843,6 +849,10 @@ def make_env_fn(
 #  SIMPLE MCTS IMPLEMENTATION
 ############################
 
+############################
+#  SIMPLE MCTS IMPLEMENTATION
+############################
+
 class MCTSNode:
     """
     A node in the MCTS search tree, keyed by (obs_bytes, turn_side).
@@ -853,11 +863,12 @@ class MCTSNode:
 
         # valid actions and children
         self.actions = None  # list of action indices
-        # stats: action_idx -> (N, Q)
+        # stats: action_idx -> [N, Q]
         self.stats = {}
         self.untried = []
 
-        self.visit_sum = 0  # sum of visits across all actions
+        # sum of visits across all actions
+        self.visit_sum = 0
 
 def obs_to_key(obs, turn_side):
     """
@@ -869,161 +880,167 @@ mcts_tree = {}  # global dictionary: (obs_bytes, turn_side) -> MCTSNode
 
 def mcts_policy(env, max_iterations=50):
     """
-    Perform MCTS from the current env state, returning the best action.
-    Now used for BOTH 'player' and 'enemy' sides.
+    Perform MCTS from the current env state, returning the best action index.
+
+    1) We look up (obs, side) in mcts_tree; if no node, create it.
+    2) We run a number of MCTS iterations (selection/expansion/rollout/backprop).
+    3) Then pick the action with the highest visit count (N).
     """
-
     root_obs = env.get_obs()
-    root_key = obs_to_key(root_obs, env.turn_side)
+    root_side = env.turn_side
+    root_key = obs_to_key(root_obs, root_side)
 
-    # Create node if missing
+    # -----------------------------
+    # Ensure we have a root node
+    # -----------------------------
     if root_key not in mcts_tree:
-        node = MCTSNode(root_obs.tobytes(), env.turn_side)
-        val_acts = env.build_action_list()
-        node.actions = list(range(len(val_acts)))
-        node.untried = list(range(len(val_acts)))
+        node = MCTSNode(root_obs.tobytes(), root_side)
+        valid_acts = env.build_action_list()
+        node.actions = list(range(len(valid_acts)))
+        node.untried = list(range(len(valid_acts)))
+        # initialize stats for each action
         for a_idx in node.actions:
             node.stats[a_idx] = [0, 0.0]  # [N, Q]
         mcts_tree[root_key] = node
     else:
         node = mcts_tree[root_key]
 
-    # run expansions
+    # -----------------------------
+    # MCTS iterations
+    # -----------------------------
     for _ in range(max_iterations):
         env_copy = deepcopy(env)
         search_path = []
-        ret = mcts_search(env_copy, search_path)
-        # backprop
-        for (st_key, act_idx) in search_path:
-            nnode = mcts_tree[st_key]
-            st = nnode.stats[act_idx]
-            st[0] += 1
-            st[1] += (ret - st[1]) / st[0]
-            nnode.visit_sum += 1
+        rollout_return = mcts_search(env_copy, search_path)
 
-    # pick best action by highest N
-    bestA, bestN = None, -1
-    for a_idx, st in node.stats.items():
-        if st[0] > bestN:
-            bestN = st[0]
-            bestA = a_idx
+        # Backprop to all visited (node, action) pairs:
+        for (visited_key, act_idx) in search_path:
+            visited_node = mcts_tree[visited_key]
+            N, Q = visited_node.stats[act_idx]
+            N += 1
+            # simple incremental average update for Q
+            new_Q = Q + (rollout_return - Q) / N
+            visited_node.stats[act_idx] = [N, new_Q]
+            visited_node.visit_sum += 1
 
-    # We want to store the dictionary: action_idx -> (N, Q).
-    # Possibly also store node.actions and the environment's build_action_list().
-    # We attach it to env so that env.step(...) can copy it into the logs.
+    # -----------------------------
+    # Pick best action by visits
+    # -----------------------------
+    best_action = 0
+    best_visits = -1
+    for a_idx, (visits, qval) in node.stats.items():
+        if visits > best_visits:
+            best_visits = visits
+            best_action = a_idx
+
+    # Optional debug info
     mcts_debug_info = {}
     for a_idx, (visits, qval) in node.stats.items():
-        mcts_debug_info[a_idx] = {
-            "visits": visits,
-            "q_value": round(qval, 3),
-        }
+        mcts_debug_info[a_idx] = {"visits": visits, "q_value": round(qval, 3)}
+    mcts_debug_info["chosen_action_idx"] = best_action
+    env.mcts_debug = mcts_debug_info  # attach to env for logging
 
-    # Also store the final chosen action:
-    mcts_debug_info["chosen_action_idx"] = bestA
-    env.mcts_debug = mcts_debug_info  # store on env
+    return best_action
 
-    return bestA if bestA is not None else 0
 
 def mcts_search(env_copy, path, depth=0, max_depth=20):
     """
-    Single MCTS iteration (selection->expansion->rollout->backprop).
-    path is a list of (node_key, action_idx).
-    """
-    if depth >= max_depth:
-        # just return final reward
-        return env_copy.current_episode[-1]["reward"]
+    One MCTS simulation:
+      - selection+expansion: pick actions down tree
+      - if we reach a new state => expand
+      - once we can’t go deeper or game ends => rollout
+      - return final reward
 
-    if env_copy.done_forced:
+    We store (node_key, action_idx) in `path` so we can backprop after.
+    """
+    if depth >= max_depth or env_copy.done_forced:
         return env_copy.current_episode[-1]["reward"]
 
     obs = env_copy.get_obs()
     side = env_copy.turn_side
     node_key = obs_to_key(obs, side)
 
-    # create node if missing
+    # -----------------------------
+    # If missing, create a brand-new node
+    # -----------------------------
     if node_key not in mcts_tree:
         new_node = MCTSNode(obs.tobytes(), side)
-        valid_acts = env_copy.build_action_list()
-        new_node.actions = list(range(len(valid_acts)))
-        new_node.untried = list(range(len(valid_acts)))
+        valid_actions = env_copy.build_action_list()
+        new_node.actions = list(range(len(valid_actions)))
+        new_node.untried = list(range(len(valid_actions)))
         for a_idx in new_node.actions:
-            new_node.stats[a_idx] = [0, 0.0]  # [N, Q]
+            new_node.stats[a_idx] = [0, 0.0]
         mcts_tree[node_key] = new_node
 
-        # expansion => pick one untried action
+        # Try expanding with one untried action (if any exist)
         if new_node.untried:
-            a_idx = new_node.untried.pop()
-            path.append((node_key, a_idx))
-
-            obs2, rew, term, trunc, _ = env_copy.step(a_idx)
+            action_idx = new_node.untried.pop()
+            path.append((node_key, action_idx))
+            # Step
+            obs2, rew, term, trunc, _ = env_copy.step(action_idx)
             if term or trunc:
                 return env_copy.current_episode[-1]["reward"]
-            # rollout
-            r = rollout(env_copy, depth+1, max_depth)
-            return r
+            # Then do a random rollout from there
+            return rollout(env_copy, depth + 1, max_depth)
         else:
-            # no untried => fallback
+            # No untried => return current state's reward
             return env_copy.current_episode[-1]["reward"]
-    else:
-        node = mcts_tree[node_key]
-        # if untried => expand
-        if node.untried:
-            a_idx = node.untried.pop()
-            path.append((node_key, a_idx))
-            obs2, rew, term, trunc, _ = env_copy.step(a_idx)
-            if term or trunc:
-                return env_copy.current_episode[-1]["reward"]
-            return rollout(env_copy, depth+1, max_depth)
-        else:
-            # selection => pick child by UCB
-            a_idx = best_uct_action(node)
-            if a_idx is None:
-                # No action found => fallback or just return the current reward
-                return env_copy.current_episode[-1]["reward"]
-            path.append((node_key, a_idx))
 
-            obs2, rew, term, trunc, _ = env_copy.step(a_idx)
-            if term or trunc:
-                return env_copy.current_episode[-1]["reward"]
-            return mcts_search(env_copy, path, depth+1, max_depth)
+    # -----------------------------
+    # Otherwise we have a node already
+    # -----------------------------
+    node = mcts_tree[node_key]
 
-def best_uct_action(node, c=1.4):
-    best_score, bestA = -999999.0, None
-    for a_idx in node.actions:
-        N, Q = node.stats[a_idx]
-        if N == 0:
-            return a_idx  # immediate expansion priority
-        uct = Q + c * math.sqrt(math.log(node.visit_sum+1) / N)
-        if uct > best_score:
-            best_score = uct
-            bestA = a_idx
-    return bestA
-
-def run_mcts_episode(env, max_iterations=50):
-    obs, info = env.reset()
-    done = False
-    while not done:
-        act_idx = mcts_policy(env, max_iterations=max_iterations)
-        obs2, rew, term, trunc, inf = env.step(act_idx)
-        done = term or trunc
-
-    # store final ep
-    if len(env.current_episode) > 0:
-        env.all_episodes.append(env.current_episode)
-    return env.all_episodes
-
-def rollout(env_copy, depth, max_depth):
-    # random rollout
-    while depth < max_depth:
-        if env_copy.done_forced:
-            return env_copy.current_episode[-1]["reward"]
-        valid = env_copy.build_action_list()
-        if not valid:
-            return env_copy.current_episode[-1]["reward"]
-        a_idx = random.randint(0, len(valid)-1)
+    # If untried actions remain, expand
+    if node.untried:
+        a_idx = node.untried.pop()
+        path.append((node_key, a_idx))
         obs2, rew, term, trunc, _ = env_copy.step(a_idx)
         if term or trunc:
             return env_copy.current_episode[-1]["reward"]
+        return rollout(env_copy, depth+1, max_depth)
+    else:
+        # Selection: pick best child by UCT
+        a_idx = best_uct_action(node)
+        if a_idx is None:
+            # fallback
+            return env_copy.current_episode[-1]["reward"]
+        path.append((node_key, a_idx))
+        obs2, rew, term, trunc, _ = env_copy.step(a_idx)
+        if term or trunc:
+            return env_copy.current_episode[-1]["reward"]
+        # go deeper
+        return mcts_search(env_copy, path, depth+1, max_depth)
+
+
+def best_uct_action(node, c=1.4):
+    best_score = -999999
+    best_action = None
+    for a_idx in node.actions:
+        N, Q = node.stats[a_idx]
+        if N == 0:
+            # immediate expansion preference
+            return a_idx
+        # UCT formula
+        uct_val = Q + c * math.sqrt(math.log(node.visit_sum + 1) / N)
+        if uct_val > best_score:
+            best_score = uct_val
+            best_action = a_idx
+    return best_action
+
+
+def rollout(env_copy, depth, max_depth):
+    """
+    Random (or very simple) rollout until we hit max_depth or the game ends.
+    """
+    while depth < max_depth and not env_copy.done_forced:
+        valid = env_copy.build_action_list()
+        if not valid:
+            break
+        a_idx = random.randint(0, len(valid)-1)
+        obs2, rew, term, trunc, _ = env_copy.step(a_idx)
+        if term or trunc:
+            break
         depth += 1
     return env_copy.current_episode[-1]["reward"]
 

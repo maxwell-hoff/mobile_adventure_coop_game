@@ -2011,6 +2011,9 @@ function applyEnemyActionToScenario(actionResult) {
     return;
   }
 
+  // Mark that piece as having moved:
+  piece.moved_this_turn = true;
+
   switch (subAction.type) {
     case "move":
       if (subAction.dest) {
@@ -2091,6 +2094,18 @@ function applyEnemyActionToScenario(actionResult) {
     default:
       console.log("Unknown sub_action.type:", subAction.type);
       break;
+  }
+
+  // Now check if all enemy pieces moved
+  const enemies = puzzleScenario.pieces.filter(pp => pp.side === "enemy" && !pp.dead);
+  const allMoved = enemies.every(pp => pp.moved_this_turn);
+  if (allMoved) {
+    // End the enemy turn, switch to player
+    puzzleScenario.turn_side = "player";
+    // Reset flags so next round of enemy moves will be allowed
+    enemies.forEach(pp => {
+      pp.moved_this_turn = false;
+    });
   }
 
   // If your puzzle scenario needs any other updates (like if a piece is "dead" but not removed),
