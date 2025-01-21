@@ -749,7 +749,36 @@ class HexPuzzleEnv(gym.Env):
 
     def action_masks(self):
         return self._get_action_mask()
+    
+    def sync_with_puzzle_scenario(self, scenario_dict, turn_side="enemy"):
+        self.scenario = deepcopy(scenario_dict)
+        self._init_pieces_from_scenario(self.scenario)
+        self.grid_radius = self.scenario["subGridRadius"]
+        self._build_all_hexes()
 
+        self.turn_side = turn_side
+        self.turn_number = 1
+        self.done_forced = False
+        self.delayedAttacks.clear()
+
+        # Rebuild observation space
+        self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
+        self.observation_space = gym.spaces.Box(
+            low=-self.grid_radius,
+            high=self.grid_radius,
+            shape=(self.obs_size,),
+            dtype=np.float32
+        )
+
+        # Also ensure current_episode starts with an init step
+        self.current_episode = []
+        init_dict = {
+            "turn_number": 0,
+            "turn_side": self.turn_side,
+            "reward": 0.0,
+            "positions": self._log_positions()
+        }
+        self.current_episode.append(init_dict)
 
 def make_env_fn(
     scenario_dict,

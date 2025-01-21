@@ -50,52 +50,37 @@ def map_data():
 # ---------------------------------------
 @app.route("/api/enemy_action", methods=["POST"])
 def enemy_action():
-    """
-    The front end can POST:
-      {
-        "scenario": { ... puzzle scenario with pieces, blockedHexes, subGridRadius, etc. ... },
-        "approach": "mcts" or "ppo"
-      }
-    We'll run 1 step of MCTS or PPO for the "enemy" side,
-    and return the chosen action in JSON.
-    """
     from modeling.rl_training import mcts_tree
-    global mcts_tree  # or import the module-level name
-    mcts_tree.clear()  # <-- force a fresh MCTS dictionary each time
+    global mcts_tree
+    mcts_tree.clear()
+    
     data = request.get_json()
-    if not data:
-        return jsonify({"error": "No JSON provided"}), 400
-
     scenario_in = data.get("scenario")
-    approach = data.get("approach", "mcts")  # default = "mcts"
+    approach = data.get("approach", "mcts")
 
     if not scenario_in:
         return jsonify({"error": "No scenario provided"}), 400
 
     # Build an environment from the scenario:
     env = HexPuzzleEnv(puzzle_scenario=scenario_in, max_turns=10, randomize_positions=False)
-    # We ensure enemy side is set:
-    env.turn_side = "enemy"
-    env.done_forced = False
-    env.reset()
+    
+    # This call used to do env.reset() => randomizing + resetting
+    # Instead, we now do:
+    env.sync_with_puzzle_scenario(scenario_in, turn_side="enemy")
 
-    # Build valid actions to ensure there's something:
+    # Now build the action list for 'enemy' side
     valid_actions = env.build_action_list()
     if not valid_actions:
         return jsonify({"error": "No valid actions for enemy side."}), 200
 
-    # Either MCTS or PPO:
+    # MCTS or PPO
     if approach == "mcts":
         action_idx = mcts_policy(env, max_iterations=50)
     else:
-        # approach == "ppo"
         if not ppo_model:
-            return jsonify({"error": "No PPO model loaded on server"}), 500
-
+            return jsonify({"error": "No PPO model loaded"}), 500
         obs = env.get_obs()
         action_idx, _ = ppo_model.predict(obs, deterministic=True)
-        # NOTE: if you are using the MaskablePPO, ensure the env is wrapped or
-        # the model is configured for action masks.
 
     if action_idx < 0 or action_idx >= len(valid_actions):
         return jsonify({"error": f"Chosen action_idx {action_idx} out of range"}), 200
