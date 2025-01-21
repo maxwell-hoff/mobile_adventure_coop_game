@@ -1342,33 +1342,113 @@ function showPieceActionRange(piece, pieceClass, actionName) {
   }
 }
 
-// Update hasLineOfSight function to use hex-based line of sight
 function hasLineOfSight(startQ, startR, endQ, endR) {
-  // If same hex, always has LOS
   if (startQ === endQ && startR === endR) return true;
 
-  // Get the list of hexes that form the line between start and end
-  const hexLine = getHexesInLine(startQ, startR, endQ, endR);
-  
-  // Check each hex in the line (excluding start and end points)
+  // Build the supercover line:
+  const hexLine = getHexesInLineSupercover(startQ, startR, endQ, endR);
+
+  // For each interior hex (skip the very first if you don’t want the caster’s own tile to block)
+  // but definitely check everything else. 
+  // If any blocked hex or piece occupies those hexes, LOS is blocked.
   for (let i = 1; i < hexLine.length - 1; i++) {
-    const hex = hexLine[i];
-    
-    // Check if hex is blocked
-    const hexKey = `${hex.q},${hex.r}`;
-    if (blockedHexes.has(hexKey)) {
+    const { q, r } = hexLine[i];
+    const key = `${q},${r}`;
+    // blocked?
+    if (blockedHexes.has(key)) {
       return false;
     }
-    
-    // Check if there's a piece here
-    const pieceInWay = puzzleScenario.pieces.some(p => 
-      p.q === hex.q && p.r === hex.r
-    );
-    if (pieceInWay) {
+    // piece in the way?
+    const hasPiece = puzzleScenario.pieces.some(p => p.q === q && p.r === r);
+    if (hasPiece) {
       return false;
     }
   }
+
   return true;
+}
+
+
+function axialToPixel(q, r) {
+  const x = HEX_SIZE * SQRT3 * (q + r / 2);
+  const y = HEX_SIZE * (3 / 2) * r;
+  return { x, y };
+}
+
+function pixelToAxial(x, y) {
+  // We invert the same transform:
+  //    x = HEX_SIZE * sqrt3 * (q + r/2)
+  //    y = HEX_SIZE * (3/2) * r
+  // Solve for q,r.
+  const q = (SQRT3/3 * x - 1/3 * y) / (HEX_SIZE * 1);  // approximate
+  const r = (2/3 * y) / (HEX_SIZE * 1);               // approximate
+  return { q, r };
+}
+
+// Then to get integer hex coords, you typically do a "cube round":
+function pixelToAxialRound(px, py) {
+  const { q, r } = pixelToAxial(px, py);
+  // Convert q,r => cube => round => back to axial
+  const cubeQ = q;
+  const cubeR = r;
+  const cubeS = -cubeQ - cubeR;
+
+  let rq = Math.round(cubeQ);
+  let rr = Math.round(cubeR);
+  let rs = Math.round(cubeS);
+
+  // fix rounding drift so that rq + rr + rs = 0
+  const qDiff = Math.abs(rq - cubeQ);
+  const rDiff = Math.abs(rr - cubeR);
+  const sDiff = Math.abs(rs - cubeS);
+
+  if (qDiff > rDiff && qDiff > sDiff) {
+    rq = -rr - rs;
+  } else if (rDiff > sDiff) {
+    rr = -rq - rs;
+  } else {
+    rs = -rq - rr;
+  }
+
+  return { q: rq, r: rr };
+}
+
+/**
+ * getHexesInLineSupercover
+ * Returns *all* hexes the line (in pixel space) from (startQ,startR) 
+ * to (endQ,endR) touches, even if it only crosses a corner. 
+ */
+function getHexesInLineSupercover(startQ, startR, endQ, endR) {
+  // Convert axial -> pixel
+  const startPixel = axialToPixel(startQ, startR);
+  const endPixel   = axialToPixel(endQ, endR);
+
+  // Decide how many steps to take. 
+  // A common choice is something like 2 or 3 steps per pixel of distance.
+  // Or you can base it on the max hex distance times some factor.
+  const dx = endPixel.x - startPixel.x;
+  const dy = endPixel.y - startPixel.y;
+  const distPix = Math.sqrt(dx*dx + dy*dy);
+  // We'll do something like 2 samples per pixel:
+  const steps = Math.ceil(distPix * 2);
+
+  const touched = [];
+  const visited = new Set();
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = startPixel.x + dx * t;
+    const py = startPixel.y + dy * t;
+    
+    const { q, r } = pixelToAxialRound(px, py);
+    const key = `${q},${r}`;
+    if (!visited.has(key)) {
+      visited.add(key);
+      touched.push({ q, r });
+    }
+  }
+  
+  return touched;
 }
 
 // Add this function to get hexes in a line using cube coordinates
