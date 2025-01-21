@@ -50,6 +50,9 @@ def map_data():
 # ---------------------------------------
 @app.route("/api/enemy_action", methods=["POST"])
 def enemy_action():
+    from modeling.rl_training import mcts_tree
+    mcts_tree.clear()
+
     data = request.get_json()
     scenario_in = data.get("scenario")
     approach = data.get("approach", "mcts")
@@ -57,43 +60,32 @@ def enemy_action():
     if not scenario_in:
         return jsonify({"error": "No scenario provided"}), 400
 
-    # 1) Rebuild environment from scenario
+    # Build environment from scenario
     env = HexPuzzleEnv(puzzle_scenario=scenario_in, max_turns=10, randomize_positions=False)
     env.sync_with_puzzle_scenario(scenario_in, turn_side="enemy")
 
-    # 2) While env.turn_side == "enemy" and we have valid actions, pick one
-    #    This means *all* enemy moves happen in one request.
-    actions_taken = []
-    while env.turn_side == "enemy":
-        valid_actions = env.build_action_list()
-        if not valid_actions:
-            break
+    # Get valid actions
+    valid_actions = env.build_action_list()
+    if not valid_actions:
+        return jsonify({"error": "No valid actions for enemy side."}), 200
 
-        if approach == "mcts":
-            action_idx = mcts_policy(env, max_iterations=50)
-        else:
-            # PPO or random, etc.
-            action_idx = random.randint(0, len(valid_actions)-1)
+    # Choose one action
+    if approach == "mcts":
+        action_idx = mcts_policy(env, max_iterations=50)
+    else:
+        action_idx = random.randint(0, len(valid_actions)-1)
 
-        # Step
-        obs2, reward, done, truncated, _ = env.step(action_idx)
-        (pidx, chosen_subaction) = valid_actions[action_idx]
-        piece_label = env.all_pieces[pidx].get("label", "?")
+    # Step
+    obs2, reward, done, truncated, info = env.step(action_idx)
+    (pidx, chosen_subaction) = valid_actions[action_idx]
+    piece_label = env.all_pieces[pidx].get("label", "?")
 
-        actions_taken.append({
-            "piece_label": piece_label,
-            "sub_action": chosen_subaction
-        })
+    # Return just one action
+    return jsonify({
+        "piece_label": piece_label,
+        "sub_action": chosen_subaction
+    }), 200
 
-        if done:
-            break
-
-    # 3) Return list of all sub_actions so frontend can apply each one in order
-    #    If you only want a single sub_action per request, skip this approach
-    if not actions_taken:
-        return jsonify({"error":"No valid actions for enemy side."}), 200
-    
-    return jsonify({"actions": actions_taken}), 200
 
 
 if __name__ == "__main__":
