@@ -1935,11 +1935,13 @@ async function enemyTurnFull() {
 
   console.log("=== Starting full enemy turn ===");
 
+  let passCount = 0;
+
   while (true) {
     // 1) Ask the server for the next enemy action
     const bodyData = {
       scenario: puzzleScenario,
-      approach: "mcts"   // or "ppo"
+      approach: "mcts"
     };
 
     let response;
@@ -1961,30 +1963,35 @@ async function enemyTurnFull() {
 
     const result = await response.json();
     if (result.error) {
-      // The server might say "No valid actions for enemy side." or similar
+      // e.g. "No valid actions for enemy side."
       console.log("No more enemy actions:", result.error);
       break;
     }
 
-    // 2) Apply that action to our puzzle scenario
+    // 2) Apply that action
     applyEnemyActionToScenario(result);
 
-    // 3) Re-draw the board to see updated positions
-    drawHexDetailView(currentRegion, currentSection);
-
-    // 4) Optional: break out if the action was a pass, or if the side has now changed to player
-    if (result.sub_action && result.sub_action.type === "pass") {
-      console.log("Enemy piece passed. Checking if there are more valid actions...");
-      // We won't break here — maybe other enemy pieces can act
+    // *** If your environment sets puzzleScenario.turn_side = "player"
+    // *** once all enemy pieces have moved, you can detect that:
+    if (puzzleScenario.turn_side === "player") {
+      console.log("Enemy turn is done. It's now player's turn!");
+      break;
     }
 
-    // If you store turn_side in puzzleScenario, you might check if it 
-    // flipped to "player" => then break.
-    // For example:
-    // if (puzzleScenario.turn_side === "player") {
-    //   console.log("All enemy actions done, now player's turn");
-    //   break;
-    // }
+    // 3) Re-draw the board
+    drawHexDetailView(currentRegion, currentSection);
+
+    // 4) If action was pass, we might want to see if it's stuck
+    if (result.sub_action && result.sub_action.type === "pass") {
+      passCount++;
+      // If passCount is large, break to avoid infinite loop:
+      if (passCount > 5) {
+        console.log("Enemy is passing repeatedly => break.");
+        break;
+      }
+    } else {
+      passCount = 0;
+    }
   }
 
   console.log("=== Enemy turn complete ===");
