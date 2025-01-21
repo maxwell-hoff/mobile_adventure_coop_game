@@ -953,6 +953,9 @@ def mcts_search(env_copy, path, depth=0, max_depth=20):
 
     We store (node_key, action_idx) in `path` so we can backprop after.
     """
+    if env_copy.turn_side != "enemy":
+        return env_copy.current_episode[-1]["reward"]
+    
     if depth >= max_depth or env_copy.done_forced:
         return env_copy.current_episode[-1]["reward"]
 
@@ -1030,18 +1033,21 @@ def best_uct_action(node, c=1.4):
 
 
 def rollout(env_copy, depth, max_depth):
-    """
-    Random (or very simple) rollout until we hit max_depth or the game ends.
-    """
     while depth < max_depth and not env_copy.done_forced:
+        # If the env flips to player, we stop
+        if env_copy.turn_side != "enemy":
+            break
+
         valid = env_copy.build_action_list()
         if not valid:
             break
+
         a_idx = random.randint(0, len(valid)-1)
         obs2, rew, term, trunc, _ = env_copy.step(a_idx)
         if term or trunc:
             break
         depth += 1
+
     return env_copy.current_episode[-1]["reward"]
 
 
