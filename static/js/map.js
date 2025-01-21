@@ -1908,7 +1908,7 @@ function setupPlayerControls(scenario) {
 
     pieceSelections.clear();
     drawHexDetailView(currentRegion, currentSection);
-    enemyTurn();
+    enemyTurnFull();
   });
 
   // Initial validation
@@ -1920,42 +1920,74 @@ function setupPlayerControls(scenario) {
   return pieceSelections; // Return this so we can use it in hex click handlers
 }
 
-async function enemyTurn() {
+/**
+ * enemyTurnFull()
+ * 
+ * Repeatedly queries /api/enemy_action to get one enemy action at a time,
+ * applies it to our puzzleScenario, and re-renders the board.
+ * Stops when the server says "No valid actions" or returns an error.
+ */
+async function enemyTurnFull() {
   if (!puzzleScenario) {
     console.warn("No puzzle scenario to act on.");
     return;
   }
-  // We'll pick approach = "mcts" by default. Or "ppo" if you have a PPO model
-  const approach = "mcts"; // or "ppo"
 
-  const bodyData = {
-    scenario: puzzleScenario,
-    approach: approach
-  };
+  console.log("=== Starting full enemy turn ===");
 
-  try {
-    const resp = await fetch("/api/enemy_action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bodyData)
-    });
-    if (!resp.ok) {
-      console.error("Server error calling /api/enemy_action");
-      return;
+  while (true) {
+    // 1) Ask the server for the next enemy action
+    const bodyData = {
+      scenario: puzzleScenario,
+      approach: "mcts"   // or "ppo"
+    };
+
+    let response;
+    try {
+      response = await fetch("/api/enemy_action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bodyData)
+      });
+    } catch (err) {
+      console.error("Network or server error calling /api/enemy_action:", err);
+      break;
     }
-    const result = await resp.json();
+
+    if (!response.ok) {
+      console.error("Server responded with non-OK status:", response.status);
+      break;
+    }
+
+    const result = await response.json();
     if (result.error) {
-      console.log("No valid actions or error from server:", result.error);
-      return;
+      // The server might say "No valid actions for enemy side." or similar
+      console.log("No more enemy actions:", result.error);
+      break;
     }
-    // result => { piece_label, action_idx, sub_action: { ... }, etc. }
+
+    // 2) Apply that action to our puzzle scenario
     applyEnemyActionToScenario(result);
 
-    // Re-draw to see the updated scenario
+    // 3) Re-draw the board to see updated positions
     drawHexDetailView(currentRegion, currentSection);
-  } catch (err) {
-    console.error("Failed to fetch enemy action:", err);
+
+    // 4) Optional: break out if the action was a pass, or if the side has now changed to player
+    if (result.sub_action && result.sub_action.type === "pass") {
+      console.log("Enemy piece passed. Checking if there are more valid actions...");
+      // We won't break here — maybe other enemy pieces can act
+    }
+
+    // If you store turn_side in puzzleScenario, you might check if it 
+    // flipped to "player" => then break.
+    // For example:
+    // if (puzzleScenario.turn_side === "player") {
+    //   console.log("All enemy actions done, now player's turn");
+    //   break;
+    // }
   }
+
+  console.log("=== Enemy turn complete ===");
 }
 
 /**

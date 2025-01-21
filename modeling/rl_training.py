@@ -349,6 +349,7 @@ class HexPuzzleEnv(gym.Env):
 
         (pidx, sub_action) = valid_actions[action_idx]
         piece = self.all_pieces[pidx]
+        piece["moved_this_turn"] = True
         if piece.get("dead", False) or piece["side"] != self.turn_side:
             return self._finish_step(-1.0, False, False)
 
@@ -401,10 +402,9 @@ class HexPuzzleEnv(gym.Env):
             "reward": reward,
             "positions": self._log_positions()
         }
-        # If we have MCTS debug info from mcts_policy, attach it here:
         if hasattr(self, "mcts_debug"):
             step_data["mcts_debug"] = self.mcts_debug
-            del self.mcts_debug  # clear it so we don't carry stale info
+            del self.mcts_debug
 
         if terminated or truncated:
             step_data["non_bloodwarden_kills"] = self.non_bloodwarden_kills
@@ -413,13 +413,20 @@ class HexPuzzleEnv(gym.Env):
         self.current_episode.append(step_data)
 
         if not (terminated or truncated):
-            # Switch sides
-            if self.turn_side == "player":
-                self.turn_side = "enemy"
-            else:
-                self.turn_side = "player"
-                self.turn_number += 1
-            self._check_delayed_attacks()
+            # Check if all living pieces on the current side have moved
+            if self._all_side_pieces_have_acted(self.turn_side):
+                # Now we flip to the other side
+                if self.turn_side == "player":
+                    self.turn_side = "enemy"
+                else:
+                    self.turn_side = "player"
+                    self.turn_number += 1
+
+                # Reset "moved_this_turn" for everyone
+                for pc in self.all_pieces:
+                    pc["moved_this_turn"] = False
+
+                self._check_delayed_attacks()
 
         obs = self.get_obs()
         return obs, reward, terminated, truncated, {}
@@ -779,6 +786,14 @@ class HexPuzzleEnv(gym.Env):
             "positions": self._log_positions()
         }
         self.current_episode.append(init_dict)
+
+    def _all_side_pieces_have_acted(self, side):
+        living_side = [
+            pc for pc in self.all_pieces 
+            if pc["side"] == side and not pc.get("dead", False)
+        ]
+        return all(pc.get("moved_this_turn", False) for pc in living_side)
+
 
 def make_env_fn(
     scenario_dict,
