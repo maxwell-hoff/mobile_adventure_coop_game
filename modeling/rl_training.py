@@ -289,6 +289,8 @@ class HexPuzzleEnv(gym.Env):
         if len(self.current_episode) > 0:
             self.all_episodes.append(self.current_episode)
         self.current_episode = []
+        for p in self.all_pieces:
+            p["moved_this_turn"] = False
 
         # Deepcopy the original scenario, then apply random modifications if toggles are on
         self.scenario = deepcopy(self.original_scenario)
@@ -414,7 +416,7 @@ class HexPuzzleEnv(gym.Env):
 
         if not (terminated or truncated):
             # Check if all living pieces on the current side have moved
-            if self._all_side_pieces_have_acted(self.turn_side):
+            if self._all_side_pieces_have_moved(self.turn_side):
                 # Now we flip to the other side
                 if self.turn_side == "player":
                     self.turn_side = "enemy"
@@ -787,12 +789,16 @@ class HexPuzzleEnv(gym.Env):
         }
         self.current_episode.append(init_dict)
 
-    def _all_side_pieces_have_acted(self, side):
-        living_side = [
-            pc for pc in self.all_pieces 
-            if pc["side"] == side and not pc.get("dead", False)
-        ]
-        return all(pc.get("moved_this_turn", False) for pc in living_side)
+    def _all_side_pieces_have_moved(self, side):
+        """
+        Return True if every living piece on `side` has `moved_this_turn=True`.
+        """
+        for piece in self.all_pieces:
+            if piece["side"] == side and not piece.get("dead", False):
+                # If we do not find "moved_this_turn" or it's False, then not all have moved
+                if not piece.get("moved_this_turn", False):
+                    return False
+        return True
 
 
 def make_env_fn(
