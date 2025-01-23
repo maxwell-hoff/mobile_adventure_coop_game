@@ -184,8 +184,37 @@ class HexPuzzleEnv(gym.Env):
         return self.player_pieces + self.enemy_pieces
 
     def _init_pieces_from_scenario(self, scenario_dict):
+        """
+        Assign all pieces from scenario_dict to self.player_pieces / self.enemy_pieces,
+        ensuring each piece has a unique 'label' string (e.g. 'P', 'P2', 'G1', 'G2', etc.).
+        """
+
+        # 1) Ensure piece labels are unique
+        self._uniqueify_piece_labels(scenario_dict["pieces"])
+
+        # 2) Then split into player vs. enemy
         self.player_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "player"]
         self.enemy_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "enemy"]
+
+    def _uniqueify_piece_labels(self, piece_list):
+        """
+        For any repeated labels like "P", "G", etc. in piece_list,
+        rename them as "P2", "P3", "G2", etc. so each piece label is unique.
+        """
+        label_counts = {}
+        for piece in piece_list:
+            old_label = piece["label"]
+
+            # If we've already seen this label, bump its count and rename
+            if old_label in label_counts:
+                label_counts[old_label] += 1
+                # e.g. if old_label='P' and this is the second P, rename to 'P2'
+                new_label = f"{old_label}{label_counts[old_label]}"
+                piece["label"] = new_label
+            else:
+                label_counts[old_label] = 1
+                # The first occurrence keeps the original label
+                # (You could also rename the very first one as label+count if preferred)
 
     def _build_all_hexes(self):
         """Rebuild self.all_hexes from self.grid_radius."""
@@ -240,7 +269,7 @@ class HexPuzzleEnv(gym.Env):
             # Then for the leftover slots, pick from the other classes
             def pick_side_pieces(side, class_list, total_count):
                 # Always 1 priest:
-                pieces = [{"class": "Priest", "label": "P", "color": "#556b2f", "side": side, "q": 0, "r": 0}]
+                pieces = [{"class": "Priest", "label": "eP", "color": "#556b2f", "side": side, "q": 0, "r": 0}]
                 # The remainder:
                 remainder = total_count - 1
                 # Filter out Priest from random picks to avoid duplicates, or allow duplicates if you want:
@@ -248,7 +277,7 @@ class HexPuzzleEnv(gym.Env):
                 other_classes = [c for c in class_list if c != "Priest"]
                 for _ in range(remainder):
                     c = random.choice(other_classes)
-                    label = c[0] if c != "BloodWarden" else "BW"
+                    label = c[0] if c != "BloodWarden" else "eBW"
                     color = "#556b2f" if side == "player" else "#dc143c"
                     pieces.append({"class": c, "label": label, "color": color, "side": side, "q": 0, "r": 0})
                 return pieces
