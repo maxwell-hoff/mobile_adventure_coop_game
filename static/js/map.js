@@ -1908,7 +1908,9 @@ function setupPlayerControls(scenario) {
 
     pieceSelections.clear();
     drawHexDetailView(currentRegion, currentSection);
-    enemyTurnFull();
+    enemyTakePPOAction();
+    // enemyTurnFull();
+
   });
 
   // Initial validation
@@ -1920,81 +1922,56 @@ function setupPlayerControls(scenario) {
   return pieceSelections; // Return this so we can use it in hex click handlers
 }
 
-/**
- * enemyTurnFull()
- * 
- * Repeatedly queries /api/enemy_action to get one enemy action at a time,
- * applies it to our puzzleScenario, and re-renders the board.
- * Stops when the server says "No valid actions" or returns an error.
- */
-async function enemyTurnFull() {
+async function enemyTakePPOAction() {
   if (!puzzleScenario) {
     console.warn("No puzzle scenario to act on.");
     return;
   }
 
-  console.log("=== Starting full enemy turn ===");
+  console.log("=== Enemy attempting 1 PPO action ===");
 
-  let passCount = 0;
+  // Prepare request
+  const bodyData = {
+    scenario: puzzleScenario,
+    approach: "ppo"
+  };
 
-  while (true) {
-    // 1) Ask the server for the next enemy action
-    const bodyData = {
-      scenario: puzzleScenario,
-      approach: "ppo"
-    };
-
-    let response;
-    try {
-      response = await fetch("/api/enemy_action", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bodyData)
-      });
-    } catch (err) {
-      console.error("Network or server error calling /api/enemy_action:", err);
-      break;
-    }
-
-    if (!response.ok) {
-      console.error("Server responded with non-OK status:", response.status);
-      break;
-    }
-
-    const result = await response.json();
-    if (result.error) {
-      // e.g. "No valid actions for enemy side."
-      console.log("No more enemy actions:", result.error);
-      break;
-    }
-
-    // 2) Apply that action
-    applyEnemyActionToScenario(result);
-
-    // *** If your environment sets puzzleScenario.turn_side = "player"
-    // *** once all enemy pieces have moved, you can detect that:
-    if (puzzleScenario.turn_side === "player") {
-      console.log("Enemy turn is done. It's now player's turn!");
-      break;
-    }
-
-    // 3) Re-draw the board
-    drawHexDetailView(currentRegion, currentSection);
-
-    // 4) If action was pass, we might want to see if it's stuck
-    if (result.sub_action && result.sub_action.type === "pass") {
-      passCount++;
-      // If passCount is large, break to avoid infinite loop:
-      if (passCount > 5) {
-        console.log("Enemy is passing repeatedly => break.");
-        break;
-      }
-    } else {
-      passCount = 0;
-    }
+  let response;
+  try {
+    response = await fetch("/api/enemy_action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bodyData)
+    });
+  } catch (err) {
+    console.error("Network or server error calling /api/enemy_action:", err);
+    return;
   }
 
-  console.log("=== Enemy turn complete ===");
+  if (!response.ok) {
+    console.error("Server responded with non-OK status:", response.status);
+    return;
+  }
+
+  const result = await response.json();
+  if (result.error) {
+    // e.g. "No valid actions for enemy side."
+    console.log("Enemy cannot act:", result.error);
+    return;
+  }
+
+  // Apply that single action
+  applyEnemyActionToScenario(result);
+
+  // If the puzzle scenario flips to player or is done, we won't repeat
+  if (puzzleScenario.turn_side === "player") {
+    console.log("Enemy turn is done (player's turn now)!");
+  }
+
+  // Re-draw board
+  drawHexDetailView(currentRegion, currentSection);
+
+  console.log("=== One PPO action complete ===");
 }
 
 /**
