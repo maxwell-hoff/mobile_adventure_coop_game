@@ -944,12 +944,15 @@ def mcts_policy(env, max_iterations=50):
 
         # Backprop to all visited (node, action) pairs:
         for (visited_key, act_idx) in search_path:
+            if visited_key not in mcts_tree:
+                continue
             visited_node = mcts_tree[visited_key]
             N, Q = visited_node.stats[act_idx]
             N += 1
             # simple incremental average update for Q
             new_Q = Q + (rollout_return - Q) / N
             visited_node.stats[act_idx] = [N, new_Q]
+
             visited_node.visit_sum += 1
 
     # -----------------------------
@@ -1005,18 +1008,28 @@ def mcts_search(env_copy, path, depth=0, max_depth=20):
         mcts_tree[node_key] = new_node
 
         # Try expanding with one untried action (if any exist)
-        if new_node.untried:
-            action_idx = new_node.untried.pop()
-            path.append((node_key, action_idx))
-            # Step
-            obs2, rew, term, trunc, _ = env_copy.step(action_idx)
-            if term or trunc:
-                return env_copy.current_episode[-1]["reward"]
-            # Then do a random rollout from there
-            return rollout(env_copy, depth + 1, max_depth)
-        else:
-            # No untried => return current state's reward
+        if not new_node.untried:
             return env_copy.current_episode[-1]["reward"]
+        action_idx = new_node.untried.pop()
+        path.append((node_key, action_idx))
+        obs2, rew, term, trunc, _ = env_copy.step(action_idx)
+        if term or trunc:
+            return env_copy.current_episode[-1]["reward"]
+        # Then do a random rollout from there
+        return rollout(env_copy, depth + 1, max_depth)
+        
+        # if new_node.untried:
+        #     action_idx = new_node.untried.pop()
+        #     path.append((node_key, action_idx))
+        #     # Step
+        #     obs2, rew, term, trunc, _ = env_copy.step(action_idx)
+        #     if term or trunc:
+        #         return env_copy.current_episode[-1]["reward"]
+        #     # Then do a random rollout from there
+        #     return rollout(env_copy, depth + 1, max_depth)
+        # else:
+        #     # No untried => return current state's reward
+        #     return env_copy.current_episode[-1]["reward"]
 
     # -----------------------------
     # Otherwise we have a node already
