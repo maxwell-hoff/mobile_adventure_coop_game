@@ -6,6 +6,7 @@ import yaml
 import os
 import time
 import sys
+import random
 
 from copy import deepcopy
 from itertools import combinations
@@ -470,11 +471,17 @@ class HexPuzzleEnv(gym.Env):
 
     def build_action_list(self):
         actions = []
+
+        # Only include living pieces on the current turn_side
+        # that have NOT yet moved_this_turn.
         living_side = [
             (i, pc)
             for (i, pc) in enumerate(self.all_pieces)
-            if pc["side"] == self.turn_side and not pc.get("dead", False)
+            if pc["side"] == self.turn_side
+            and not pc.get("dead", False)
+            and not pc.get("moved_this_turn", False)
         ]
+
         if len(living_side) == 0:
             return actions
 
@@ -537,6 +544,7 @@ class HexPuzzleEnv(gym.Env):
                                 blocked_hexes, self.all_pieces
                             ):
                                 in_range_enemies.append(eP)
+                    from itertools import combinations
                     for size in range(1, max_tg + 1):
                         for combo in combinations(in_range_enemies, size):
                             actions.append((pidx, {
@@ -1218,7 +1226,7 @@ def main():
 
         print("Training PPO for up to ~20 minutes (modify as needed).")
         start_time = time.time()
-        time_limit = 60 * 20  # 20 minutes
+        time_limit = 60 * 60  # in seconds
 
         iteration_count_before = 0
         while True:
@@ -1242,11 +1250,11 @@ def main():
         # gather episodes
         all_episodes = vec_env.envs[0].all_episodes
 
-        if args.randomize:
-            print("\nPerforming 1 test iteration on the FIXED scenario (no randomization) to see how it does.")
-            test_env = DummyVecEnv([make_env_fn(scenario_copy)])  # no randomization
-            _run_one_episode(model, test_env)
-            all_episodes += test_env.envs[0].all_episodes
+        # if args.randomize:
+        #     print("\nPerforming 1 test iteration on the FIXED scenario (no randomization) to see how it does.")
+        #     test_env = DummyVecEnv([make_env_fn(scenario_copy)])  # no randomization
+        #     _run_one_episode(model, test_env)
+        #     all_episodes += test_env.envs[0].all_episodes
 
     elif args.approach == "tree":
         print("Running simple 'tree' approach (no PPO).")

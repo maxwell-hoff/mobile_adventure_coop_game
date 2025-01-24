@@ -1941,7 +1941,7 @@ async function enemyTurnFull() {
     // 1) Ask the server for the next enemy action
     const bodyData = {
       scenario: puzzleScenario,
-      approach: "mcts"
+      approach: "ppo"
     };
 
     let response;

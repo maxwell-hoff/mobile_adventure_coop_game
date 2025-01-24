@@ -1,12 +1,14 @@
 from flask import Flask, render_template, jsonify, request
 import yaml
 import os
+import random
 
 # If you want to run MCTS or PPO, import from your training script:
 from modeling.rl_training import HexPuzzleEnv, mcts_policy, make_env_fn
 # If you want PPO:
 from sb3_contrib import MaskablePPO
 import numpy as np
+
 
 app = Flask(__name__)
 
@@ -53,34 +55,47 @@ def enemy_action():
     from modeling.rl_training import mcts_tree
     mcts_tree.clear()
 
+    # Grab the incoming JSON
     data = request.get_json()
+    print("[DEBUG] Received /api/enemy_action data:", data)  # <--- add debug print
+
     scenario_in = data.get("scenario")
     approach = data.get("approach", "mcts")
 
     if not scenario_in:
         return jsonify({"error": "No scenario provided"}), 400
 
-    # Build environment from scenario
+    # Build an environment
     env = HexPuzzleEnv(puzzle_scenario=scenario_in, max_turns=10, randomize_positions=False)
     env.sync_with_puzzle_scenario(scenario_in, turn_side="enemy")
 
-    # Get valid actions
+    # Check valid actions
     valid_actions = env.build_action_list()
+    print("[DEBUG] Number of valid_actions:", len(valid_actions))         # how many are valid
+    print("[DEBUG] valid_actions detail:", valid_actions)                # see them all
+
     if not valid_actions:
+        print("[DEBUG] No valid actions => returning error msg.")
         return jsonify({"error": "No valid actions for enemy side."}), 200
 
-    # Choose one action
+    # Decide which approach
     if approach == "mcts":
         action_idx = mcts_policy(env, max_iterations=50)
+        print("[DEBUG] MCTS chosen action_idx:", action_idx)
     else:
         action_idx = random.randint(0, len(valid_actions)-1)
+        print("[DEBUG] Randomly chosen action_idx:", action_idx)
 
     # Step
     obs2, reward, done, truncated, info = env.step(action_idx)
     (pidx, chosen_subaction) = valid_actions[action_idx]
     piece_label = env.all_pieces[pidx].get("label", "?")
 
-    # Return just one action
+    print("[DEBUG] Step outcome => reward:", reward, "done:", done, 
+          "truncated:", truncated, "info:", info)
+    print("[DEBUG] chosen_subaction =>", chosen_subaction)
+
+    # Return the result
     return jsonify({
         "piece_label": piece_label,
         "sub_action": chosen_subaction
