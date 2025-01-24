@@ -82,7 +82,25 @@ def enemy_action():
     if approach == "mcts":
         action_idx = mcts_policy(env, max_iterations=50)
         print("[DEBUG] MCTS chosen action_idx:", action_idx)
+    elif approach == "ppo" and ppo_model is not None:
+        # 1) Convert env state to observation
+        obs = env.get_obs()
+
+        # 2) If you are using ActionMasker, you typically just do:
+        #    action, _ = ppo_model.predict(obs, deterministic=True)
+        #    and rely on the mask automatically blocking invalid actions
+        action, _ = ppo_model.predict(obs, deterministic=True)
+
+        # But note that `action` is already an integer index in the discrete action space
+        action_idx = int(action)
+        print("[DEBUG] PPO chosen action_idx:", action_idx)
+
+        # *** Important *** 
+        # If the PPO model can pick an action that is out-of-range or invalid,
+        # you may need to clamp it or verify it. Typically if you used
+        # MaskablePPO + ActionMasker, that won't happen.
     else:
+        # fallback = random
         action_idx = random.randint(0, len(valid_actions)-1)
         print("[DEBUG] Randomly chosen action_idx:", action_idx)
 
