@@ -213,12 +213,12 @@ def generate_regions_yaml(
 
 if __name__ == "__main__":
     yaml_output = generate_regions_yaml(
-        num_regions=25,
-        min_region_hexes=75,
-        max_region_hexes=10000,
+        num_regions=250,
+        min_region_hexes=500,
+        max_region_hexes=5000,
         avg_region_hexes=1000,
-        std_region_hexes=200,
-        shape_variability=0.25,
+        std_region_hexes=1000,
+        shape_variability=0.3,
         seed=42
     )
     with open('data/gen_world.yaml', 'w') as f:
