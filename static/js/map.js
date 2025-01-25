@@ -14,7 +14,7 @@ let turnCounter = 0;
 
 const HEX_SIZE = 30; // radius of each hex
 // For world-only zoom
-let worldZoom = 0.025;       // default scale (max "zoom in")
+let worldZoom = 0.010;       // default scale (max "zoom in")
 const MIN_WORLD_ZOOM = 0.025;  // how far out the user can zoom (you can adjust)
 const MAX_WORLD_ZOOM = 0.1;  // do not allow zoom in beyond scale 1
 let regionZoom = 0.1;       // default scale (max "zoom in")
@@ -352,6 +352,11 @@ function drawRegionView(region) {
   const toggleBtn = document.getElementById("toggleZoomBtn");
   toggleBtn.style.display = "inline-block";
   toggleBtn.textContent = "World View"; // region -> world
+
+  // Add click handler for the toggle button
+  toggleBtn.onclick = () => {
+    drawWorldView();
+  };
 
   const svg = document.getElementById("map-svg");
   svg.innerHTML = "";
@@ -1440,7 +1445,7 @@ function showPieceActionRange(piece, pieceClass, actionName) {
                    actionData.action_type === 'multi_target_attack' || 
                    actionData.action_type === 'dark_bolt') {
           const hasValidTarget = puzzleScenario.pieces.some(p => 
-            p.q === targetQ && p.r === targetR && p.side !== piece.side
+            p.q === targetQ && p.r === targetR && p.side !== 'player'
           );
           
           if (hasValidTarget) {
@@ -1455,7 +1460,7 @@ function showPieceActionRange(piece, pieceClass, actionName) {
           if (hex) {
             hex.classList.add("in-range");
             const hasValidTarget = puzzleScenario.pieces.some(p => 
-              p.q === targetQ && p.r === targetR && p.side !== piece.side
+              p.q === targetQ && p.r === targetR && p.side !== 'player'
             );
             if (hasValidTarget) {
               hex.classList.add("attack");
@@ -1473,7 +1478,7 @@ function hasLineOfSight(startQ, startR, endQ, endR) {
   // Build the supercover line:
   const hexLine = getHexesInLineSupercover(startQ, startR, endQ, endR);
 
-  // For each interior hex (skip the very first if you don’t want the caster’s own tile to block)
+  // For each interior hex (skip the very first if you don't want the caster's own tile to block)
   // but definitely check everything else. 
   // If any blocked hex or piece occupies those hexes, LOS is blocked.
   for (let i = 1; i < hexLine.length - 1; i++) {
