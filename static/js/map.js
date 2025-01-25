@@ -13,6 +13,10 @@ let delayedAttacks = [];
 let turnCounter = 0; 
 
 const HEX_SIZE = 30; // radius of each hex
+// For world-only zoom
+let worldZoom = 1.0;       // default scale (max "zoom in")
+const MIN_WORLD_ZOOM = 0.3;  // how far out the user can zoom (you can adjust)
+const MAX_WORLD_ZOOM = 1.0;  // do not allow zoom in beyond scale 1
 const SQRT3 = Math.sqrt(3);
 
 // We'll assume the <svg> is 800x600
@@ -92,7 +96,7 @@ function getHexBoundingBox(hexList, axialToPixelFn) {
 function centerHexGroup(hexList, group, axialToPixelFn, {
   svgWidth = 800,
   svgHeight = 600,
-  scale = 1,
+  scale = worldZoom,
   rotation = 0
 } = {}) {
   const { minX, maxX, minY, maxY } = getHexBoundingBox(hexList, axialToPixelFn);
@@ -142,6 +146,11 @@ function drawWorldView() {
 
   const svg = document.getElementById("map-svg");
   svg.innerHTML = ""; // clear existing
+
+  // (Re)-attach a wheel listener. We'll remove any existing one first
+  svg.onwheel = null;  // clear
+  // Only attach if currentView is "world"
+  svg.addEventListener("wheel", handleWorldWheelZoom, { passive: false });
 
   // Re-add hover label
   const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -271,6 +280,27 @@ function drawWorldView() {
     scale: 1,
     rotation: 0
   });
+}
+
+function handleWorldWheelZoom(evt) {
+  // Only zoom if we are indeed in the 'world' view
+  if (currentView !== "world") return;
+
+  evt.preventDefault(); // prevent page scrolling
+
+  // Typically, deltaY < 0 means wheel up => zoom in, deltaY > 0 means wheel down => zoom out
+  // But you said scale=1 is your max zoom in, so we need to invert accordingly:
+  let delta = -Math.sign(evt.deltaY) * 0.1;  // step size 0.1 per wheel notch
+
+  let newZoom = worldZoom + delta;
+  // Clamp between MIN_WORLD_ZOOM and MAX_WORLD_ZOOM
+  if (newZoom < MIN_WORLD_ZOOM) newZoom = MIN_WORLD_ZOOM;
+  if (newZoom > MAX_WORLD_ZOOM) newZoom = MAX_WORLD_ZOOM;
+
+  // Update global
+  worldZoom = newZoom;
+  // Re-draw
+  drawWorldView();
 }
 
 /**
@@ -767,6 +797,7 @@ function drawHexDetailView(region, clickedHex) {
       text.setAttribute("fill", "#fff");
       text.setAttribute("font-size", SUB_HEX_SIZE);
       text.setAttribute("pointer-events", "none"); // Make text ignore pointer events
+      text.setAttribute("transform", `rotate(-30, ${x}, ${y})`);
       text.textContent = piece.label;
       gDetail.appendChild(text);
     });
@@ -776,7 +807,7 @@ function drawHexDetailView(region, clickedHex) {
     svgWidth:SVG_WIDTH,
     svgHeight:SVG_HEIGHT,
     scale:2,
-    rotation:0
+    rotation:30
   });
 }
 
