@@ -351,10 +351,16 @@ function drawRegionView(region) {
   });
 
   if (region.regionId === 1) {
-    // If selectedCharacter says location= "regionId=1|q=0|r=0", 
-    // draw a small circle at the region-level hex (q=0,r=0).
-    if (selectedCharacter && selectedCharacter.location === "regionId=1|q=0|r=0") {
-      // find that hex's pixel coords, draw a circle, etc.
+    if (window.selectedCharacter && window.selectedCharacter.location === "regionId=1|q=0|r=0") {
+      // find pixel coords for (q=0, r=0)
+      const {x,y} = axialToPixel(0,0);
+      // create circle
+      const circle = document.createElementNS("http://www.w3.org/2000/svg","circle");
+      circle.setAttribute("cx", x);
+      circle.setAttribute("cy", y);
+      circle.setAttribute("r", 10);
+      circle.setAttribute("fill", "#00FF00");
+      gRegion.appendChild(circle);
     }
   }  
 
@@ -427,27 +433,37 @@ function drawHexDetailView(region, clickedHex) {
   const playerControls = document.getElementById("player-controls");
   const enemyControls = document.getElementById("enemy-controls");
   if (puzzleScenario) {
+    //
+    // 1) INJECT THE CHARACTER IF THEY'RE LOCATED AT "regionId=1|q=0|r=0"
+    //
+    if (window.selectedCharacter && window.selectedCharacter.location === "regionId=1|q=0|r=0") {
+      // Check if not already in scenario
+      const exists = puzzleScenario.pieces.some(
+        p => p.label === window.selectedCharacter.name
+      );
+      if (!exists) {
+        puzzleScenario.pieces.push({
+          class: window.selectedCharacter.char_class,
+          label: window.selectedCharacter.name,
+          color: "#00FF00",
+          side: "player",
+          q: 0,
+          r: 0
+        });
+      }
+    }
+  
+    // 2) Then show the puzzle UI
     playerControls.style.display = "block";
     enemyControls.style.display = "block";
     setupPlayerControls(puzzleScenario);
     setupEnemyPiecesDisplay(puzzleScenario);
-  } else if (selectedCharacter && selectedCharacter.location === "regionId=1|q=0|r=0") {
-    // 2) Inject the piece if it's not already in the scenario
-    const alreadyExists = puzzleScenario.pieces.some(p => p.label === selectedCharacter.name);
-    if (!alreadyExists) {
-      puzzleScenario.pieces.push({
-        class: selectedCharacter.char_class,
-        label: selectedCharacter.name,
-        color: "#00FF00",
-        side: "player",
-        q: 0,  // sub-grid q=0
-        r: 0   // sub-grid r=0
-      });
-    }
+  
   } else {
+    // No puzzle scenario was found
     playerControls.style.display = "none";
     enemyControls.style.display = "none";
-  }
+  }  
 
   // If we found a puzzle scenario, use its radius and blocked hexes
   const gridRadius = puzzleScenario ? puzzleScenario.subGridRadius : SUB_GRID_RADIUS;
