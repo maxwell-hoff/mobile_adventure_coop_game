@@ -22,6 +22,13 @@ with open(os.path.join("data", "world.yaml"), "r", encoding="utf-8") as f:
 with open(os.path.join("data", "pieces.yaml"), "r", encoding="utf-8") as f:
     pieces_data = yaml.safe_load(f)
 
+# Build a list of valid classes (excluding "Bloodwarden" and "Priest")
+all_classes = [
+    piece
+    for piece in pieces_data['classes'].keys()
+    if piece not in ("BloodWarden", "Priest")
+]
+
 game_data = {
     "world": world_data,
     "pieces": pieces_data
