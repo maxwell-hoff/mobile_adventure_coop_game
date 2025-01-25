@@ -480,8 +480,8 @@ regions:
     size: "Small"
     location: "Between Crimson Desert and Cloudtop Peaks"
     worldHexes:
-      - {q: 5, r: 3}
       - {q: 6, r: 2}
+      - {q: 7, r: 1}
     # sections:
     #   - name: "Canyon Approach"
     #     sectionHexes:
@@ -538,8 +538,8 @@ regions:
     size: "Medium"
     location: "North of Crimson Desert"
     worldHexes:
-      - {q: 4, r: 2}
-      - {q: 4, r: 3}
+      - {q: 3, r: 6}
+      - {q: 4, r: 6}
     # sections:
     #   - name: "Fumarole Ridge"
     #     sectionHexes:
