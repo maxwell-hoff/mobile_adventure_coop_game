@@ -15,7 +15,7 @@ let turnCounter = 0;
 const HEX_SIZE = 30; // radius of each hex
 // For world-only zoom
 let worldZoom = 1.0;       // default scale (max "zoom in")
-const MIN_WORLD_ZOOM = 0.3;  // how far out the user can zoom (you can adjust)
+const MIN_WORLD_ZOOM = 0.01;  // how far out the user can zoom (you can adjust)
 const MAX_WORLD_ZOOM = 1.0;  // do not allow zoom in beyond scale 1
 const SQRT3 = Math.sqrt(3);
 
@@ -277,7 +277,7 @@ function drawWorldView() {
   centerHexGroup(worldHexList, gWorld, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
-    scale: 1,
+    scale: worldZoom,
     rotation: 0
   });
 }
