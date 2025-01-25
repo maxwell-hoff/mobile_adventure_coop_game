@@ -343,3 +343,15 @@ body {
   .btn:hover {
     background: #45a049;
   }
+  .region-path {
+    transition: stroke-width 0.2s, stroke 0.2s;
+    /* fill: #cccccc; */ /* if not set inline */
+    /* stroke: none; */  /* if not set inline */
+  }
+  
+  /* When hovered, show a bold outline around the entire path */
+  .region-path.hovered {
+    stroke: #222;       /* dark outline */
+    stroke-width: 3px;  /* or 2px, 4px, etc. */
+  }
+  
