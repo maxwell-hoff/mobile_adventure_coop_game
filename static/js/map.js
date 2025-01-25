@@ -14,9 +14,14 @@ let turnCounter = 0;
 
 const HEX_SIZE = 30; // radius of each hex
 // For world-only zoom
-let worldZoom = 1.0;       // default scale (max "zoom in")
-const MIN_WORLD_ZOOM = 0.1;  // how far out the user can zoom (you can adjust)
-const MAX_WORLD_ZOOM = 1.0;  // do not allow zoom in beyond scale 1
+let worldZoom = 0.025;       // default scale (max "zoom in")
+const MIN_WORLD_ZOOM = 0.025;  // how far out the user can zoom (you can adjust)
+const MAX_WORLD_ZOOM = 0.1;  // do not allow zoom in beyond scale 1
+let regionZoom = 1;       // default scale (max "zoom in")
+const MIN_REGION_ZOOM = 0.5;  // how far out the user can zoom (you can adjust)
+const MAX_REGION_ZOOM = 1;  // do not allow zoom in beyond scale 1
+let worldPanX = 0, worldPanY = 0;
+let regionPanX = 0, regionPanY = 0;
 const SQRT3 = Math.sqrt(3);
 
 // We'll assume the <svg> is 800x600
@@ -41,6 +46,39 @@ function hexPolygonPoints(cx, cy) {
     points.push(`${px},${py}`);
   }
   return points.join(" ");
+}
+
+// ========== EVENT LISTENERS FOR PAN ==========
+function onMouseDown(evt) {
+  // Only allow dragging in World or Region view
+  if (currentView === "world" || currentView === "region") {
+    isDragging = true;
+    lastMouseX = evt.clientX;
+    lastMouseY = evt.clientY;
+  }
+}
+
+function onMouseMove(evt) {
+  if (!isDragging) return;
+  const dx = evt.clientX - lastMouseX;
+  const dy = evt.clientY - lastMouseY;
+  lastMouseX = evt.clientX;
+  lastMouseY = evt.clientY;
+
+  if (currentView === "world") {
+    worldPanX += dx;
+    worldPanY += dy;
+    drawWorldView();  // Re-draw with updated pan
+  } 
+  else if (currentView === "region") {
+    regionPanX += dx;
+    regionPanY += dy;
+    drawRegionView(currentRegion);  // Re-draw
+  }
+}
+
+function onMouseUp(evt) {
+  isDragging = false;
 }
 
 /** Return an array of edges for hex (q,r). Each edge => [ [x1,y1],[x2,y2] ] */
@@ -90,23 +128,26 @@ function getHexBoundingBox(hexList, axialToPixelFn) {
   if (hexList.length === 0) {
     minX = 0; maxX = 0; minY = 0; maxY = 0;
   }
-  return {minX, maxX, minY, maxY};
+  return { minX, maxX, minY, maxY };
 }
 
 function centerHexGroup(hexList, group, axialToPixelFn, {
   svgWidth = 800,
   svgHeight = 600,
-  scale = worldZoom,
-  rotation = 0
+  scale = 1,
+  rotation = 0,
+  translateX = 0,
+  translateY = 0
 } = {}) {
   const { minX, maxX, minY, maxY } = getHexBoundingBox(hexList, axialToPixelFn);
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
+  // By default, we center in the middle of our SVG
   const targetX = svgWidth / 2;
   const targetY = svgHeight / 2;
 
   let transformStr = `
-    translate(${targetX}, ${targetY})
+    translate(${targetX + translateX}, ${targetY + translateY})
     scale(${scale})
     rotate(${rotation})
     translate(${-centerX}, ${-centerY})
@@ -117,6 +158,13 @@ function centerHexGroup(hexList, group, axialToPixelFn, {
 // ============================================================
 
 window.addEventListener("DOMContentLoaded", async () => {
+  // Attach global mouse handlers for panning
+  const svg = document.getElementById("map-svg");
+  svg.addEventListener("mousedown", onMouseDown);
+  svg.addEventListener("mousemove", onMouseMove);
+  svg.addEventListener("mouseup", onMouseUp);
+  // svg.addEventListener("mouseleave", onMouseLeave); // optional
+
   await loadWorldData();
   drawWorldView();
 });
@@ -140,19 +188,17 @@ function drawWorldView() {
   currentRegion = null;
   currentSection = null;
 
-  // Hide the toggle button at world level
   const toggleBtn = document.getElementById("toggleZoomBtn");
   toggleBtn.style.display = "none";
 
   const svg = document.getElementById("map-svg");
-  svg.innerHTML = ""; // clear existing
+  svg.innerHTML = ""; // clear
 
-  // (Re)-attach a wheel listener. We'll remove any existing one first
-  svg.onwheel = null;  // clear
-  // Only attach if currentView is "world"
+  // Only attach wheel if in world view (for zoom)
+  svg.onwheel = null; 
   svg.addEventListener("wheel", handleWorldWheelZoom, { passive: false });
 
-  // Re-add hover label
+  // Hover label
   const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
   hoverLabel.setAttribute("id", "hoverLabel");
   hoverLabel.setAttribute("x", "400");
@@ -162,50 +208,39 @@ function drawWorldView() {
   hoverLabel.setAttribute("fill", "#222");
   svg.appendChild(hoverLabel);
 
-  // Group for the entire world
   let gWorld = document.createElementNS("http://www.w3.org/2000/svg", "g");
   gWorld.setAttribute("id", "world-group");
   svg.appendChild(gWorld);
 
-  // For bounding box
   let worldHexList = [];
 
-  // For each region, draw hexes + build perimeter
+  // Draw each region
   worldData.regions.forEach(region => {
-    let sumX=0, sumY=0, count=0;
-    // We'll store region's hex coords in a set for quick adjacency check
     let regionSet = new Set();
     region.worldHexes.forEach(h => regionSet.add(`${h.q},${h.r}`));
 
-    // 1) Draw each hex
     region.worldHexes.forEach(hex => {
       worldHexList.push(hex);
       const { x, y } = axialToPixel(hex.q, hex.r);
-      sumX += x; sumY += y; count++;
 
-      // Draw polygon
       let p = document.createElementNS("http://www.w3.org/2000/svg","polygon");
       p.setAttribute("class","hex-region");
       p.setAttribute("points", hexPolygonPoints(x,y));
       p.setAttribute("fill", regionColor(region.regionId));
       p.setAttribute("data-region-id", region.regionId);
 
-      p.addEventListener("mouseenter", () => { 
+      p.addEventListener("mouseenter", () => {
         hoverLabel.textContent = region.name;
-        // Highlight all hexes in this region
         document.querySelectorAll(`polygon[data-region-id="${region.regionId}"]`).forEach(hex => {
           hex.classList.add("highlighted");
         });
       });
-      
-      p.addEventListener("mouseleave", () => { 
+      p.addEventListener("mouseleave", () => {
         hoverLabel.textContent = "";
-        // Remove highlight from all hexes in this region
         document.querySelectorAll(`polygon[data-region-id="${region.regionId}"]`).forEach(hex => {
           hex.classList.remove("highlighted");
         });
       });
-      
       p.addEventListener("click", () => {
         currentRegion = region;
         drawRegionView(region);
@@ -273,33 +308,25 @@ function drawWorldView() {
     });
   });
 
-  // center the whole world group
+  // Now center with worldPanX/Y + worldZoom
   centerHexGroup(worldHexList, gWorld, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
     scale: worldZoom,
-    rotation: 0
+    rotation: 0,
+    translateX: worldPanX,
+    translateY: worldPanY
   });
 }
 
 function handleWorldWheelZoom(evt) {
-  // Only zoom if we are indeed in the 'world' view
   if (currentView !== "world") return;
-
-  evt.preventDefault(); // prevent page scrolling
-
-  // Typically, deltaY < 0 means wheel up => zoom in, deltaY > 0 means wheel down => zoom out
-  // But you said scale=1 is your max zoom in, so we need to invert accordingly:
-  let delta = -Math.sign(evt.deltaY) * 0.1;  // step size 0.1 per wheel notch
-
+  evt.preventDefault(); 
+  let delta = -Math.sign(evt.deltaY) * 0.1;
   let newZoom = worldZoom + delta;
-  // Clamp between MIN_WORLD_ZOOM and MAX_WORLD_ZOOM
   if (newZoom < MIN_WORLD_ZOOM) newZoom = MIN_WORLD_ZOOM;
   if (newZoom > MAX_WORLD_ZOOM) newZoom = MAX_WORLD_ZOOM;
-
-  // Update global
   worldZoom = newZoom;
-  // Re-draw
   drawWorldView();
 }
 
@@ -316,6 +343,7 @@ function drawRegionView(region) {
 
   const svg = document.getElementById("map-svg");
   svg.innerHTML = "";
+  svg.addEventListener("wheel", handleRegionWheelZoom, { passive: false });
 
   // Hover label
   const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -398,9 +426,22 @@ function drawRegionView(region) {
   centerHexGroup(regionHexList, gRegion, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
-    scale: 2,
-    rotation: 0
+    scale: regionZoom,
+    rotation: 0,
+    translateX: regionPanX,
+    translateY: regionPanY
   });
+}
+
+function handleRegionWheelZoom(evt) {
+  if (currentView !== "region") return;
+  evt.preventDefault(); 
+  let delta = -Math.sign(evt.deltaY) * 0.1;
+  let newZoom = regionZoom + delta;
+  if (newZoom < MIN_REGION_ZOOM) newZoom = MIN_REGION_ZOOM;
+  if (newZoom > MAX_REGION_ZOOM) newZoom = MAX_REGION_ZOOM;
+  regionZoom = newZoom;
+  drawRegionView();
 }
 
 /**
