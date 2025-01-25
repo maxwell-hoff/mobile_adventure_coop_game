@@ -224,7 +224,7 @@ def create_character():
 
     char_name = data.get("char_name")
     char_class = data.get("char_class")
-    location = data.get("location", "StartLocation")
+    location = "regionId=1|q=0|r=0"  
 
     if not char_name or not char_class:
         return jsonify(error="Name and class are required for new character."), 400

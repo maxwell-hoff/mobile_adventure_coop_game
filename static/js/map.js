@@ -350,6 +350,14 @@ function drawRegionView(region) {
     });
   });
 
+  if (region.regionId === 1) {
+    // If selectedCharacter says location= "regionId=1|q=0|r=0", 
+    // draw a small circle at the region-level hex (q=0,r=0).
+    if (selectedCharacter && selectedCharacter.location === "regionId=1|q=0|r=0") {
+      // find that hex's pixel coords, draw a circle, etc.
+    }
+  }  
+
   // center region
   centerHexGroup(regionHexList, gRegion, axialToPixel, {
     svgWidth: SVG_WIDTH,
@@ -423,6 +431,19 @@ function drawHexDetailView(region, clickedHex) {
     enemyControls.style.display = "block";
     setupPlayerControls(puzzleScenario);
     setupEnemyPiecesDisplay(puzzleScenario);
+  } else if (selectedCharacter && selectedCharacter.location === "regionId=1|q=0|r=0") {
+    // 2) Inject the piece if it's not already in the scenario
+    const alreadyExists = puzzleScenario.pieces.some(p => p.label === selectedCharacter.name);
+    if (!alreadyExists) {
+      puzzleScenario.pieces.push({
+        class: selectedCharacter.char_class,
+        label: selectedCharacter.name,
+        color: "#00FF00",
+        side: "player",
+        q: 0,  // sub-grid q=0
+        r: 0   // sub-grid r=0
+      });
+    }
   } else {
     playerControls.style.display = "none";
     enemyControls.style.display = "none";
