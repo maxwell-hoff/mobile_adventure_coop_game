@@ -432,11 +432,15 @@ function drawHexDetailView(region, clickedHex) {
   // Show/hide player controls based on whether this is a puzzle scenario
   const playerControls = document.getElementById("player-controls");
   const enemyControls = document.getElementById("enemy-controls");
+  console.log("drawHexDetailView triggered with regionId=", region.regionId, "clickedHex=", clickedHex);
+  console.log("puzzleScenario found?", puzzleScenario);
   if (puzzleScenario) {
     //
     // 1) INJECT THE CHARACTER IF THEY'RE LOCATED AT "regionId=1|q=0|r=0"
     //
+    console.log("window.selectedCharacter is:", window.selectedCharacter);
     if (window.selectedCharacter && window.selectedCharacter.location === "regionId=1|q=0|r=0") {
+      console.log("Injecting the piece now!");
       // Check if not already in scenario
       const exists = puzzleScenario.pieces.some(
         p => p.label === window.selectedCharacter.name
