@@ -17,9 +17,9 @@ const HEX_SIZE = 30; // radius of each hex
 let worldZoom = 0.025;       // default scale (max "zoom in")
 const MIN_WORLD_ZOOM = 0.025;  // how far out the user can zoom (you can adjust)
 const MAX_WORLD_ZOOM = 0.1;  // do not allow zoom in beyond scale 1
-let regionZoom = 1;       // default scale (max "zoom in")
-const MIN_REGION_ZOOM = 0.5;  // how far out the user can zoom (you can adjust)
-const MAX_REGION_ZOOM = 1;  // do not allow zoom in beyond scale 1
+let regionZoom = 0.1;       // default scale (max "zoom in")
+const MIN_REGION_ZOOM = 0.05;  // how far out the user can zoom (you can adjust)
+const MAX_REGION_ZOOM = 0.5;  // do not allow zoom in beyond scale 1
 let worldPanX = 0, worldPanY = 0;
 let regionPanX = 0, regionPanY = 0;
 const SQRT3 = Math.sqrt(3);
@@ -441,7 +441,7 @@ function handleRegionWheelZoom(evt) {
   if (newZoom < MIN_REGION_ZOOM) newZoom = MIN_REGION_ZOOM;
   if (newZoom > MAX_REGION_ZOOM) newZoom = MAX_REGION_ZOOM;
   regionZoom = newZoom;
-  drawRegionView();
+  drawRegionView(currentRegion);
 }
 
 /**
@@ -1288,14 +1288,14 @@ function showMoveRangeForSelection(centerQ, centerR, range, parentGroup) {
   }
 }
 
-/** handle zoom */
-function handleToggleZoom(){
-  if(currentView==="region"){
-    drawWorldView();
-  } else if(currentView==="section"){
-    drawRegionView(currentRegion);
-  }
-}
+// /** handle zoom */
+// function handleToggleZoom(){
+//   if(currentView==="region"){
+//     drawWorldView();
+//   } else if(currentView==="section"){
+//     drawRegionView(currentRegion);
+//   }
+// }
 
 /** color palette */
 function regionColor(id){
