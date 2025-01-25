@@ -10,6 +10,48 @@
 <body>
   <h1>Hex Map with Zoom</h1>
 
+  <!-- 
+    1) SIGN-UP FORM 
+    (Add this block to let people create an account)
+  -->
+  <section>
+    <h2>Create an Account</h2>
+    <form id="signupForm">
+      <label for="signupUsername">Username:</label>
+      <input type="text" id="signupUsername" required />
+
+      <label for="signupPassword">Password:</label>
+      <input type="password" id="signupPassword" required />
+
+      <label for="signupClass">Class:</label>
+      <input type="text" id="signupClass" placeholder="e.g. Warlock, Priest" />
+
+      <label for="signupLocation">Location:</label>
+      <input type="text" id="signupLocation" placeholder="e.g. Redwood Vale" />
+
+      <button type="submit">Sign Up</button>
+    </form>
+  </section>
+  <hr />
+
+  <!-- 
+    2) LOGIN FORM
+    (Add this block to let people log into an existing account)
+  -->
+  <section>
+    <h2>Login to Existing Account</h2>
+    <form id="loginForm">
+      <label for="loginUsername">Username:</label>
+      <input type="text" id="loginUsername" required />
+
+      <label for="loginPassword">Password:</label>
+      <input type="password" id="loginPassword" required />
+
+      <button type="submit">Login</button>
+    </form>
+  </section>
+  <hr />
+
   <div id="controls">
     <!-- This single button toggles between "World View" and "Region View" 
          depending on current zoom level. Hidden at world level. -->
@@ -49,6 +91,65 @@
     <h3>Battle Log</h3>
     <div id="log-entries"></div>
   </div>
+
+  <!-- 
+    4) JavaScript to handle sign-up/login form submissions
+    and your existing puzzle code in map.js
+  -->
+  <script>
+    // SIGN-UP FORM SUBMISSION
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('signupUsername').value;
+      const password = document.getElementById('signupPassword').value;
+      const userClass = document.getElementById('signupClass').value;
+      const currentLocation = document.getElementById('signupLocation').value;
+
+      try {
+        const response = await fetch('/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, userClass, currentLocation })
+        });
+        const data = await response.json();
+        if (data.success) {
+          alert('User registered successfully!');
+        } else {
+          alert(data.error || data.message);
+        }
+      } catch (err) {
+        console.error('Sign-up error:', err);
+        alert('Error during sign-up.');
+      }
+    });
+
+    // LOGIN FORM SUBMISSION
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('loginUsername').value;
+      const password = document.getElementById('loginPassword').value;
+
+      try {
+        const response = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await response.json();
+        if (data.success) {
+          alert(data.message);
+          console.log('User data:', data.userData);
+          // Possibly load user data, e.g.:
+          // loadPuzzleForUser(data.userData);
+        } else {
+          alert(data.error || data.message);
+        }
+      } catch (err) {
+        console.error('Login error:', err);
+        alert('Error during login.');
+      }
+    });
+  </script>
   
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 </body>

@@ -25,13 +25,13 @@ Each puzzle scenario has a specific turn limit or “win in X moves” objective
 Classes & Abilities
 
 Each piece has no HP or minimal “one-hit kill” approach (like chess).
-Classes (Guardian, Hunter, Priest, Sorcerer, Warlock, Bloodwarden) each have unique movement/attack rules, e.g.:
+Classes (Guardian, Hunter, Priest, Sorcerer, Warlock, Bloodwarden) each have unique movement/attack rules, e.g. (classes subject to change. See pieces.yaml for details):
 Guardian: Moves 1 space; can protect an ally (immobilizing both), attacks all adjacent enemies.
 Hunter: Moves 1; can attack from 2 spaces with AoE around the target.
 Priest: Moves 1; can resurrect 1 unit (2-turn cast); can dispel or protect allies.
 Sorcerer: Moves 1; can swap with another character (range 4 LOS), create immovable walls, immobilize a target, or do ranged attacks.
 Warlock: Disarms, places AoE DOT, can pull enemies or swap spots with ally, short-range direct attacks.
-Bloodwarden: Kills everything within 10 hexes but kills itself in 2-turn cast.
+Bloodwarden: Kills everything within 50 hexes but spell requires 2-turn cast.
 3.2 Two-Move (or Three-Move) Checkmate Puzzles
 Puzzle Flow
 

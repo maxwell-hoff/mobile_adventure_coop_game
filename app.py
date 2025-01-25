@@ -2,6 +2,8 @@ from flask import Flask, render_template, jsonify, request
 import yaml
 import os
 import random
+import sqlite3
+from passlib.hash import bcrypt
 
 # If you want to run MCTS or PPO, import from your training script:
 from modeling.rl_training import HexPuzzleEnv, mcts_policy, make_env_fn
@@ -47,8 +49,108 @@ def index():
 def map_data():
     return jsonify(game_data)
 
+
 # ---------------------------------------
-# NEW ROUTE: GET ENEMY ACTION (MCTS OR PPO)
+# 1. Initialize & Migrate SQLite Database
+# ---------------------------------------
+def init_db():
+    # Connect and ensure the 'users' table exists
+    with sqlite3.connect("userData.db") as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            passwordHash TEXT,
+            userClass TEXT,
+            currentLocation TEXT
+        );
+        """)
+        conn.commit()
+
+init_db()
+
+# ---------------------------------------
+# 3. Sign-Up Route
+# ---------------------------------------
+@app.route('/signup', methods=['POST'])
+def signup():
+    data = request.get_json()
+    if not data:
+        return jsonify(error="Request body missing"), 400
+
+    username = data.get("username")
+    password = data.get("password")
+    user_class = data.get("userClass") or "DefaultClass"
+    current_location = data.get("currentLocation") or "StartLocation"
+
+    if not username or not password:
+        return jsonify(error="Username and password are required."), 400
+
+    # Check if user already exists
+    with sqlite3.connect("userData.db") as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE username = ?", (username,))
+        existing_user = cur.fetchone()
+        if existing_user:
+            return jsonify(error="Username already exists."), 400
+
+        # Hash the password
+        hashed_pw = bcrypt.hash(password)
+
+        # Insert new user
+        cur.execute("""
+            INSERT INTO users (username, passwordHash, userClass, currentLocation)
+            VALUES (?, ?, ?, ?)
+        """, (username, hashed_pw, user_class, current_location))
+        conn.commit()
+
+    return jsonify(success=True, message="User registered successfully."), 200
+
+
+# ---------------------------------------
+# 4. Login Route
+# ---------------------------------------
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    if not data:
+        return jsonify(error="Request body missing"), 400
+
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify(error="Username and password are required."), 400
+
+    # Fetch user
+    with sqlite3.connect("userData.db") as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT username, passwordHash, userClass, currentLocation FROM users WHERE username = ?", (username,))
+        row = cur.fetchone()
+
+    if not row:
+        return jsonify(error="Invalid credentials."), 400
+
+    stored_username, stored_hash, user_class, current_location = row
+
+    # Verify password
+    if not bcrypt.verify(password, stored_hash):
+        return jsonify(error="Invalid credentials."), 400
+
+    # Login successful
+    return jsonify(
+        success=True,
+        message="Logged in successfully.",
+        userData={
+            "username": stored_username,
+            "userClass": user_class,
+            "currentLocation": current_location
+        }
+    ), 200
+
+
+# ---------------------------------------
+# GET ENEMY ACTION (MCTS OR PPO)
 # ---------------------------------------
 @app.route("/api/enemy_action", methods=["POST"])
 def enemy_action():
