@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import yaml
 import os
 import random
@@ -13,6 +13,7 @@ import numpy as np
 
 
 app = Flask(__name__)
+app.secret_key = "CHANGE_THIS_TO_SOMETHING_SECRET"
 
 # Load world and pieces data (unchanged)
 with open(os.path.join("data", "world.yaml"), "r", encoding="utf-8") as f:
@@ -54,8 +55,8 @@ def map_data():
 # 1. Initialize & Migrate SQLite Database
 # ---------------------------------------
 def init_db():
-    # Connect and ensure the 'users' table exists
     with sqlite3.connect("userData.db") as conn:
+        # Ensure 'users' table still exists (unchanged)
         conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,56 +66,65 @@ def init_db():
             currentLocation TEXT
         );
         """)
+
+        # Create 'characters' table to hold multiple chars per user
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS characters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            char_name TEXT,
+            char_class TEXT,
+            location TEXT,
+            level INTEGER DEFAULT 1,
+            UNIQUE(user_id, char_name),   -- must be unique for that user
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        """)
+
         conn.commit()
 
 init_db()
 
-# ---------------------------------------
-# 3. Sign-Up Route
-# ---------------------------------------
-@app.route('/signup', methods=['POST'])
+# -------------------------
+# Sign Up
+# -------------------------
+@app.route("/signup", methods=["POST"])
 def signup():
     data = request.get_json()
     if not data:
-        return jsonify(error="Request body missing"), 400
+        return jsonify(error="No sign-up data provided"), 400
 
     username = data.get("username")
     password = data.get("password")
-    user_class = data.get("userClass") or "DefaultClass"
-    current_location = data.get("currentLocation") or "StartLocation"
 
     if not username or not password:
         return jsonify(error="Username and password are required."), 400
 
-    # Check if user already exists
+    # Check if user exists
     with sqlite3.connect("userData.db") as conn:
         cur = conn.cursor()
         cur.execute("SELECT id FROM users WHERE username = ?", (username,))
-        existing_user = cur.fetchone()
-        if existing_user:
+        existing = cur.fetchone()
+        if existing:
             return jsonify(error="Username already exists."), 400
 
-        # Hash the password
+        # Hash password
         hashed_pw = bcrypt.hash(password)
-
-        # Insert new user
-        cur.execute("""
-            INSERT INTO users (username, passwordHash, userClass, currentLocation)
-            VALUES (?, ?, ?, ?)
-        """, (username, hashed_pw, user_class, current_location))
+        # Insert user
+        cur.execute("""INSERT INTO users (username, passwordHash) VALUES (?, ?)""",
+                    (username, hashed_pw))
         conn.commit()
 
-    return jsonify(success=True, message="User registered successfully."), 200
+    return jsonify(success=True, message="User registered successfully"), 200
 
-
-# ---------------------------------------
-# 4. Login Route
-# ---------------------------------------
-@app.route('/login', methods=['POST'])
+# -------------------------
+# Login
+# -------------------------
+@app.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
     if not data:
-        return jsonify(error="Request body missing"), 400
+        return jsonify(error="No login data provided"), 400
 
     username = data.get("username")
     password = data.get("password")
@@ -122,31 +132,146 @@ def login():
     if not username or not password:
         return jsonify(error="Username and password are required."), 400
 
-    # Fetch user
     with sqlite3.connect("userData.db") as conn:
         cur = conn.cursor()
-        cur.execute("SELECT username, passwordHash, userClass, currentLocation FROM users WHERE username = ?", (username,))
+        cur.execute("""
+            SELECT id, passwordHash
+            FROM users
+            WHERE username = ?
+        """, (username,))
         row = cur.fetchone()
 
     if not row:
-        return jsonify(error="Invalid credentials."), 400
+        return jsonify(error="Invalid credentials (no user)."), 400
 
-    stored_username, stored_hash, user_class, current_location = row
+    user_id, stored_hash = row
 
-    # Verify password
+    # verify password
     if not bcrypt.verify(password, stored_hash):
-        return jsonify(error="Invalid credentials."), 400
+        return jsonify(error="Invalid credentials (bad password)."), 400
 
-    # Login successful
-    return jsonify(
-        success=True,
-        message="Logged in successfully.",
-        userData={
-            "username": stored_username,
-            "userClass": user_class,
-            "currentLocation": current_location
-        }
-    ), 200
+    # store user_id in session
+    session["user_id"] = user_id
+    return jsonify(success=True, message="Logged in successfully."), 200
+
+# -------------------------
+# Logout (optional)
+# -------------------------
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.pop("user_id", None)
+    return jsonify(success=True, message="Logged out.")
+
+# -------------------------
+# Get Available Classes
+# (We exclude Bloodwarden/Priest)
+# -------------------------
+@app.route("/get_classes", methods=["GET"])
+def get_classes():
+    # Return the classes we built earlier
+    return jsonify(all_classes), 200
+
+# -------------------------
+# Get Characters for the Logged-In User
+# -------------------------
+@app.route("/get_characters", methods=["GET"])
+def get_characters():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify(error="Not logged in"), 401
+
+    with sqlite3.connect("userData.db") as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, char_name, char_class, location, level
+            FROM characters
+            WHERE user_id = ?
+        """, (user_id,))
+        rows = cur.fetchall()
+
+    # Convert to list of dicts
+    char_list = []
+    for r in rows:
+        char_list.append({
+            "id": r[0],
+            "name": r[1],
+            "char_class": r[2],
+            "location": r[3],
+            "level": r[4],
+        })
+
+    return jsonify(char_list), 200
+
+# -------------------------
+# Create a New Character
+# -------------------------
+@app.route("/create_character", methods=["POST"])
+def create_character():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify(error="Not logged in"), 401
+
+    data = request.get_json()
+    if not data:
+        return jsonify(error="No character data provided"), 400
+
+    char_name = data.get("char_name")
+    char_class = data.get("char_class")
+    location = data.get("location", "StartLocation")
+
+    if not char_name or not char_class:
+        return jsonify(error="Name and class are required for new character."), 400
+
+    # Check if class is valid
+    if char_class not in all_classes:
+        return jsonify(error=f"Invalid class. Must be one of {all_classes}."), 400
+
+    with sqlite3.connect("userData.db") as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO characters (user_id, char_name, char_class, location, level)
+                VALUES (?, ?, ?, ?, 1)
+            """, (user_id, char_name, char_class, location))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            # likely UNIQUE constraint for (user_id, char_name)
+            return jsonify(error=f"Character name '{char_name}' already exists for this account."), 400
+
+    return jsonify(success=True, message="Character created successfully."), 200
+
+# -------------------------
+# (Optional) “Begin Game” or “Load Character”
+# This is where you’d handle continuing to the next screen, etc.
+# -------------------------
+@app.route("/load_character/<int:char_id>", methods=["GET"])
+def load_character(char_id):
+    """ Example route if you wanted to load the puzzle for a specific character. """
+    # You can store chosen char_id in session, or return details to front-end
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify(error="Not logged in"), 401
+
+    with sqlite3.connect("userData.db") as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, char_name, char_class, location, level
+            FROM characters
+            WHERE id = ? AND user_id = ?
+        """, (char_id, user_id))
+        row = cur.fetchone()
+
+    if not row:
+        return jsonify(error="Character not found or not yours."), 400
+
+    # In a real game, you'd do more logic. We'll just return the data:
+    return jsonify({
+        "char_id": row[0],
+        "name": row[1],
+        "char_class": row[2],
+        "location": row[3],
+        "level": row[4]
+    }), 200
 
 
 # ---------------------------------------

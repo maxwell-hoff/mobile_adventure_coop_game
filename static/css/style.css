@@ -298,3 +298,48 @@ body {
     border: 1px solid #ddd;
     border-radius: 4px;
   }
+  .screen {
+    display: none; 
+    margin: 20px;
+  }
+  .screen.active {
+    display: block;
+  }
+  .char-list-item {
+    margin-bottom: 8px;
+    border: 1px solid #ccc;
+    padding: 10px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .char-list-item.selected {
+    background: #d0f0d0;
+    border-color: green;
+  }
+  .class-option {
+    display: inline-block;
+    margin-right: 8px;
+    margin-bottom: 8px;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .class-option.selected {
+    background: #e0e0ff;
+    border-color: blue;
+  }
+  .btn {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 10px 16px;
+    background: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: center;
+  }
+  .btn:hover {
+    background: #45a049;
+  }
