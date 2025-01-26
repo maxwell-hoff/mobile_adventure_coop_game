@@ -12,14 +12,14 @@ let blockedHexes = new Set();
 let delayedAttacks = []; 
 let turnCounter = 0; 
 
-const HEX_SIZE = 30; // radius of each hex
+const HEX_SIZE = 3; // radius of each hex
 // For world-only zoom
-let worldZoom = 0.010;       // default scale (max "zoom in")
-const MIN_WORLD_ZOOM = 0.025;  // how far out the user can zoom (you can adjust)
-const MAX_WORLD_ZOOM = 0.1;  // do not allow zoom in beyond scale 1
-let regionZoom = 0.1;       // default scale (max "zoom in")
-const MIN_REGION_ZOOM = 0.05;  // how far out the user can zoom (you can adjust)
-const MAX_REGION_ZOOM = 0.5;  // do not allow zoom in beyond scale 1
+let worldZoom = 0.25;       // default scale (max "zoom in")
+const MIN_WORLD_ZOOM = 0.1;  // how far out the user can zoom (you can adjust)
+const MAX_WORLD_ZOOM = 1;  // do not allow zoom in beyond scale 1
+let regionZoom = 1;       // default scale (max "zoom in")
+const MIN_REGION_ZOOM = 0.5;  // how far out the user can zoom (you can adjust)
+const MAX_REGION_ZOOM = 5;  // do not allow zoom in beyond scale 1
 let worldPanX = 0, worldPanY = 0;
 let regionPanX = 0, regionPanY = 0;
 const SQRT3 = Math.sqrt(3);

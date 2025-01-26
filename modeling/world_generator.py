@@ -213,7 +213,7 @@ def generate_regions_yaml(
 
 if __name__ == "__main__":
     yaml_output = generate_regions_yaml(
-        num_regions=250,
+        num_regions=10,
         min_region_hexes=500,
         max_region_hexes=5000,
         avg_region_hexes=1000,

@@ -352,6 +352,6 @@ body {
   /* When hovered, show a bold outline around the entire path */
   .region-path.hovered {
     stroke: #222;       /* dark outline */
-    stroke-width: 3px;  /* or 2px, 4px, etc. */
+    stroke-width: 1px;  /* or 2px, 4px, etc. */
   }
   
