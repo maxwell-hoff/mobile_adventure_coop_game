@@ -355,3 +355,11 @@ body {
     stroke-width: 1px;  /* or 2px, 4px, etc. */
   }
   
+  .poi-marker {
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .poi-marker:hover {
+    transform: scale(1.3);
+  }
+  

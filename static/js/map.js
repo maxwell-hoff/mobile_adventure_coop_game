@@ -286,22 +286,15 @@ function drawWorldView() {
 
   // Create one path per region
   worldData.regions.forEach(region => {
-    // Add region hexes to the bounding list
-    region.worldHexes.forEach(h => worldHexList.push(h));
-
-    // Build a path from all hexes in this region
+    // Build the path for all region hexes (as you have)
     const pathStr = buildRegionPath(region.worldHexes);
 
     let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", pathStr);
-    // Use a single color for all regions
     path.setAttribute("fill", "#cccccc");
-    // No outline by default; we'll add stroke on hover via CSS
     path.setAttribute("stroke", "none");
-    // Assign a class for styling
     path.setAttribute("class", "region-path");
 
-    // Hover: show region name + outline
     path.addEventListener("mouseenter", () => {
       hoverLabel.textContent = region.name;
       path.classList.add("hovered");
@@ -310,14 +303,48 @@ function drawWorldView() {
       hoverLabel.textContent = "";
       path.classList.remove("hovered");
     });
-
-    // Click => go to Region view
     path.addEventListener("click", () => {
       currentRegion = region;
       drawRegionView(region);
     });
-
     gWorld.appendChild(path);
+
+    // --- NEW: Draw POI markers ---
+    if (region.pointsOfInterest) {
+      region.pointsOfInterest.forEach(poi => {
+        const { x, y } = axialToPixel(poi.q, poi.r);
+
+        // Create a small circle as a marker
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", x);
+        circle.setAttribute("cy", y);
+        // Make it a bit bigger than the hex radius for visibility
+        circle.setAttribute("r", 3.5);
+        circle.setAttribute("fill", "red");
+        circle.setAttribute("stroke", "white");
+        circle.setAttribute("stroke-width", "1");
+        // Optionally, a class if you want to style it via CSS
+        circle.classList.add("poi-marker");
+
+        // If you'd like a hover label:
+        circle.addEventListener("mouseenter", () => {
+          hoverLabel.textContent = "Point of Interest"; 
+          // eventually show POI name or type if you have them
+        });
+        circle.addEventListener("mouseleave", () => {
+          hoverLabel.textContent = region.name || "";
+        });
+
+        // If you want clicks on POIs:
+        circle.addEventListener("click", (evt) => {
+          evt.stopPropagation(); 
+          alert("Clicked a Point of Interest!");
+          // Could open a mini-info window, etc.
+        });
+
+        gWorld.appendChild(circle);
+      });
+    }
   });
 
   // Center the entire map

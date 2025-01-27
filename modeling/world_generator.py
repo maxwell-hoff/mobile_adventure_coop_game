@@ -97,7 +97,7 @@ def generate_region(
     :param max_attempts: Max BFS attempts before giving up
     :param connect_to_existing: If True, we must place region so it touches used_hexes
     :param seed_hex: If provided, we forcibly place the region's seed on this hex
-    :return: Dict with 'regionId' and 'worldHexes', or raises RuntimeError if not possible
+    :return: Dict with 'regionId', 'worldHexes', and 'pointsOfInterest'
     """
 
     # 1) Determine region size from normal distribution
@@ -121,16 +121,11 @@ def generate_region(
                     raise RuntimeError("No available frontier hexes to keep the map connected!")
                 chosen_seed = random.choice(list(frontier_hexes))
             else:
-                # This fallback could pick from anywhere, but typically 
-                # you'd only use this for region #1 in a non-forced scenario
-                # (or if you want some regions 'far out' but still connected).
-                # In many designs, you'd do something like random from frontier + a big range
-                # but let's keep it simple here:
+                # If there's no frontier, place it randomly in some range
                 frontier_hexes = get_frontier_hexes(used_hexes)
                 if frontier_hexes:
                     chosen_seed = random.choice(list(frontier_hexes))
                 else:
-                    # If there's no frontier, place it randomly in some range
                     chosen_seed = (random.randint(-10000, 10000),
                                    random.randint(-10000, 10000))
 
@@ -145,10 +140,27 @@ def generate_region(
             for hx in region_candidate:
                 used_hexes.add(hx)
 
+            # --- NEW: Add random Points of Interest ---
+            # We want 2..5 points, but ensure we don't exceed len(region_candidate)
+            poi_count = min(random.randint(2, 5), len(region_candidate))
+            # sample distinct hexes from region_candidate
+            poi_hexes = random.sample(region_candidate, poi_count)
+
+            points_of_interest = []
+            for (q, r) in poi_hexes:
+                # Just store minimal info for now (q, r). 
+                # (We could also add a random 'type' or so.)
+                points_of_interest.append({
+                    'q': q,
+                    'r': r
+                })
+
             return {
                 'regionId': region_id,
                 'name': f"Generated Region {region_id}",
-                'worldHexes': [{'q': q, 'r': r} for q, r in region_candidate]
+                'worldHexes': [{'q': q, 'r': r} for q, r in region_candidate],
+                # Store the POIs in region data
+                'pointsOfInterest': points_of_interest
             }
 
     raise RuntimeError(f"Failed to place region {region_id} after {max_attempts} attempts")
@@ -169,6 +181,7 @@ def generate_regions_yaml(
       - One region (the first) explicitly containing (0,0)
       - Region size distribution from normal(avg_region_hexes, std_region_hexes)
       - BFS-based shape generation with shape_variability controlling irregularities
+      - 2-5 random Points of Interest in each region
     """
     if seed is not None:
         random.seed(seed)
@@ -212,6 +225,7 @@ def generate_regions_yaml(
     return yaml.dump({'regions': regions}, sort_keys=False)
 
 if __name__ == "__main__":
+    # Example usage
     yaml_output = generate_regions_yaml(
         num_regions=10,
         min_region_hexes=500,
@@ -223,3 +237,4 @@ if __name__ == "__main__":
     )
     with open('data/gen_world.yaml', 'w') as f:
         f.write(yaml_output)
+    print("Generated data/gen_world.yaml with random POIs!")
