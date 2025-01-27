@@ -136,6 +136,7 @@ def generate_region(
         # Attempt BFS growth from chosen_seed
         region_candidate = grow_region_bfs(chosen_seed, region_size, used_hexes, shape_variability)
         if region_candidate is not None:
+            print(f"  BFS succeeded with region size {len(region_candidate)}")
             # Mark used
             for hx in region_candidate:
                 used_hexes.add(hx)
@@ -143,6 +144,7 @@ def generate_region(
             # --- NEW: Add random Points of Interest ---
             # We want 2..5 points, but ensure we don't exceed len(region_candidate)
             poi_count = min(random.randint(2, 5), len(region_candidate))
+            print(f"  Generating {poi_count} POIs for region {region_id}")
             # sample distinct hexes from region_candidate
             poi_hexes = random.sample(region_candidate, poi_count)
 
@@ -162,6 +164,8 @@ def generate_region(
                 # Store the POIs in region data
                 'pointsOfInterest': points_of_interest
             }
+        else:
+            print("  BFS returned None (failed to get enough contiguous hexes). Trying another attempt.")
 
     raise RuntimeError(f"Failed to place region {region_id} after {max_attempts} attempts")
 
