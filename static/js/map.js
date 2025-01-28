@@ -349,19 +349,19 @@ function drawPOIMarkers(gRegion_, region_, marker_size) {
       circle.setAttribute("stroke-width", "1");
       circle.classList.add("poi-marker");
 
-      // Optional hover text
-      circle.addEventListener("mouseenter", () => {
+      circle.addEventListener("mouseenter", (evt) => {
+        evt.stopPropagation();  // Prevent polygon events
         hoverLabel.textContent = "POI: (" + poi.q + "," + poi.r + ")";
       });
-      circle.addEventListener("mouseleave", () => {
+      circle.addEventListener("mouseleave", (evt) => {
+        evt.stopPropagation();
         hoverLabel.textContent = region_.name || "";
       });
-
-      // Optional click handler
       circle.addEventListener("click", (evt) => {
-        evt.stopPropagation();
+        evt.stopPropagation();  // Already have it here for click
         alert("Clicked a Region POI at (" + poi.q + "," + poi.r + ")");
       });
+      
 
       gRegion_.appendChild(circle);
 
