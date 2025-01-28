@@ -309,42 +309,7 @@ function drawWorldView() {
     });
     gWorld.appendChild(path);
 
-    // --- NEW: Draw POI markers ---
-    if (region.pointsOfInterest) {
-      region.pointsOfInterest.forEach(poi => {
-        const { x, y } = axialToPixel(poi.q, poi.r);
-
-        // Create a small circle as a marker
-        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        circle.setAttribute("cx", x);
-        circle.setAttribute("cy", y);
-        // Make it a bit bigger than the hex radius for visibility
-        circle.setAttribute("r", 3.5);
-        circle.setAttribute("fill", "red");
-        circle.setAttribute("stroke", "white");
-        circle.setAttribute("stroke-width", "1");
-        // Optionally, a class if you want to style it via CSS
-        circle.classList.add("poi-marker");
-
-        // If you'd like a hover label:
-        circle.addEventListener("mouseenter", () => {
-          hoverLabel.textContent = "Point of Interest"; 
-          // eventually show POI name or type if you have them
-        });
-        circle.addEventListener("mouseleave", () => {
-          hoverLabel.textContent = region.name || "";
-        });
-
-        // If you want clicks on POIs:
-        circle.addEventListener("click", (evt) => {
-          evt.stopPropagation(); 
-          alert("Clicked a Point of Interest!");
-          // Could open a mini-info window, etc.
-        });
-
-        gWorld.appendChild(circle);
-      });
-    }
+    drawPOIMarkers(gWorld, region, 3.5);
   });
 
   // Center the entire map
@@ -367,6 +332,44 @@ function handleWorldWheelZoom(evt) {
   if (newZoom > MAX_WORLD_ZOOM) newZoom = MAX_WORLD_ZOOM;
   worldZoom = newZoom;
   drawWorldView();
+}
+
+function drawPOIMarkers(gRegion_, region_, marker_size) {
+  if (region_.pointsOfInterest && region_.pointsOfInterest.length > 0) {
+    region_.pointsOfInterest.forEach(poi => {
+      const { x, y } = axialToPixel(poi.q, poi.r);
+
+      // Create a small circle marker
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", x);
+      circle.setAttribute("cy", y);
+      circle.setAttribute("r", marker_size);
+      circle.setAttribute("fill", "red");
+      circle.setAttribute("stroke", "white");
+      circle.setAttribute("stroke-width", "1");
+      circle.classList.add("poi-marker");
+
+      // Optional hover text
+      circle.addEventListener("mouseenter", () => {
+        hoverLabel.textContent = "POI: (" + poi.q + "," + poi.r + ")";
+      });
+      circle.addEventListener("mouseleave", () => {
+        hoverLabel.textContent = region_.name || "";
+      });
+
+      // Optional click handler
+      circle.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        alert("Clicked a Region POI at (" + poi.q + "," + poi.r + ")");
+      });
+
+      gRegion_.appendChild(circle);
+
+      // If you want the region bounding box to include POIs,
+      // push them into regionHexList so the camera centers them
+      // regionHexList.push({ q: poi.q, r: poi.r });
+    });
+  }
 }
 
 /**
@@ -451,6 +454,8 @@ function drawRegionView(region) {
       }
     });
   });
+
+  drawPOIMarkers(gRegion, region, 2);
 
   if (region.regionId === 1) {
     if (window.selectedCharacter && window.selectedCharacter.location === "regionId=1|q=0|r=0") {
