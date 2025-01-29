@@ -15,22 +15,29 @@ let turnCounter = 0;
 const HEX_SIZE = 3; // radius of each hex
 // For world-only zoom
 let worldZoom = 0.25;       // default scale (max "zoom in")
-const MIN_WORLD_ZOOM = 0.1;  // how far out the user can zoom (you can adjust)
-const MAX_WORLD_ZOOM = 1;  // do not allow zoom in beyond scale 1
-let regionZoom = 1;       // default scale (max "zoom in")
-const MIN_REGION_ZOOM = 0.5;  // how far out the user can zoom (you can adjust)
-const MAX_REGION_ZOOM = 5;  // do not allow zoom in beyond scale 1
+const MIN_WORLD_ZOOM = 0.1; // how far out the user can zoom
+const MAX_WORLD_ZOOM = 1;   // do not allow zoom in beyond scale 1
+
+// For region-level zoom
+let regionZoom = 1;
+const MIN_REGION_ZOOM = 0.5;
+const MAX_REGION_ZOOM = 5;
+
+// Panning offsets
 let worldPanX = 0, worldPanY = 0;
 let regionPanX = 0, regionPanY = 0;
+
 const SQRT3 = Math.sqrt(3);
 
 // We'll assume the <svg> is 800x600
 const SVG_WIDTH = 800;
 const SVG_HEIGHT = 600;
 
+// ============= Basic Hex Conversions =============
+
 /** Axial -> pixel (pointy-top). */
 function axialToPixel(q, r) {
-  const x = HEX_SIZE * SQRT3 * (q + r/2);
+  const x = HEX_SIZE * SQRT3 * (q + r / 2);
   const y = HEX_SIZE * (3 / 2) * r;
   return { x, y };
 }
@@ -48,7 +55,42 @@ function hexPolygonPoints(cx, cy) {
   return points.join(" ");
 }
 
-// ========== EVENT LISTENERS FOR PAN ==========
+/** Return the 6 corners (x,y) for a single hex center, for path-building. */
+function getHexCorners(cx, cy) {
+  let corners = [];
+  for (let i = 0; i < 6; i++) {
+    let angle_deg = 60 * i + 30;
+    let angle_rad = Math.PI / 180 * angle_deg;
+    let px = cx + HEX_SIZE * Math.cos(angle_rad);
+    let py = cy + HEX_SIZE * Math.sin(angle_rad);
+    corners.push({ x: px, y: py });
+  }
+  return corners;
+}
+
+/**
+ * Build a single SVG path string that traces all the hexes in 'regionHexes'
+ * as sub-paths (M...L...Z).
+ */
+function buildRegionPath(regionHexes) {
+  let pathStr = "";
+  for (let hex of regionHexes) {
+    let { x, y } = axialToPixel(hex.q, hex.r);
+    let corners = getHexCorners(x, y);
+    pathStr += `M ${corners[0].x},${corners[0].y} `;
+    for (let i = 1; i < 6; i++) {
+      pathStr += `L ${corners[i].x},${corners[i].y} `;
+    }
+    pathStr += "Z ";
+  }
+  return pathStr;
+}
+
+// ============= Mouse Drag Panning =============
+let isDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
 function onMouseDown(evt) {
   // Only allow dragging in World or Region view
   if (currentView === "world" || currentView === "region") {
@@ -68,12 +110,11 @@ function onMouseMove(evt) {
   if (currentView === "world") {
     worldPanX += dx;
     worldPanY += dy;
-    drawWorldView();  // Re-draw with updated pan
-  } 
-  else if (currentView === "region") {
+    drawWorldView();
+  } else if (currentView === "region") {
     regionPanX += dx;
     regionPanY += dy;
-    drawRegionView(currentRegion);  // Re-draw
+    drawRegionView(currentRegion);
   }
 }
 
@@ -81,22 +122,24 @@ function onMouseUp(evt) {
   isDragging = false;
 }
 
+// ============= Edges & Neighbors (Region Outlines) =============
+
 /** Return an array of edges for hex (q,r). Each edge => [ [x1,y1],[x2,y2] ] */
 function getHexEdges(q, r) {
   const center = axialToPixel(q, r);
   let edges = [];
   let corners = [];
   for (let i = 0; i < 6; i++) {
-    let angle_deg = 60*i + 30;
-    let rad = Math.PI/180 * angle_deg;
+    let angle_deg = 60 * i + 30;
+    let rad = Math.PI / 180 * angle_deg;
     let px = center.x + HEX_SIZE * Math.cos(rad);
     let py = center.y + HEX_SIZE * Math.sin(rad);
-    corners.push({ x:px, y:py });
+    corners.push({ x: px, y: py });
   }
   for (let i = 0; i < 6; i++) {
     let c1 = corners[i];
-    let c2 = corners[(i+1) % 6];
-    edges.push([[c1.x, c1.y],[c2.x, c2.y]]);
+    let c2 = corners[(i + 1) % 6];
+    edges.push([[c1.x, c1.y], [c2.x, c2.y]]);
   }
   return edges;
 }
@@ -104,51 +147,43 @@ function getHexEdges(q, r) {
 /** Axial neighbors (q +/- 1, r +/- 1, etc.). */
 function getHexNeighbors(q, r) {
   return [
-    {q: q+1, r: r},
-    {q: q-1, r: r},
-    {q: q,   r: r+1},
-    {q: q,   r: r-1},
-    {q: q+1, r: r-1},
-    {q: q-1, r: r+1}
+    { q: q + 1, r: r },
+    { q: q - 1, r: r },
+    { q: q, r: r + 1 },
+    { q: q, r: r - 1 },
+    { q: q + 1, r: r - 1 },
+    { q: q - 1, r: r + 1 }
   ];
 }
 
-function buildRegionPath(regionHexes) {
-  // regionHexes is an array of {q, r}
-  // We'll just chain each hex as a sub-path
-  let pathStr = "";
-  regionHexes.forEach( hex => {
-    let { x, y } = axialToPixel(hex.q, hex.r);
-    // build a "move to" the first corner, then line to others...
-    let corners = getHexCorners(x, y); // => array of [cornerX, cornerY] for 6 corners
-    pathStr += `M ${corners[0][0]},${corners[0][1]}`;
-    for(let i=1; i<corners.length; i++){
-      pathStr += ` L ${corners[i][0]},${corners[i][1]}`;
+/** Used to detect region boundary lines (whether an edge is shared). */
+function isEdgeShared(edge, neighborEdges) {
+  let [A, B] = edge;
+  for (let nEdge of neighborEdges) {
+    let [C, D] = nEdge;
+    if (almostEqual(A[0], C[0]) && almostEqual(A[1], C[1]) &&
+        almostEqual(B[0], D[0]) && almostEqual(B[1], D[1])) {
+      return true;
     }
-    pathStr += " Z ";
-  });
-  return pathStr;
-}
-
-function getHexCorners(cx, cy) {
-  let corners = [];
-  for(let i=0; i<6; i++){
-    let angleDeg = 60*i + 30;
-    let angleRad = Math.PI/180 * angleDeg;
-    let px = cx + HEX_SIZE * Math.cos(angleRad);
-    let py = cy + HEX_SIZE * Math.sin(angleRad);
-    corners.push([px,py]);
+    if (almostEqual(A[0], D[0]) && almostEqual(A[1], D[1]) &&
+        almostEqual(B[0], C[0]) && almostEqual(B[1], C[1])) {
+      return true;
+    }
   }
-  return corners;
+  return false;
 }
 
-// =========== BOUNDING BOX + CENTERING ===========
+function almostEqual(a, b, eps = 0.0001) {
+  return Math.abs(a - b) < eps;
+}
+
+// ============= Centering Groups in the SVG =============
 
 function getHexBoundingBox(hexList, axialToPixelFn) {
   let minX = Infinity, maxX = -Infinity;
   let minY = Infinity, maxY = -Infinity;
-  hexList.forEach(({q, r}) => {
-    const {x, y} = axialToPixelFn(q, r);
+  hexList.forEach(({ q, r }) => {
+    const { x, y } = axialToPixelFn(q, r);
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
     if (y < minY) minY = y;
@@ -171,7 +206,6 @@ function centerHexGroup(hexList, group, axialToPixelFn, {
   const { minX, maxX, minY, maxY } = getHexBoundingBox(hexList, axialToPixelFn);
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
-  // By default, we center in the middle of our SVG
   const targetX = svgWidth / 2;
   const targetY = svgHeight / 2;
 
@@ -181,18 +215,17 @@ function centerHexGroup(hexList, group, axialToPixelFn, {
     rotate(${rotation})
     translate(${-centerX}, ${-centerY})
   `.replace(/\s+/g, ' ');
+
   group.setAttribute("transform", transformStr);
 }
 
-// ============================================================
+// ============= Main Initialization =============
 
 window.addEventListener("DOMContentLoaded", async () => {
-  // Attach global mouse handlers for panning
   const svg = document.getElementById("map-svg");
   svg.addEventListener("mousedown", onMouseDown);
   svg.addEventListener("mousemove", onMouseMove);
   svg.addEventListener("mouseup", onMouseUp);
-  // svg.addEventListener("mouseleave", onMouseLeave); // optional
 
   await loadWorldData();
   drawWorldView();
@@ -209,57 +242,16 @@ async function loadWorldData() {
   piecesData = data.pieces;
 }
 
-/**
- * WORLD VIEW
- */
-/**
- * Build a single SVG path string that traces all the hexes in 'regionHexes'
- * as sub-paths (M...L...Z).
- */
-function buildRegionPath(regionHexes) {
-  let pathStr = "";
-  for (let hex of regionHexes) {
-    let { x, y } = axialToPixel(hex.q, hex.r);
-    let corners = getHexCorners(x, y);
-    pathStr += `M ${corners[0].x},${corners[0].y} `;
-    for (let i = 1; i < 6; i++) {
-      pathStr += `L ${corners[i].x},${corners[i].y} `;
-    }
-    pathStr += "Z ";
-  }
-  return pathStr;
-}
+// ============= WORLD VIEW =============
 
-/**
- * Return the 6 corners (x,y) for a single hex centered at (cx, cy).
- */
-function getHexCorners(cx, cy) {
-  let corners = [];
-  for (let i = 0; i < 6; i++) {
-    let angle_deg = 60 * i + 30;
-    let angle_rad = Math.PI / 180 * angle_deg;
-    let px = cx + HEX_SIZE * Math.cos(angle_rad);
-    let py = cy + HEX_SIZE * Math.sin(angle_rad);
-    corners.push({ x: px, y: py });
-  }
-  return corners;
-}
-
-/**
- * Draw the entire world in one pass, with:
- *  - A single color for all regions (e.g. light gray)
- *  - A bold outline on hover, plus a hover label with the region's name
- */
 function drawWorldView() {
   currentView = "world";
   currentRegion = null;
   currentSection = null;
 
-  // Hide toggle zoom button at world level
   const toggleBtn = document.getElementById("toggleZoomBtn");
-  toggleBtn.style.display = "none";
+  toggleBtn.style.display = "none"; // Not used at world level
 
-  // Clear and set up the main SVG
   const svg = document.getElementById("map-svg");
   svg.innerHTML = "";
   // Attach wheel listener for world zoom
@@ -271,7 +263,7 @@ function drawWorldView() {
   gWorld.setAttribute("id", "world-group");
   svg.appendChild(gWorld);
 
-  // A text label to show the region name on hover
+  // Hover label for region name
   let hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
   hoverLabel.setAttribute("id", "hoverLabel");
   hoverLabel.setAttribute("x", "400");
@@ -281,12 +273,11 @@ function drawWorldView() {
   hoverLabel.setAttribute("fill", "#222");
   svg.appendChild(hoverLabel);
 
-  // Collect all hexes for bounding/centering
+  // Collect all region hexes for bounding/centering
   let worldHexList = [];
 
   // Create one path per region
   worldData.regions.forEach(region => {
-    // Build the path for all region hexes (as you have)
     const pathStr = buildRegionPath(region.worldHexes);
 
     let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -309,10 +300,16 @@ function drawWorldView() {
     });
     gWorld.appendChild(path);
 
+    // In world view, place small circle markers on POIs
     drawPOIMarkers(gWorld, region, 3.5);
+
+    // Add these region hexes so we can center the entire world
+    region.worldHexes.forEach(hex => {
+      worldHexList.push(hex);
+    });
   });
 
-  // Center the entire map
+  // Center the entire world map
   centerHexGroup(worldHexList, gWorld, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
@@ -325,7 +322,7 @@ function drawWorldView() {
 
 function handleWorldWheelZoom(evt) {
   if (currentView !== "world") return;
-  evt.preventDefault(); 
+  evt.preventDefault();
   let delta = -Math.sign(evt.deltaY) * 0.1;
   let newZoom = worldZoom + delta;
   if (newZoom < MIN_WORLD_ZOOM) newZoom = MIN_WORLD_ZOOM;
@@ -334,12 +331,12 @@ function handleWorldWheelZoom(evt) {
   drawWorldView();
 }
 
-function drawPOIMarkers(gRegion_, region_, marker_size) {
-  if (region_.pointsOfInterest && region_.pointsOfInterest.length > 0) {
-    region_.pointsOfInterest.forEach(poi => {
+/** Small circle markers in world view */
+function drawPOIMarkers(gGroup, region, marker_size) {
+  if (region.pointsOfInterest && region.pointsOfInterest.length > 0) {
+    const hoverLabel = document.getElementById("hoverLabel");
+    region.pointsOfInterest.forEach(poi => {
       const { x, y } = axialToPixel(poi.q, poi.r);
-
-      // Create a small circle marker
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("cx", x);
       circle.setAttribute("cy", y);
@@ -350,43 +347,32 @@ function drawPOIMarkers(gRegion_, region_, marker_size) {
       circle.classList.add("poi-marker");
 
       circle.addEventListener("mouseenter", (evt) => {
-        evt.stopPropagation();  // Prevent polygon events
-        hoverLabel.textContent = "POI: (" + poi.q + "," + poi.r + ")";
+        evt.stopPropagation();
+        hoverLabel.textContent = `POI: (${poi.q}, ${poi.r})`;
       });
       circle.addEventListener("mouseleave", (evt) => {
         evt.stopPropagation();
-        hoverLabel.textContent = region_.name || "";
+        hoverLabel.textContent = region.name || "";
       });
       circle.addEventListener("click", (evt) => {
-        evt.stopPropagation();  // Already have it here for click
-        alert("Clicked a Region POI at (" + poi.q + "," + poi.r + ")");
+        evt.stopPropagation();
+        alert(`Clicked a Region POI at (${poi.q}, ${poi.r})`);
       });
-      
 
-      gRegion_.appendChild(circle);
-
-      // If you want the region bounding box to include POIs,
-      // push them into regionHexList so the camera centers them
-      // regionHexList.push({ q: poi.q, r: poi.r });
+      gGroup.appendChild(circle);
     });
   }
 }
 
-/**
- * REGION VIEW
- */
-/**
- * REGION VIEW
- */
+// ============= REGION VIEW =============
+
 function drawRegionView(region) {
   currentView = "region";
   currentSection = null;
 
   const toggleBtn = document.getElementById("toggleZoomBtn");
   toggleBtn.style.display = "inline-block";
-  toggleBtn.textContent = "World View"; // region -> world
-
-  // Add click handler for the toggle button
+  toggleBtn.textContent = "World View";
   toggleBtn.onclick = () => {
     drawWorldView();
   };
@@ -395,8 +381,7 @@ function drawRegionView(region) {
   svg.innerHTML = "";
   svg.addEventListener("wheel", handleRegionWheelZoom, { passive: false });
 
-  // Hover label
-  const hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  let hoverLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
   hoverLabel.setAttribute("id", "hoverLabel");
   hoverLabel.setAttribute("x", "400");
   hoverLabel.setAttribute("y", "30");
@@ -421,24 +406,23 @@ function drawRegionView(region) {
   let regionSet = new Set();
   region.worldHexes.forEach(h => regionSet.add(`${h.q},${h.r}`));
 
-  // Draw each hex polygon
+  // Draw each hex in this region
   region.worldHexes.forEach(hex => {
     regionHexList.push(hex);
-    let {x,y} = axialToPixel(hex.q, hex.r);
+    const { x, y } = axialToPixel(hex.q, hex.r);
 
-    let poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
-    poly.setAttribute("class","hex-region");
-    poly.setAttribute("points",hexPolygonPoints(x,y));
+    let poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    poly.setAttribute("class", "hex-region");
+    poly.setAttribute("points", hexPolygonPoints(x, y));
 
-    // If this hex is in poiSet, color it differently; else normal region color
+    // If POI, color differently
     const key = `${hex.q},${hex.r}`;
     if (poiSet.has(key)) {
-      poly.setAttribute("fill", "#FF6666"); // or your preferred "POI" color
+      poly.setAttribute("fill", "#FF6666"); // distinct color for POI
     } else {
       poly.setAttribute("fill", regionColor(region.regionId));
     }
 
-    // Same hover/click logic as before
     poly.addEventListener("mouseenter", () => {
       hoverLabel.textContent = region.name;
     });
@@ -452,7 +436,7 @@ function drawRegionView(region) {
     gRegion.appendChild(poly);
   });
 
-  // Outline perimeter edges in region view (unchanged)
+  // Outline perimeter edges
   region.worldHexes.forEach(hex => {
     let edges = getHexEdges(hex.q, hex.r);
     let neighbors = getHexNeighbors(hex.q, hex.r);
@@ -467,42 +451,22 @@ function drawRegionView(region) {
           }
         }
       }
+      // If not shared, it's a perimeter edge
       if (!shared) {
-        let line = document.createElementNS("http://www.w3.org/2000/svg","line");
-        line.setAttribute("x1",edge[0][0]);
-        line.setAttribute("y1",edge[0][1]);
-        line.setAttribute("x2",edge[1][0]);
-        line.setAttribute("y2",edge[1][1]);
-        line.setAttribute("stroke","black");
-        line.setAttribute("stroke-width","2");
-        line.setAttribute("class","region-outline");
+        let line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", edge[0][0]);
+        line.setAttribute("y1", edge[0][1]);
+        line.setAttribute("x2", edge[1][0]);
+        line.setAttribute("y2", edge[1][1]);
+        line.setAttribute("stroke", "black");
+        line.setAttribute("stroke-width", "2");
+        line.setAttribute("class", "region-outline");
         gRegion.appendChild(line);
       }
     });
   });
 
-  // Remove or comment out the drawPOIMarkers call for region:
-  // drawPOIMarkers(gRegion, region, 2); 
-  // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  // because we're coloring hexes, not drawing circles.
-
-  // If region 1 has a character at (0,0), show the circle
-  if (region.regionId === 1) {
-    if (window.selectedCharacter && window.selectedCharacter.location === "regionId=1|q=0|r=0") {
-      const {x,y} = axialToPixel(0,0);
-      const circle = document.createElementNS("http://www.w3.org/2000/svg","circle");
-      circle.setAttribute("cx", x);
-      circle.setAttribute("cy", y);
-      circle.setAttribute("r", 10);
-      circle.setAttribute("fill", "#00FF00");
-      gRegion.appendChild(circle);
-    }
-  }
-
-  console.log("drawRegionView: region =", region);
-  console.log("regionId =", region.regionId);
-  
-  // Center region
+  // Now center region
   centerHexGroup(regionHexList, gRegion, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
@@ -515,7 +479,7 @@ function drawRegionView(region) {
 
 function handleRegionWheelZoom(evt) {
   if (currentView !== "region") return;
-  evt.preventDefault(); 
+  evt.preventDefault();
   let delta = -Math.sign(evt.deltaY) * 0.1;
   let newZoom = regionZoom + delta;
   if (newZoom < MIN_REGION_ZOOM) newZoom = MIN_REGION_ZOOM;
@@ -1377,8 +1341,8 @@ function showMoveRangeForSelection(centerQ, centerR, range, parentGroup) {
 //   }
 // }
 
-/** color palette */
-function regionColor(id){
+// ============= Additional Helpers =============
+function regionColor(id) {
   let pal = ["#cce5ff","#ffe5cc","#e5ffcc","#f5ccff","#fff5cc","#ccf0ff","#e0cce5","#eed5cc"];
   return pal[id % pal.length];
 }
