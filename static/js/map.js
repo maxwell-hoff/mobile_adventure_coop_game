@@ -375,6 +375,9 @@ function drawPOIMarkers(gRegion_, region_, marker_size) {
 /**
  * REGION VIEW
  */
+/**
+ * REGION VIEW
+ */
 function drawRegionView(region) {
   currentView = "region";
   currentSection = null;
@@ -406,42 +409,65 @@ function drawRegionView(region) {
   gRegion.setAttribute("id", "region-group");
   svg.appendChild(gRegion);
 
+  // Build a Set of region POI coords
+  let poiSet = new Set();
+  if (region.pointsOfInterest) {
+    region.pointsOfInterest.forEach(poi => {
+      poiSet.add(`${poi.q},${poi.r}`);
+    });
+  }
+
   let regionHexList = [];
   let regionSet = new Set();
   region.worldHexes.forEach(h => regionSet.add(`${h.q},${h.r}`));
 
-  // Draw hexes
+  // Draw each hex polygon
   region.worldHexes.forEach(hex => {
     regionHexList.push(hex);
-    let {x,y} = axialToPixel(hex.q,hex.r);
+    let {x,y} = axialToPixel(hex.q, hex.r);
 
     let poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
     poly.setAttribute("class","hex-region");
     poly.setAttribute("points",hexPolygonPoints(x,y));
-    poly.setAttribute("fill",regionColor(region.regionId));
-    poly.addEventListener("mouseenter",()=>{ hoverLabel.textContent=region.name; });
-    poly.addEventListener("mouseleave",()=>{ hoverLabel.textContent=""; });
-    poly.addEventListener("click",()=>{ drawHexDetailView(region,hex); });
+
+    // If this hex is in poiSet, color it differently; else normal region color
+    const key = `${hex.q},${hex.r}`;
+    if (poiSet.has(key)) {
+      poly.setAttribute("fill", "#FF6666"); // or your preferred "POI" color
+    } else {
+      poly.setAttribute("fill", regionColor(region.regionId));
+    }
+
+    // Same hover/click logic as before
+    poly.addEventListener("mouseenter", () => {
+      hoverLabel.textContent = region.name;
+    });
+    poly.addEventListener("mouseleave", () => {
+      hoverLabel.textContent = "";
+    });
+    poly.addEventListener("click", () => {
+      drawHexDetailView(region, hex);
+    });
+
     gRegion.appendChild(poly);
   });
 
-  // Outline perimeter edges in region view
+  // Outline perimeter edges in region view (unchanged)
   region.worldHexes.forEach(hex => {
     let edges = getHexEdges(hex.q, hex.r);
     let neighbors = getHexNeighbors(hex.q, hex.r);
-    edges.forEach(edge=>{
-      let shared=false;
-      for(let n of neighbors){
-        if(regionSet.has(`${n.q},${n.r}`)){
-          // neighbor is in region => check if it shares edge
-          let nEdges = getHexEdges(n.q,n.r);
-          if(isEdgeShared(edge, nEdges)){
-            shared=true; 
+    edges.forEach(edge => {
+      let shared = false;
+      for (let n of neighbors) {
+        if (regionSet.has(`${n.q},${n.r}`)) {
+          let nEdges = getHexEdges(n.q, n.r);
+          if (isEdgeShared(edge, nEdges)) {
+            shared = true;
             break;
           }
         }
       }
-      if(!shared){
+      if (!shared) {
         let line = document.createElementNS("http://www.w3.org/2000/svg","line");
         line.setAttribute("x1",edge[0][0]);
         line.setAttribute("y1",edge[0][1]);
@@ -455,13 +481,15 @@ function drawRegionView(region) {
     });
   });
 
-  drawPOIMarkers(gRegion, region, 2);
+  // Remove or comment out the drawPOIMarkers call for region:
+  // drawPOIMarkers(gRegion, region, 2); 
+  // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  // because we're coloring hexes, not drawing circles.
 
+  // If region 1 has a character at (0,0), show the circle
   if (region.regionId === 1) {
     if (window.selectedCharacter && window.selectedCharacter.location === "regionId=1|q=0|r=0") {
-      // find pixel coords for (q=0, r=0)
       const {x,y} = axialToPixel(0,0);
-      // create circle
       const circle = document.createElementNS("http://www.w3.org/2000/svg","circle");
       circle.setAttribute("cx", x);
       circle.setAttribute("cy", y);
@@ -469,9 +497,9 @@ function drawRegionView(region) {
       circle.setAttribute("fill", "#00FF00");
       gRegion.appendChild(circle);
     }
-  }  
+  }
 
-  // center region
+  // Center region
   centerHexGroup(regionHexList, gRegion, axialToPixel, {
     svgWidth: SVG_WIDTH,
     svgHeight: SVG_HEIGHT,
