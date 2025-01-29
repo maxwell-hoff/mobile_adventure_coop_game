@@ -499,6 +499,9 @@ function drawRegionView(region) {
     }
   }
 
+  console.log("drawRegionView: region =", region);
+  console.log("regionId =", region.regionId);
+  
   // Center region
   centerHexGroup(regionHexList, gRegion, axialToPixel, {
     svgWidth: SVG_WIDTH,
