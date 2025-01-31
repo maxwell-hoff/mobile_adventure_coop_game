@@ -11,7 +11,7 @@ body {
   }
   
   .hex-region {
-    fill: #cce5ff !important;
+    fill: #cce5ff;
     stroke: #666;
     stroke-width: 1;
     cursor: pointer;

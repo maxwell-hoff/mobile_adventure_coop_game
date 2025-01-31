@@ -418,7 +418,7 @@ function drawRegionView(region) {
     // If POI, color differently
     const key = `${hex.q},${hex.r}`;
     if (poiSet.has(key)) {
-      poly.setAttribute("fill", "#FF6666"); // distinct color for POI
+      poly.setAttribute("style", "fill: #A30404;"); // distinct color for POI
     } else {
       poly.setAttribute("fill", regionColor(region.regionId));
     }
