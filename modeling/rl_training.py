@@ -637,27 +637,29 @@ class HexPuzzleEnv(gym.Env):
         return rew, term, trunc
 
     def _kill_piece(self, piece, killer_side):
-        # CHANGES MADE:
-        # 1) Use current_step_reward instead of modifying episode history
-        # 2) If a Priest is killed by the *opposing side*, reward +30. End episode immediately.
-        # 3) Non-priest kills are +5 for killing the enemy. No negative scenario for ally kills.
+        # Only end episode if a Priest is killed
+        # Give +30 reward if killing enemy Priest
+        # Give +5 reward if killing any other enemy piece
         if piece.get("dead", False):
             return
 
         if piece["class"] == "Priest":
-            # If it's an *enemy* Priest (piece.side != killer_side), +30
+            # If it's an enemy Priest (piece.side != killer_side), +30
             if piece["side"] != killer_side:
                 self.current_step_reward += 30
-            # Regardless, the iteration ends if a Priest is killed
-            self.done_forced = True
+                # Only end episode on Priest death
+                self.done_forced = True
         else:
             # Non-priest => +5 if it belongs to the other side
             if piece["side"] != killer_side:
                 self.current_step_reward += 5
+                # Do NOT end episode for non-Priest kills
 
         piece["dead"] = True
         piece["q"] = 9999
         piece["r"] = 9999
+        if piece["class"] != "Priest" and killer_side != "BloodWarden":
+            self.non_bloodwarden_kills += 1
 
     def get_obs(self):
         coords = []
@@ -1004,11 +1006,12 @@ def main():
                 final = ep[-1]
                 rew = final["reward"]
                 side = final["turn_side"]
-                # If a priest is killed by the active side => +30
-                # If time-limit => -20
-                # Otherwise normal
-                if rew >= 30 and side == "player":
-                    print(f"Player side killed enemy priest in iteration {i+1}.")
+                # Only print when a priest is killed (reward >= 30)
+                if rew >= 30:
+                    if side == "player":
+                        print(f"Player side killed enemy priest in iteration {i+1}.")
+                    else:
+                        print(f"Enemy side killed player priest in iteration {i+1}.")
             iteration_count_before = len(all_eps)
 
         all_episodes = vec_env.envs[0].all_episodes
@@ -1057,8 +1060,12 @@ def main():
         side = final["turn_side"]
         nbk = final.get("non_bloodwarden_kills", 0)
 
+        # Only mention priest kills in the summary
         if rew >= 30:
-            outcome_str = f"Iteration {i+1}: {side.upper()} kills enemy Priest => +30"
+            if side == "player":
+                outcome_str = f"Iteration {i+1}: PLAYER kills enemy Priest => +30"
+            else:
+                outcome_str = f"Iteration {i+1}: ENEMY kills player Priest => +30"
         elif rew == -20:
             outcome_str = f"Iteration {i+1}: time-limit => -20"
         else:
