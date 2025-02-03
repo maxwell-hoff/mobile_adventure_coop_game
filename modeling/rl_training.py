@@ -143,6 +143,7 @@ class HexPuzzleEnv(gym.Env):
         self.turn_number = 1
         self.turn_side = "player"
         self.done_forced = False
+        self.current_step_reward = 0.0
 
         self.all_episodes = []
         self.current_episode = []
@@ -244,6 +245,7 @@ class HexPuzzleEnv(gym.Env):
             self.all_episodes.append(self.current_episode)
 
         self.current_episode = []
+        self.current_step_reward = 0.0
         for p in self.all_pieces:
             p["moved_this_turn"] = False
 
@@ -275,19 +277,13 @@ class HexPuzzleEnv(gym.Env):
         return self.get_obs(), {}
 
     def step(self, action_idx):
-        # CHANGES MADE:
-        # 1) Removed logic that ends an episode if there are no living pieces for the side.
-        # 2) Removed logic that ends an episode if there are no valid actions.
-        # 3) Removed any penalty for "invalid action index."
-        #    (We assume action_idx is always valid due to mask.)
-        # 4) Episode ends only if a Priest is killed or turn limit is reached.
+        # Reset the current step reward at the start of each step
+        self.current_step_reward = 0.0
 
         if self.done_forced:
             return self.get_obs(), 0.0, True, False, {}
 
         valid = self.build_action_list()
-        # We assume 'action_idx' is always in range(len(valid)) due to action masking,
-        # so we won't check for "action_idx < 0 or >= len(valid)".
 
         (pidx, sub_action) = valid[action_idx]
         piece = self.all_pieces[pidx]
@@ -297,9 +293,8 @@ class HexPuzzleEnv(gym.Env):
         # something else => apply small penalty.
         could_attack = self._could_have_attacked(piece)
         is_attack = sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"]
-        step_mod = 0.0
         if could_attack and not is_attack:
-            step_mod -= 4.0
+            self.current_step_reward -= 4.0
 
         atype = sub_action["type"]
         if atype == "move":
@@ -308,7 +303,7 @@ class HexPuzzleEnv(gym.Env):
             piece["r"] = r
 
         elif atype == "pass":
-            step_mod -= 1.0
+            self.current_step_reward -= 1.0
 
         elif atype == "aoe":
             if sub_action.get("name") == "necrotizing_consecrate":
@@ -319,21 +314,21 @@ class HexPuzzleEnv(gym.Env):
                         self._kill_piece(tgt, killer_side=piece["side"])
                         # If a priest died, episode ends immediately:
                         if self.done_forced:
-                            return self._finish_step(step_mod, True, False)
+                            return self._finish_step(True, False)
 
         elif atype == "single_target_attack":
             tgt = sub_action["target_piece"]
             if tgt and not tgt.get("dead", False):
                 self._kill_piece(tgt, killer_side=piece["side"])
                 if self.done_forced:
-                    return self._finish_step(step_mod, True, False)
+                    return self._finish_step(True, False)
 
         elif atype == "multi_target_attack":
             for tgt in sub_action["targets"]:
                 if not tgt.get("dead", False):
                     self._kill_piece(tgt, killer_side=piece["side"])
                     if self.done_forced:
-                        return self._finish_step(step_mod, True, False)
+                        return self._finish_step(True, False)
 
         elif atype == "swap_position":
             tgt = sub_action["target_piece"]
@@ -342,21 +337,27 @@ class HexPuzzleEnv(gym.Env):
                 piece["q"], piece["r"] = tgt["q"], tgt["r"]
                 tgt["q"], tgt["r"] = old_q, old_r
             else:
-                step_mod -= 1.0
+                self.current_step_reward -= 1.0
 
-        final_reward, terminated, truncated = self._apply_end_conditions(step_mod)
+        # Apply end conditions (like turn limit)
+        if self.turn_number >= self.max_turns:
+            self.current_step_reward -= 20
+            return self._finish_step(True, True)
+
         if self.done_forced:
-            terminated = True
-        return self._finish_step(final_reward, terminated, truncated)
+            return self._finish_step(True, False)
 
-    def _finish_step(self, reward, terminated, truncated):
+        return self._finish_step(False, False)
+
+    def _finish_step(self, terminated, truncated):
         step_data = {
             "turn_number": self.turn_number,
             "turn_side": self.turn_side,
-            "reward": reward,
+            "reward": self.current_step_reward,
             "positions": self._log_positions(),
             "grid_radius": self.grid_radius,
-            "blocked_hexes": deepcopy(self.scenario["blockedHexes"])
+            "blocked_hexes": deepcopy(self.scenario["blockedHexes"]),
+            "non_bloodwarden_kills": self.non_bloodwarden_kills,
         }
         self.current_episode.append(step_data)
 
@@ -377,7 +378,7 @@ class HexPuzzleEnv(gym.Env):
                 self._check_delayed_attacks()
 
         obs = self.get_obs()
-        return obs, reward, terminated, truncated, {}
+        return obs, self.current_step_reward, terminated, truncated, {}
 
     def build_action_list(self):
         actions = []
@@ -637,7 +638,7 @@ class HexPuzzleEnv(gym.Env):
 
     def _kill_piece(self, piece, killer_side):
         # CHANGES MADE:
-        # 1) Remove negative reward for killing your own ally. It's disallowed anyway.
+        # 1) Use current_step_reward instead of modifying episode history
         # 2) If a Priest is killed by the *opposing side*, reward +30. End episode immediately.
         # 3) Non-priest kills are +5 for killing the enemy. No negative scenario for ally kills.
         if piece.get("dead", False):
@@ -646,13 +647,13 @@ class HexPuzzleEnv(gym.Env):
         if piece["class"] == "Priest":
             # If it's an *enemy* Priest (piece.side != killer_side), +30
             if piece["side"] != killer_side:
-                self.current_episode[-1]["reward"] += 30
-            # Regardless, the iteration ends if a Priest is killed, no negative ally kill logic
+                self.current_step_reward += 30
+            # Regardless, the iteration ends if a Priest is killed
             self.done_forced = True
         else:
             # Non-priest => +5 if it belongs to the other side
             if piece["side"] != killer_side:
-                self.current_episode[-1]["reward"] += 5
+                self.current_step_reward += 5
 
         piece["dead"] = True
         piece["q"] = 9999
@@ -986,7 +987,7 @@ def main():
         )
         print("Training PPO for ~2 minutes. Adjust as desired.")
         start_time = time.time()
-        time_limit = 5 * 60  # seconds
+        time_limit = 1 * 60  # seconds
 
         iteration_count_before = 0
         while True:
