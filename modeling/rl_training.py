@@ -319,51 +319,45 @@ class HexPuzzleEnv(gym.Env):
             idx += 1
 
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        if len(self.current_episode) > 0:
-            self.all_episodes.append(self.current_episode)
-        self.current_episode = []
-        for p in self.all_pieces:
-            p["moved_this_turn"] = False
+            super().reset(seed=seed)
+            if len(self.current_episode) > 0:
+                self.all_episodes.append(self.current_episode)
+            self.current_episode = []
 
-        # Deepcopy the original scenario, then apply random modifications if toggles are on
-        self.scenario = deepcopy(self.original_scenario)
-        self._randomize_scenario()  # modifies self.scenario if toggles are set
+            # 1) Possibly finalize the previous scenario or pieces
+            for p in self.all_pieces:
+                p["moved_this_turn"] = False
 
-        # Re-init pieces, radius, all_hexes
-        self._init_pieces_from_scenario(self.scenario)
-        self.grid_radius = self.scenario["subGridRadius"]
-        self._build_all_hexes()
+            # 2) Randomize scenario if toggles
+            self.scenario = deepcopy(self.original_scenario)
+            self._randomize_scenario()
+            self._init_pieces_from_scenario(self.scenario)
+            self.grid_radius = self.scenario["subGridRadius"]
+            self._build_all_hexes()
 
-        # final position randomization (the old behavior from randomize_positions)
-        if self.randomize_positions:
-            self._randomize_piece_positions()
+            if self.randomize_positions:
+                self._randomize_piece_positions()
 
-        self.turn_number = 1
-        self.turn_side = "player"
-        self.done_forced = False
-        self.non_bloodwarden_kills = 0
-        self.delayedAttacks.clear()
+            self.turn_number = 1
+            self.turn_side = "player"
+            self.done_forced = False
+            self.non_bloodwarden_kills = 0
+            self.delayedAttacks.clear()
 
-        # Build initial step log
-        init_dict = {
-            "turn_number": 0,
-            "turn_side": None,
-            "reward": 0.0,
-            "positions": self._log_positions()
-        }
-        self.current_episode.append(init_dict)
+            # 3) Build init_dict that stores subGridRadius, blockedHexes, etc.
+            init_dict = {
+                "turn_number": 0,
+                "turn_side": None,
+                "reward": 0.0,
+                "positions": self._log_positions(),
+                # NEW: store radius + blocked:
+                "grid_radius": self.grid_radius,
+                "blocked_hexes": deepcopy(self.scenario["blockedHexes"]),
+            }
+            self.current_episode.append(init_dict)
 
-        # Comment out or remove these lines:
-        # self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
-        # self.observation_space = gym.spaces.Box(
-        #     low=-self.grid_radius,
-        #     high=self.grid_radius,
-        #     shape=(self.obs_size,),
-        #     dtype=np.float32
-        # )
-
-        return self.get_obs(), {}
+            obs = self.get_obs()
+            return obs, {}
 
     def step(self, action_idx):
         if self.done_forced:
@@ -439,7 +433,9 @@ class HexPuzzleEnv(gym.Env):
             "turn_number": self.turn_number,
             "turn_side": self.turn_side,
             "reward": reward,
-            "positions": self._log_positions()
+            "positions": self._log_positions(),
+            "grid_radius": self.grid_radius,
+            "blocked_hexes": deepcopy(self.scenario["blockedHexes"]),
         }
         if hasattr(self, "mcts_debug"):
             step_data["mcts_debug"] = self.mcts_debug
