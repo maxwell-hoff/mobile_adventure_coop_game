@@ -197,33 +197,28 @@ def update_from_step_data(step_data):
     scenario["blockedHexes"] = new_blocked
 
 def update_piece_positions(step_data):
-    """Update piece positions and state from step data.
-    
-    This function needs to:
-    1. Update positions for pieces that are alive
-    2. Remove pieces that are dead (q,r = 9999)
-    3. Ensure piece labels and classes are preserved
-    """
+    """Update piece positions and state from step data."""
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
     new_pieces = []
-    p_idx = 0
-    e_idx = 0
 
-    # First, map current pieces by their original position
-    original_pieces = {(p["q"], p["r"]): p for p in scenario["pieces"]}
+    # Keep track of original pieces by index
+    player_pieces = [p for p in scenario["pieces"] if p["side"] == "player"]
+    enemy_pieces = [e for e in scenario["pieces"] if e["side"] == "enemy"]
 
     # Update player pieces
-    for pos in player_pos:
+    for i, pos in enumerate(player_pos):
         q, r = float(pos[0]), float(pos[1])
         if q == 9999 or r == 9999:  # Dead piece
             continue
-        # Try to find matching piece
-        piece = original_pieces.get((q, r))
-        if piece:
+        
+        # Use original piece info if available
+        if i < len(player_pieces):
+            piece = player_pieces[i].copy()
+            piece["q"] = q
+            piece["r"] = r
             new_pieces.append(piece)
         else:
-            # If no match, create new piece with default values
             new_pieces.append({
                 "side": "player",
                 "q": q,
@@ -234,16 +229,18 @@ def update_piece_positions(step_data):
             })
 
     # Update enemy pieces
-    for pos in enemy_pos:
+    for i, pos in enumerate(enemy_pos):
         q, r = float(pos[0]), float(pos[1])
         if q == 9999 or r == 9999:  # Dead piece
             continue
-        # Try to find matching piece
-        piece = original_pieces.get((q, r))
-        if piece:
+        
+        # Use original piece info if available
+        if i < len(enemy_pieces):
+            piece = enemy_pieces[i].copy()
+            piece["q"] = q
+            piece["r"] = r
             new_pieces.append(piece)
         else:
-            # If no match, create new piece with default values
             new_pieces.append({
                 "side": "enemy",
                 "q": q,
@@ -273,6 +270,9 @@ def render_scenario():
         print("No episodes in actions_log.npy. Exiting.")
         return
 
+    # Store original piece info at start of each iteration
+    original_pieces_by_side = {}
+
     pygame.init()
     screen = pygame.display.set_mode((800,600))
     pygame.display.set_caption("Hex Puzzle Turn-based Visualization")
@@ -299,13 +299,28 @@ def render_scenario():
             episode_data = all_iterations[current_iteration]
             current_step = min(current_step, len(episode_data)-1)
 
+            # If we're at step 0 of any iteration, store the original piece info
+            if current_step == 0:
+                player_pieces = []
+                enemy_pieces = []
+                for piece in scenario["pieces"]:
+                    piece_copy = piece.copy()
+                    if piece["side"] == "player":
+                        player_pieces.append(piece_copy)
+                    else:
+                        enemy_pieces.append(piece_copy)
+                original_pieces_by_side[current_iteration] = {
+                    "player": player_pieces,
+                    "enemy": enemy_pieces
+                }
+
             if 0 <= current_step < len(episode_data):
                 step_data = episode_data[current_step]
 
                 # 1) Update scenario radius + blocked
                 update_from_step_data(step_data)
 
-                # 2) Update piece positions
+                # 2) Update piece positions with original piece info
                 update_piece_positions(step_data)
 
                 # 3) Build local blocked set
