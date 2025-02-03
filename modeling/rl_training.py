@@ -161,12 +161,16 @@ class HexPuzzleEnv(gym.Env):
         self.max_actions_for_side = 500
         self.action_space = gym.spaces.Discrete(self.max_actions_for_side)
 
-        # Observations = (q, r) for all pieces
-        self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
+        # Calculate maximum possible observation size based on max pieces
+        self.max_player_pieces = player_max_pieces
+        self.max_enemy_pieces = enemy_max_pieces
+        self.max_obs_size = 2 * (self.max_player_pieces + self.max_enemy_pieces)
+        
+        # Update observation space to use max size
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius,
             high=self.grid_radius,
-            shape=(self.obs_size,),
+            shape=(self.max_obs_size,),
             dtype=np.float32
         )
 
@@ -350,15 +354,14 @@ class HexPuzzleEnv(gym.Env):
         }
         self.current_episode.append(init_dict)
 
-        # Need to update observation_space to reflect new # of pieces:
-        self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
-        # Rebuild observation_space bounds:
-        self.observation_space = gym.spaces.Box(
-            low=-self.grid_radius,
-            high=self.grid_radius,
-            shape=(self.obs_size,),
-            dtype=np.float32
-        )
+        # Comment out or remove these lines:
+        # self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
+        # self.observation_space = gym.spaces.Box(
+        #     low=-self.grid_radius,
+        #     high=self.grid_radius,
+        #     shape=(self.obs_size,),
+        #     dtype=np.float32
+        # )
 
         return self.get_obs(), {}
 
@@ -768,12 +771,22 @@ class HexPuzzleEnv(gym.Env):
 
     def get_obs(self):
         coords = []
+        # Add player piece coordinates
         for p in self.player_pieces:
             coords.append(p["q"])
             coords.append(p["r"])
+        # Pad player pieces to max size
+        while len(coords) < 2 * self.max_player_pieces:
+            coords.extend([0, 0])  # pad with zeros
+        
+        # Add enemy piece coordinates
         for e in self.enemy_pieces:
             coords.append(e["q"])
             coords.append(e["r"])
+        # Pad enemy pieces to max size
+        while len(coords) < self.max_obs_size:
+            coords.extend([0, 0])  # pad with zeros
+        
         return np.array(coords, dtype=np.float32)
 
     def _log_positions(self):
@@ -814,11 +827,11 @@ class HexPuzzleEnv(gym.Env):
         self.delayedAttacks.clear()
 
         # Rebuild observation space
-        self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
+        self.max_obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius,
             high=self.grid_radius,
-            shape=(self.obs_size,),
+            shape=(self.max_obs_size,),
             dtype=np.float32
         )
 
@@ -988,7 +1001,7 @@ def mcts_search(env_copy, path, depth=0, max_depth=20):
     One MCTS simulation:
       - selection+expansion: pick actions down tree
       - if we reach a new state => expand
-      - once we can’t go deeper or game ends => rollout
+      - once we can't go deeper or game ends => rollout
       - return final reward
 
     We store (node_key, action_idx) in `path` so we can backprop after.
@@ -1226,7 +1239,7 @@ def main():
 
         print("Training PPO for up to ~20 minutes (modify as needed).")
         start_time = time.time()
-        time_limit = 60 * 60  # in seconds
+        time_limit = 60 * 2  # in seconds
 
         iteration_count_before = 0
         while True:
