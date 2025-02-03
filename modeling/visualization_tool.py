@@ -197,26 +197,63 @@ def update_from_step_data(step_data):
     scenario["blockedHexes"] = new_blocked
 
 def update_piece_positions(step_data):
+    """Update piece positions and state from step data.
+    
+    This function needs to:
+    1. Update positions for pieces that are alive
+    2. Remove pieces that are dead (q,r = 9999)
+    3. Ensure piece labels and classes are preserved
+    """
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
     new_pieces = []
     p_idx = 0
     e_idx = 0
 
-    for piece in scenario["pieces"]:
-        if piece["side"] == "player":
-            if p_idx < len(player_pos):
-                piece["q"] = float(player_pos[p_idx][0])
-                piece["r"] = float(player_pos[p_idx][1])
-                new_pieces.append(piece)
-                p_idx += 1
-        else:
-            if e_idx < len(enemy_pos):
-                piece["q"] = float(enemy_pos[e_idx][0])
-                piece["r"] = float(enemy_pos[e_idx][1])
-                new_pieces.append(piece)
-                e_idx += 1
+    # First, map current pieces by their original position
+    original_pieces = {(p["q"], p["r"]): p for p in scenario["pieces"]}
 
+    # Update player pieces
+    for pos in player_pos:
+        q, r = float(pos[0]), float(pos[1])
+        if q == 9999 or r == 9999:  # Dead piece
+            continue
+        # Try to find matching piece
+        piece = original_pieces.get((q, r))
+        if piece:
+            new_pieces.append(piece)
+        else:
+            # If no match, create new piece with default values
+            new_pieces.append({
+                "side": "player",
+                "q": q,
+                "r": r,
+                "class": "Unknown",
+                "label": "?",
+                "color": "#556b2f"
+            })
+
+    # Update enemy pieces
+    for pos in enemy_pos:
+        q, r = float(pos[0]), float(pos[1])
+        if q == 9999 or r == 9999:  # Dead piece
+            continue
+        # Try to find matching piece
+        piece = original_pieces.get((q, r))
+        if piece:
+            new_pieces.append(piece)
+        else:
+            # If no match, create new piece with default values
+            new_pieces.append({
+                "side": "enemy",
+                "q": q,
+                "r": r,
+                "class": "Unknown",
+                "label": "?",
+                "color": "#dc143c"
+            })
+
+    # Update the scenario
     scenario["pieces"].clear()
     scenario["pieces"].extend(new_pieces)
 

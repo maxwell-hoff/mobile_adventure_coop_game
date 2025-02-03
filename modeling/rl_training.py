@@ -284,6 +284,8 @@ class HexPuzzleEnv(gym.Env):
             return self.get_obs(), 0.0, True, False, {}
 
         valid = self.build_action_list()
+        if action_idx >= len(valid):
+            return self.get_obs(), 0.0, True, False, {}
 
         (pidx, sub_action) = valid[action_idx]
         piece = self.all_pieces[pidx]
@@ -307,35 +309,47 @@ class HexPuzzleEnv(gym.Env):
 
         elif atype == "aoe":
             if sub_action.get("name") == "necrotizing_consecrate":
-                self._schedule_necro(piece)
+                if piece["class"] == "BloodWarden":  # Extra validation
+                    self._schedule_necro(piece)
             else:
                 for tgt in sub_action["targets"]:
                     if not tgt.get("dead", False):
+                        was_priest = tgt["class"] == "Priest"
                         self._kill_piece(tgt, killer_side=piece["side"])
-                        # If a priest died, episode ends immediately:
-                        if self.done_forced:
+                        # Only end if we killed a Priest
+                        if was_priest and self.done_forced:
                             return self._finish_step(True, False)
 
         elif atype == "single_target_attack":
             tgt = sub_action["target_piece"]
             if tgt and not tgt.get("dead", False):
+                was_priest = tgt["class"] == "Priest"
                 self._kill_piece(tgt, killer_side=piece["side"])
-                if self.done_forced:
+                # Only end if we killed a Priest
+                if was_priest and self.done_forced:
                     return self._finish_step(True, False)
 
         elif atype == "multi_target_attack":
             for tgt in sub_action["targets"]:
                 if not tgt.get("dead", False):
+                    was_priest = tgt["class"] == "Priest"
                     self._kill_piece(tgt, killer_side=piece["side"])
-                    if self.done_forced:
+                    # Only end if we killed a Priest
+                    if was_priest and self.done_forced:
                         return self._finish_step(True, False)
 
         elif atype == "swap_position":
-            tgt = sub_action["target_piece"]
-            if tgt and not tgt.get("dead", False):
-                old_q, old_r = piece["q"], piece["r"]
-                piece["q"], piece["r"] = tgt["q"], tgt["r"]
-                tgt["q"], tgt["r"] = old_q, old_r
+            # Extra validation that piece can actually swap
+            pclass_data = pieces_data["classes"].get(piece["class"], {})
+            valid_actions = pclass_data.get("actions", {})
+            if "swap_position" in valid_actions:
+                tgt = sub_action["target_piece"]
+                if tgt and not tgt.get("dead", False):
+                    old_q, old_r = piece["q"], piece["r"]
+                    piece["q"], piece["r"] = tgt["q"], tgt["r"]
+                    tgt["q"], tgt["r"] = old_q, old_r
+                else:
+                    self.current_step_reward -= 1.0
             else:
                 self.current_step_reward -= 1.0
 
@@ -343,9 +357,6 @@ class HexPuzzleEnv(gym.Env):
         if self.turn_number >= self.max_turns:
             self.current_step_reward -= 20
             return self._finish_step(True, True)
-
-        if self.done_forced:
-            return self._finish_step(True, False)
 
         return self._finish_step(False, False)
 
@@ -390,9 +401,8 @@ class HexPuzzleEnv(gym.Env):
             and not pc.get("moved_this_turn", False)
         ]
 
-        # We do NOT auto-end if no living_side. The user asked to remove that logic.
         if not living_side:
-            return actions  # No actions possible.
+            return actions
 
         # Identify enemies vs. allies
         if self.turn_side == "player":
@@ -405,10 +415,17 @@ class HexPuzzleEnv(gym.Env):
         blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
 
         for (pidx, piece) in living_side:
-            pclass_data = pieces_data["classes"][piece["class"]]
+            pclass = piece["class"]
+            if pclass not in pieces_data["classes"]:
+                continue  # Skip invalid piece classes
+            pclass_data = pieces_data["classes"][pclass]
+            
+            # Only add actions that are valid for this piece class
+            valid_actions = pclass_data.get("actions", {})
+
             # Move
-            if "move" in pclass_data["actions"]:
-                mrange = pclass_data["actions"]["move"]["range"]
+            if "move" in valid_actions:
+                mrange = valid_actions["move"]["range"]
                 for (q, r) in self.all_hexes:
                     if (q, r) != (piece["q"], piece["r"]):
                         if hex_distance(piece["q"], piece["r"], q, r) <= mrange:
@@ -419,22 +436,25 @@ class HexPuzzleEnv(gym.Env):
             actions.append((pidx, {"type": "pass"}))
 
             # Other actions
-            for aname, adata in pclass_data["actions"].items():
+            for aname, adata in valid_actions.items():
                 if aname == "move":
                     continue
                 if aname == "necrotizing_consecrate":
-                    # This is a special AoE name we check for
-                    actions.append((pidx, {"type": "aoe", "name": "necrotizing_consecrate"}))
+                    # Special AoE check
+                    if pclass == "BloodWarden":  # Only BloodWarden can use this
+                        actions.append((pidx, {"type": "aoe", "name": "necrotizing_consecrate"}))
                     continue
 
-                atype = adata["action_type"]
+                atype = adata.get("action_type")
+                if not atype:
+                    continue
+
                 rng = adata.get("range", 0)
                 requires_los = adata.get("requires_los", False)
                 ally_only = adata.get("ally_only", False)
 
                 # Single-target Attack
                 if atype == "single_target_attack":
-                    # CHANGES MADE: only add enemies to avoid ally kills
                     for eP in enemies:
                         dist = hex_distance(piece["q"], piece["r"], eP["q"], eP["r"])
                         if dist <= rng:
@@ -457,7 +477,8 @@ class HexPuzzleEnv(gym.Env):
                         dist = hex_distance(piece["q"], piece["r"], eP["q"], eP["r"])
                         if dist <= rng:
                             if (not requires_los) or line_of_sight(
-                                piece["q"], piece["r"], eP["q"], eP["r"],
+                                piece["q"], piece["r"],
+                                eP["q"], eP["r"],
                                 blocked_hexes, self.all_pieces
                             ):
                                 in_range.append(eP)
@@ -469,30 +490,26 @@ class HexPuzzleEnv(gym.Env):
                                 "targets": list(combo)
                             }))
 
-                # Swap position (Sorcerer, etc.)
+                # Swap position (only if piece class explicitly allows it)
                 elif atype == "swap_position":
-                    # ally_only means must be an ally, else can be any piece. 
-                    # But we never "attack" them, just swap.
-                    if ally_only:
-                        possible = allies
-                    else:
-                        possible = self.all_pieces  # includes enemies or allies
-                    possible = [x for x in possible if x is not piece and not x.get("dead", False)]
-                    for tgt in possible:
-                        dist = hex_distance(piece["q"], piece["r"], tgt["q"], tgt["r"])
-                        if dist <= rng:
-                            if (not requires_los) or line_of_sight(
-                                piece["q"], piece["r"],
-                                tgt["q"], tgt["r"],
-                                blocked_hexes, self.all_pieces
-                            ):
-                                actions.append((pidx, {
-                                    "type": "swap_position",
-                                    "action_name": aname,
-                                    "target_piece": tgt
-                                }))
+                    if "swap_position" in valid_actions:  # Extra validation
+                        possible = allies if ally_only else self.all_pieces
+                        possible = [x for x in possible if x is not piece and not x.get("dead", False)]
+                        for tgt in possible:
+                            dist = hex_distance(piece["q"], piece["r"], tgt["q"], tgt["r"])
+                            if dist <= rng:
+                                if (not requires_los) or line_of_sight(
+                                    piece["q"], piece["r"],
+                                    tgt["q"], tgt["r"],
+                                    blocked_hexes, self.all_pieces
+                                ):
+                                    actions.append((pidx, {
+                                        "type": "swap_position",
+                                        "action_name": aname,
+                                        "target_piece": tgt
+                                    }))
 
-                # AoE (generic, e.g. Guardian's sweep)
+                # AoE (generic)
                 elif atype == "aoe":
                     radius = adata.get("radius", 0)
                     in_range = []
@@ -637,27 +654,50 @@ class HexPuzzleEnv(gym.Env):
         return rew, term, trunc
 
     def _kill_piece(self, piece, killer_side):
-        # Only end episode if a Priest is killed
-        # Give +30 reward if killing enemy Priest
-        # Give +5 reward if killing any other enemy piece
+        """Kill a piece and handle rewards.
+        
+        Only ends episode if a Priest is killed by the opposing side.
+        Gives +30 reward for killing enemy Priest.
+        Gives +5 reward for killing any other enemy piece.
+        """
         if piece.get("dead", False):
             return
 
-        if piece["class"] == "Priest":
-            # If it's an enemy Priest (piece.side != killer_side), +30
-            if piece["side"] != killer_side:
-                self.current_step_reward += 30
-                # Only end episode on Priest death
-                self.done_forced = True
-        else:
-            # Non-priest => +5 if it belongs to the other side
-            if piece["side"] != killer_side:
-                self.current_step_reward += 5
-                # Do NOT end episode for non-Priest kills
+        # Validate the piece class and state
+        if piece["class"] not in pieces_data["classes"]:
+            print(f"[WARNING] Invalid piece class: {piece['class']}")
+            return
 
+        # Debug info
+        debug_info = {
+            "killed_class": piece["class"],
+            "killed_side": piece["side"],
+            "killer_side": killer_side,
+            "turn_number": self.turn_number,
+            "turn_side": self.turn_side
+        }
+        self.current_episode[-1]["debug_kill"] = debug_info
+
+        # Only give rewards for killing enemy pieces
+        if piece["side"] != killer_side:
+            if piece["class"] == "Priest":
+                self.current_step_reward += 30
+                # Only end episode when a Priest dies
+                self.done_forced = True
+                debug_info["reward"] = 30
+                debug_info["ended_episode"] = True
+            else:
+                # Non-priest enemy kill
+                self.current_step_reward += 5
+                debug_info["reward"] = 5
+                debug_info["ended_episode"] = False
+
+        # Mark piece as dead and move off board
         piece["dead"] = True
         piece["q"] = 9999
         piece["r"] = 9999
+
+        # Track non-bloodwarden kills
         if piece["class"] != "Priest" and killer_side != "BloodWarden":
             self.non_bloodwarden_kills += 1
 
