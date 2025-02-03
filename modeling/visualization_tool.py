@@ -2,6 +2,7 @@ import pygame
 import numpy as np
 import yaml
 import sys
+from copy import deepcopy
 
 BASE_HEX_RADIUS = 30
 GRID_CENTER = (400, 300)
@@ -196,15 +197,20 @@ def update_from_step_data(step_data):
     scenario["subGridRadius"] = new_radius
     scenario["blockedHexes"] = new_blocked
 
-def update_piece_positions(step_data):
-    """Update piece positions and state from step data."""
+def update_piece_positions(step_data, original_pieces):
+    """Update piece positions while preserving original piece information.
+    
+    Args:
+        step_data: The step data containing positions
+        original_pieces: List of original pieces with class/label info
+    """
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
     new_pieces = []
 
-    # Keep track of original pieces by index
-    player_pieces = [p for p in scenario["pieces"] if p["side"] == "player"]
-    enemy_pieces = [e for e in scenario["pieces"] if e["side"] == "enemy"]
+    # Split original pieces by side
+    orig_player_pieces = [p for p in original_pieces if p["side"] == "player"]
+    orig_enemy_pieces = [e for e in original_pieces if e["side"] == "enemy"]
 
     # Update player pieces
     for i, pos in enumerate(player_pos):
@@ -212,21 +218,12 @@ def update_piece_positions(step_data):
         if q == 9999 or r == 9999:  # Dead piece
             continue
         
-        # Use original piece info if available
-        if i < len(player_pieces):
-            piece = player_pieces[i].copy()
+        # Always use original piece info for the same index
+        if i < len(orig_player_pieces):
+            piece = deepcopy(orig_player_pieces[i])
             piece["q"] = q
             piece["r"] = r
             new_pieces.append(piece)
-        else:
-            new_pieces.append({
-                "side": "player",
-                "q": q,
-                "r": r,
-                "class": "Unknown",
-                "label": "?",
-                "color": "#556b2f"
-            })
 
     # Update enemy pieces
     for i, pos in enumerate(enemy_pos):
@@ -234,21 +231,12 @@ def update_piece_positions(step_data):
         if q == 9999 or r == 9999:  # Dead piece
             continue
         
-        # Use original piece info if available
-        if i < len(enemy_pieces):
-            piece = enemy_pieces[i].copy()
+        # Always use original piece info for the same index
+        if i < len(orig_enemy_pieces):
+            piece = deepcopy(orig_enemy_pieces[i])
             piece["q"] = q
             piece["r"] = r
             new_pieces.append(piece)
-        else:
-            new_pieces.append({
-                "side": "enemy",
-                "q": q,
-                "r": r,
-                "class": "Unknown",
-                "label": "?",
-                "color": "#dc143c"
-            })
 
     # Update the scenario
     scenario["pieces"].clear()
@@ -270,8 +258,8 @@ def render_scenario():
         print("No episodes in actions_log.npy. Exiting.")
         return
 
-    # Store original piece info at start of each iteration
-    original_pieces_by_side = {}
+    # Store the original scenario pieces at startup
+    original_scenario_pieces = deepcopy(scenario["pieces"])
 
     pygame.init()
     screen = pygame.display.set_mode((800,600))
@@ -299,20 +287,9 @@ def render_scenario():
             episode_data = all_iterations[current_iteration]
             current_step = min(current_step, len(episode_data)-1)
 
-            # If we're at step 0 of any iteration, store the original piece info
+            # Reset piece info at start of iteration
             if current_step == 0:
-                player_pieces = []
-                enemy_pieces = []
-                for piece in scenario["pieces"]:
-                    piece_copy = piece.copy()
-                    if piece["side"] == "player":
-                        player_pieces.append(piece_copy)
-                    else:
-                        enemy_pieces.append(piece_copy)
-                original_pieces_by_side[current_iteration] = {
-                    "player": player_pieces,
-                    "enemy": enemy_pieces
-                }
+                scenario["pieces"] = deepcopy(original_scenario_pieces)
 
             if 0 <= current_step < len(episode_data):
                 step_data = episode_data[current_step]
@@ -320,8 +297,8 @@ def render_scenario():
                 # 1) Update scenario radius + blocked
                 update_from_step_data(step_data)
 
-                # 2) Update piece positions with original piece info
-                update_piece_positions(step_data)
+                # 2) Update piece positions while preserving original info
+                update_piece_positions(step_data, original_scenario_pieces)
 
                 # 3) Build local blocked set
                 local_blocked = {(bh["q"], bh["r"]) for bh in scenario["blockedHexes"]}
