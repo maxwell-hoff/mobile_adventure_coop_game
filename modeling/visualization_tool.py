@@ -206,38 +206,44 @@ def update_piece_positions(step_data, original_pieces):
     """
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
-    new_pieces = []
-
-    # Split original pieces by side
+    
+    # Create lookup of original pieces by label
+    orig_pieces_by_label = {p["label"]: deepcopy(p) for p in original_pieces}
+    
+    # Create lookup of original pieces by side and index
     orig_player_pieces = [p for p in original_pieces if p["side"] == "player"]
     orig_enemy_pieces = [e for e in original_pieces if e["side"] == "enemy"]
-
+    
+    new_pieces = []
+    
     # Update player pieces
     for i, pos in enumerate(player_pos):
         q, r = float(pos[0]), float(pos[1])
         if q == 9999 or r == 9999:  # Dead piece
             continue
-        
-        # Always use original piece info for the same index
+            
+        # Try to find matching original piece
         if i < len(orig_player_pieces):
-            piece = deepcopy(orig_player_pieces[i])
+            orig = orig_player_pieces[i]
+            piece = deepcopy(orig_pieces_by_label.get(orig["label"], orig))
             piece["q"] = q
             piece["r"] = r
             new_pieces.append(piece)
-
+    
     # Update enemy pieces
     for i, pos in enumerate(enemy_pos):
         q, r = float(pos[0]), float(pos[1])
         if q == 9999 or r == 9999:  # Dead piece
             continue
-        
-        # Always use original piece info for the same index
+            
+        # Try to find matching original piece
         if i < len(orig_enemy_pieces):
-            piece = deepcopy(orig_enemy_pieces[i])
+            orig = orig_enemy_pieces[i]
+            piece = deepcopy(orig_pieces_by_label.get(orig["label"], orig))
             piece["q"] = q
             piece["r"] = r
             new_pieces.append(piece)
-
+    
     # Update the scenario
     scenario["pieces"].clear()
     scenario["pieces"].extend(new_pieces)
