@@ -207,12 +207,13 @@ def update_piece_positions(step_data, original_pieces):
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
     
-    # Create lookup of original pieces by label
-    orig_pieces_by_label = {p["label"]: deepcopy(p) for p in original_pieces}
-    
-    # Create lookup of original pieces by side and index
+    # Split original pieces by side and create class counts for labeling
     orig_player_pieces = [p for p in original_pieces if p["side"] == "player"]
     orig_enemy_pieces = [e for e in original_pieces if e["side"] == "enemy"]
+    
+    # Create class counters for unique labeling
+    player_class_counts = {}
+    enemy_class_counts = {}
     
     new_pieces = []
     
@@ -222,12 +223,20 @@ def update_piece_positions(step_data, original_pieces):
         if q == 9999 or r == 9999:  # Dead piece
             continue
             
-        # Try to find matching original piece
         if i < len(orig_player_pieces):
-            orig = orig_player_pieces[i]
-            piece = deepcopy(orig_pieces_by_label.get(orig["label"], orig))
+            piece = deepcopy(orig_player_pieces[i])
             piece["q"] = q
             piece["r"] = r
+            
+            # Create a clear label based on class
+            piece_class = piece["class"]
+            if piece_class not in player_class_counts:
+                player_class_counts[piece_class] = 1
+            else:
+                player_class_counts[piece_class] += 1
+                
+            # Format: P-Class-Number (e.g., P-Priest-1)
+            piece["label"] = f"P-{piece_class}-{player_class_counts[piece_class]}"
             new_pieces.append(piece)
     
     # Update enemy pieces
@@ -236,12 +245,20 @@ def update_piece_positions(step_data, original_pieces):
         if q == 9999 or r == 9999:  # Dead piece
             continue
             
-        # Try to find matching original piece
         if i < len(orig_enemy_pieces):
-            orig = orig_enemy_pieces[i]
-            piece = deepcopy(orig_pieces_by_label.get(orig["label"], orig))
+            piece = deepcopy(orig_enemy_pieces[i])
             piece["q"] = q
             piece["r"] = r
+            
+            # Create a clear label based on class
+            piece_class = piece["class"]
+            if piece_class not in enemy_class_counts:
+                enemy_class_counts[piece_class] = 1
+            else:
+                enemy_class_counts[piece_class] += 1
+                
+            # Format: E-Class-Number (e.g., E-Guardian-1)
+            piece["label"] = f"E-{piece_class}-{enemy_class_counts[piece_class]}"
             new_pieces.append(piece)
     
     # Update the scenario

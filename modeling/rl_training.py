@@ -155,26 +155,44 @@ class HexPuzzleEnv(gym.Env):
         return self.player_pieces + self.enemy_pieces
 
     def _init_pieces_from_scenario(self, scenario_dict):
-        self._uniqueify_piece_labels(scenario_dict["pieces"])
+        """Initialize pieces with explicit, unambiguous labels based on side and class."""
         valid_classes = set(pieces_data["classes"].keys())
+        
+        # First validate and fix any invalid classes
         for pc in scenario_dict["pieces"]:
             if pc["class"] not in valid_classes:
-                print(f"DEBUG => label={p['label']}, class={p['class']}, side={p['side']}")
                 print(f"[WARNING] Invalid class {pc['class']}. Defaulting to 'Priest'.")
                 pc["class"] = "Priest"
-        self.player_pieces = [p for p in scenario_dict["pieces"] if p["side"]=="player"]
-        self.enemy_pieces = [p for p in scenario_dict["pieces"] if p["side"]=="enemy"]
-
-    def _uniqueify_piece_labels(self, piece_list):
-        label_counts = {}
-        for piece in piece_list:
-            old_label = piece["label"]
-            if old_label in label_counts:
-                label_counts[old_label]+=1
-                new_label = f"{old_label}{label_counts[old_label]}"
-                piece["label"] = new_label
+        
+        # Split pieces by side first
+        player_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "player"]
+        enemy_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "enemy"]
+        
+        # Create class counters for each side
+        player_class_counts = {}
+        enemy_class_counts = {}
+        
+        # Label player pieces
+        for piece in player_pieces:
+            piece_class = piece["class"]
+            if piece_class not in player_class_counts:
+                player_class_counts[piece_class] = 1
             else:
-                label_counts[old_label] = 1
+                player_class_counts[piece_class] += 1
+            piece["label"] = f"P-{piece_class}-{player_class_counts[piece_class]}"
+        
+        # Label enemy pieces
+        for piece in enemy_pieces:
+            piece_class = piece["class"]
+            if piece_class not in enemy_class_counts:
+                enemy_class_counts[piece_class] = 1
+            else:
+                enemy_class_counts[piece_class] += 1
+            piece["label"] = f"E-{piece_class}-{enemy_class_counts[piece_class]}"
+        
+        # Store pieces in instance variables
+        self.player_pieces = player_pieces
+        self.enemy_pieces = enemy_pieces
 
     def _build_all_hexes(self):
         self.all_hexes = []
@@ -207,14 +225,24 @@ class HexPuzzleEnv(gym.Env):
             def pick_side_pieces(side, class_list, count):
                 pieces = []
                 # ensure 1 Priest
-                pieces.append({"class":"Priest","label":"eP","color":"#556b2f" if side=="player" else "#dc143c","side":side,"q":0,"r":0})
+                pieces.append({
+                    "class": "Priest",
+                    "color": "#556b2f" if side=="player" else "#dc143c",
+                    "side": side,
+                    "q": 0,
+                    "r": 0
+                })
                 remainder = count - 1
                 other_classes = [c for c in class_list if c!="Priest"]
                 for _ in range(remainder):
                     c = random.choice(other_classes)
-                    lbl = c[0] if c!="BloodWarden" else "eBW"
-                    color = "#556b2f" if side=="player" else "#dc143c"
-                    pieces.append({"class":c,"label":lbl,"color":color,"side":side,"q":0,"r":0})
+                    pieces.append({
+                        "class": c,
+                        "color": "#556b2f" if side=="player" else "#dc143c",
+                        "side": side,
+                        "q": 0,
+                        "r": 0
+                    })
                 return pieces
 
             new_player = pick_side_pieces("player", player_classes, pcount)
@@ -246,23 +274,41 @@ class HexPuzzleEnv(gym.Env):
 
         self.current_episode = []
         self.current_step_reward = 0.0
-        for p in self.all_pieces:
-            p["moved_this_turn"] = False
 
+        # Start fresh
         self.scenario = deepcopy(self.original_scenario)
-        self._randomize_scenario()
-        self._init_pieces_from_scenario(self.scenario)
-        self.grid_radius = self.scenario["subGridRadius"]
-        self._build_all_hexes()
+        
+        # First randomize the scenario if needed
+        if self.randomize_radius:
+            self.scenario["subGridRadius"] = random.randint(self.radius_min, self.radius_max)
+            self.grid_radius = self.scenario["subGridRadius"]
+            self._build_all_hexes()
 
+        if self.randomize_blocked:
+            count = random.randint(self.min_blocked, self.max_blocked)
+            picks = random.sample(self.all_hexes, min(count, len(self.all_hexes)))
+            self.scenario["blockedHexes"] = [{"q":q,"r":r} for (q,r) in picks]
+
+        # Initialize pieces first
+        if self.randomize_pieces:
+            self._create_random_pieces()
+        
+        # Now initialize all pieces properly
+        self._init_pieces_from_scenario(self.scenario)
+        
+        # Randomize positions if needed
         if self.randomize_positions:
             self._randomize_piece_positions()
 
+        # Reset game state
         self.turn_number = 1
         self.turn_side = "player"
         self.done_forced = False
         self.non_bloodwarden_kills = 0
         self.delayedAttacks.clear()
+
+        for p in self.all_pieces:
+            p["moved_this_turn"] = False
 
         init_dict = {
             "turn_number": 0,
@@ -275,6 +321,48 @@ class HexPuzzleEnv(gym.Env):
         self.current_episode.append(init_dict)
 
         return self.get_obs(), {}
+
+    def _create_random_pieces(self):
+        """Create random pieces with proper initialization."""
+        player_classes = ["Warlock","Sorcerer","Priest"]
+        enemy_classes  = ["Guardian","BloodWarden","Hunter","Priest"]
+        pcount = random.randint(self.player_min_pieces, self.player_max_pieces)
+        ecount = random.randint(self.enemy_min_pieces, self.enemy_max_pieces)
+
+        def create_side_pieces(side, class_list, count):
+            pieces = []
+            # Always ensure one Priest
+            pieces.append({
+                "class": "Priest",
+                "side": side,
+                "color": "#556b2f" if side=="player" else "#dc143c",
+                "q": 0,
+                "r": 0,
+                "dead": False,
+                "moved_this_turn": False
+            })
+            
+            # Add remaining pieces
+            other_classes = [c for c in class_list if c!="Priest"]
+            for _ in range(count - 1):
+                c = random.choice(other_classes)
+                pieces.append({
+                    "class": c,
+                    "side": side,
+                    "color": "#556b2f" if side=="player" else "#dc143c",
+                    "q": 0,
+                    "r": 0,
+                    "dead": False,
+                    "moved_this_turn": False
+                })
+            return pieces
+
+        # Create pieces for both sides
+        new_player = create_side_pieces("player", player_classes, pcount)
+        new_enemy = create_side_pieces("enemy", enemy_classes, ecount)
+        
+        # Update scenario
+        self.scenario["pieces"] = new_player + new_enemy
 
     def step(self, action_idx):
         # Reset the current step reward at the start of each step
@@ -1009,7 +1097,7 @@ def main():
         )
         print("Training PPO for ~2 minutes. Adjust as desired.")
         start_time = time.time()
-        time_limit = 1 * 60  # seconds
+        time_limit = .1 * 60  # seconds
 
         iteration_count_before = 0
         while True:
