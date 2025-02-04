@@ -314,28 +314,22 @@ class HexPuzzleEnv(gym.Env):
             else:
                 for tgt in sub_action["targets"]:
                     if not tgt.get("dead", False):
-                        was_priest = tgt["class"] == "Priest"
                         self._kill_piece(tgt, killer_side=piece["side"])
-                        # Only end if we killed a Priest
-                        if was_priest and self.done_forced:
+                        if self.done_forced:  # Will be True if we killed a Priest
                             return self._finish_step(True, False)
 
         elif atype == "single_target_attack":
             tgt = sub_action["target_piece"]
             if tgt and not tgt.get("dead", False):
-                was_priest = tgt["class"] == "Priest"
                 self._kill_piece(tgt, killer_side=piece["side"])
-                # Only end if we killed a Priest
-                if was_priest and self.done_forced:
+                if self.done_forced:  # Will be True if we killed a Priest
                     return self._finish_step(True, False)
 
         elif atype == "multi_target_attack":
             for tgt in sub_action["targets"]:
                 if not tgt.get("dead", False):
-                    was_priest = tgt["class"] == "Priest"
                     self._kill_piece(tgt, killer_side=piece["side"])
-                    # Only end if we killed a Priest
-                    if was_priest and self.done_forced:
+                    if self.done_forced:  # Will be True if we killed a Priest
                         return self._finish_step(True, False)
 
         elif atype == "swap_position":
@@ -668,29 +662,15 @@ class HexPuzzleEnv(gym.Env):
             print(f"[WARNING] Invalid piece class: {piece['class']}")
             return
 
-        # Debug info
-        debug_info = {
-            "killed_class": piece["class"],
-            "killed_side": piece["side"],
-            "killer_side": killer_side,
-            "turn_number": self.turn_number,
-            "turn_side": self.turn_side
-        }
-        self.current_episode[-1]["debug_kill"] = debug_info
-
-        # Only give rewards for killing enemy pieces
+        # Only give rewards and end episode for enemy kills
         if piece["side"] != killer_side:
-            if piece["class"] == "Priest":
+            # Check if it's a Priest kill BEFORE marking as dead
+            is_priest = piece["class"] == "Priest"
+            if is_priest:
                 self.current_step_reward += 30
-                # Only end episode when a Priest dies
-                self.done_forced = True
-                debug_info["reward"] = 30
-                debug_info["ended_episode"] = True
+                self.done_forced = True  # End episode immediately
             else:
-                # Non-priest enemy kill
-                self.current_step_reward += 5
-                debug_info["reward"] = 5
-                debug_info["ended_episode"] = False
+                self.current_step_reward += 5  # Regular enemy kill
 
         # Mark piece as dead and move off board
         piece["dead"] = True
