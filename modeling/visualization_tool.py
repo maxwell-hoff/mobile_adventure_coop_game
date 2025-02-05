@@ -204,43 +204,96 @@ def update_piece_positions(step_data, original_pieces):
         step_data: The step data containing positions
         original_pieces: List of original pieces with class/label info
     """
-    # Get position arrays from step data
+    # Get position arrays and piece info from step data
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
+    player_pieces_info = step_data["positions"].get("player_pieces", [])
+    enemy_pieces_info = step_data["positions"].get("enemy_pieces", [])
+    
+    print("\nVIZ DEBUG: Piece information from training:")
+    print("Player pieces:")
+    for i, p in enumerate(player_pieces_info):
+        print(f"  {i}: {p['label']} ({p['class']})")
+    print("Enemy pieces:")
+    for i, e in enumerate(enemy_pieces_info):
+        print(f"  {i}: {e['label']} ({e['class']})")
     
     # Get original pieces in their original order
     orig_player_pieces = [p for p in original_pieces if p["side"] == "player"]
     orig_enemy_pieces = [e for e in original_pieces if e["side"] == "enemy"]
     
+    print("\nVIZ DEBUG: Original piece order:")
+    print("Player pieces:")
+    for i, p in enumerate(orig_player_pieces):
+        print(f"  {i}: {p['label']} ({p['class']})")
+    print("Enemy pieces:")
+    for i, e in enumerate(orig_enemy_pieces):
+        print(f"  {i}: {e['label']} ({e['class']})")
+    
     new_pieces = []
     
-    # Important: Maintain exact same order as training environment
-    # Training environment keeps pieces in the same order and uses indices to track them
-    for i, pos in enumerate(player_pos):
-        if i >= len(orig_player_pieces):
-            break
-        piece = deepcopy(orig_player_pieces[i])
-        q, r = float(pos[0]), float(pos[1])
-        if q == 9999 or r == 9999:  # Dead piece
-            continue
-        piece["q"] = q
-        piece["r"] = r
-        new_pieces.append(piece)
-    
-    for i, pos in enumerate(enemy_pos):
-        if i >= len(orig_enemy_pieces):
-            break
-        piece = deepcopy(orig_enemy_pieces[i])
-        q, r = float(pos[0]), float(pos[1])
-        if q == 9999 or r == 9999:  # Dead piece
-            continue
-        piece["q"] = q
-        piece["r"] = r
-        new_pieces.append(piece)
+    # Use piece info from training if available
+    if player_pieces_info and enemy_pieces_info:
+        for i, (pos, info) in enumerate(zip(player_pos, player_pieces_info)):
+            if i >= len(orig_player_pieces):
+                break
+            piece = deepcopy(orig_player_pieces[i])
+            # Update piece info from training
+            piece["label"] = info["label"]
+            piece["class"] = info["class"]
+            q, r = float(pos[0]), float(pos[1])
+            piece["q"] = q
+            piece["r"] = r
+            if q != 9999 and r != 9999:
+                new_pieces.append(piece)
+                print(f"VIZ DEBUG: Added player piece {piece['label']} ({piece['class']}) at ({q},{r})")
+        
+        for i, (pos, info) in enumerate(zip(enemy_pos, enemy_pieces_info)):
+            if i >= len(orig_enemy_pieces):
+                break
+            piece = deepcopy(orig_enemy_pieces[i])
+            # Update piece info from training
+            piece["label"] = info["label"]
+            piece["class"] = info["class"]
+            q, r = float(pos[0]), float(pos[1])
+            piece["q"] = q
+            piece["r"] = r
+            if q != 9999 and r != 9999:
+                new_pieces.append(piece)
+                print(f"VIZ DEBUG: Added enemy piece {piece['label']} ({piece['class']}) at ({q},{r})")
+    else:
+        # Fallback to original behavior if no piece info available
+        for i, pos in enumerate(player_pos):
+            if i >= len(orig_player_pieces):
+                break
+            piece = deepcopy(orig_player_pieces[i])
+            q, r = float(pos[0]), float(pos[1])
+            piece["q"] = q
+            piece["r"] = r
+            if q != 9999 and r != 9999:
+                new_pieces.append(piece)
+                print(f"VIZ DEBUG: Added player piece {piece['label']} at ({q},{r})")
+        
+        for i, pos in enumerate(enemy_pos):
+            if i >= len(orig_enemy_pieces):
+                break
+            piece = deepcopy(orig_enemy_pieces[i])
+            q, r = float(pos[0]), float(pos[1])
+            piece["q"] = q
+            piece["r"] = r
+            if q != 9999 and r != 9999:
+                new_pieces.append(piece)
+                print(f"VIZ DEBUG: Added enemy piece {piece['label']} at ({q},{r})")
     
     # Update the scenario
     scenario["pieces"].clear()
     scenario["pieces"].extend(new_pieces)
+    
+    # Print final state for debugging
+    print("\nVIZ DEBUG: Final piece state:")
+    for p in new_pieces:
+        print(f"  {p['label']} ({p['class']}) at ({p['q']},{p['r']})")
+    print("------------------------")
 
 def render_scenario():
     global current_iteration, current_step, all_iterations

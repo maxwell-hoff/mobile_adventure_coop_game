@@ -826,9 +826,34 @@ class HexPuzzleEnv(gym.Env):
         return np.array(coords, dtype=np.float32)
 
     def _log_positions(self):
+        # Add debug info about piece order
+        print("\nTRAINING DEBUG: Current piece order:")
+        print("Player pieces:")
+        for i, p in enumerate(self.player_pieces):
+            print(f"  {i}: {p['label']} ({p['class']}) at ({p['q']},{p['r']})")
+        print("Enemy pieces:")
+        for i, e in enumerate(self.enemy_pieces):
+            print(f"  {i}: {e['label']} ({e['class']}) at ({e['q']},{e['r']})")
+        print("------------------------")
+        
         pa = np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.float32)
         ea = np.array([[e["q"], e["r"]] for e in self.enemy_pieces], dtype=np.float32)
-        return {"player": pa, "enemy": ea}
+        
+        # Add piece information to the returned data
+        return {
+            "player": pa,
+            "enemy": ea,
+            "player_pieces": [{
+                "label": p["label"],
+                "class": p["class"],
+                "side": p["side"]
+            } for p in self.player_pieces],
+            "enemy_pieces": [{
+                "label": e["label"],
+                "class": e["class"],
+                "side": e["side"]
+            } for e in self.enemy_pieces]
+        }
 
     def _get_action_mask(self):
         # We only mask valid actions. If done, mask all except action 0 to avoid crashes.
