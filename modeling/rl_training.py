@@ -165,6 +165,13 @@ class HexPuzzleEnv(gym.Env):
             if pc["class"] not in valid_classes:
                 print(f"[WARNING] Invalid class {pc['class']}. Defaulting to 'Priest'.")
                 pc["class"] = "Priest"
+            # Ensure original_class is set
+            if "original_class" not in pc:
+                pc["original_class"] = pc["class"]
+            # Validate class consistency
+            elif pc["class"] != pc["original_class"]:
+                print(f"[WARNING] Class mismatch in piece! Original: {pc['original_class']}, Current: {pc['class']}")
+                pc["class"] = pc["original_class"]  # Restore original class
         
         # Split pieces by side first
         player_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "player"]
@@ -191,6 +198,11 @@ class HexPuzzleEnv(gym.Env):
             else:
                 enemy_class_counts[piece_class] += 1
             piece["label"] = f"E-{piece_class}-{enemy_class_counts[piece_class]}"
+        
+        # Final validation
+        for p in player_pieces + enemy_pieces:
+            assert p["class"] == p["original_class"], f"Class consistency error: {p['class']} != {p['original_class']}"
+            assert p["class"] in valid_classes, f"Invalid piece class after initialization: {p['class']}"
         
         # Store pieces in instance variables
         self.player_pieces = player_pieces
@@ -340,34 +352,44 @@ class HexPuzzleEnv(gym.Env):
         def create_side_pieces(side, class_list, count):
             pieces = []
             # Always ensure one Priest
-            pieces.append({
+            priest_piece = {
                 "class": "Priest",
                 "side": side,
                 "color": "#556b2f" if side=="player" else "#dc143c",
                 "q": 0,
                 "r": 0,
                 "dead": False,
-                "moved_this_turn": False
-            })
+                "moved_this_turn": False,
+                "original_class": "Priest"  # Track original class
+            }
+            pieces.append(priest_piece)
             
             # Add remaining pieces
             other_classes = [c for c in class_list if c!="Priest"]
             for _ in range(count - 1):
                 c = random.choice(other_classes)
-                pieces.append({
+                piece = {
                     "class": c,
                     "side": side,
                     "color": "#556b2f" if side=="player" else "#dc143c",
                     "q": 0,
                     "r": 0,
                     "dead": False,
-                    "moved_this_turn": False
-                })
+                    "moved_this_turn": False,
+                    "original_class": c  # Track original class
+                }
+                pieces.append(piece)
             return pieces
 
         # Create pieces for both sides
         new_player = create_side_pieces("player", player_classes, pcount)
         new_enemy = create_side_pieces("enemy", enemy_classes, ecount)
+        
+        # Validate piece classes before updating
+        for p in new_player + new_enemy:
+            if p["class"] != p["original_class"]:
+                print(f"WARNING: Class mismatch detected! Original: {p['original_class']}, Current: {p['class']}")
+            assert p["class"] in pieces_data["classes"], f"Invalid piece class: {p['class']}"
         
         # Update scenario
         self.scenario["pieces"] = new_player + new_enemy
@@ -412,7 +434,8 @@ class HexPuzzleEnv(gym.Env):
                 for tgt in sub_action["targets"]:
                     if not tgt.get("dead", False):
                         self._kill_piece(tgt, killer_side=piece["side"])
-                        if self.done_forced:  # Will be True if we killed a Priest
+                        # If we killed a Priest, stop processing remaining targets and end immediately
+                        if self.done_forced:
                             return self._finish_step(True, False)
 
         elif atype == "single_target_attack":
@@ -426,7 +449,8 @@ class HexPuzzleEnv(gym.Env):
             for tgt in sub_action["targets"]:
                 if not tgt.get("dead", False):
                     self._kill_piece(tgt, killer_side=piece["side"])
-                    if self.done_forced:  # Will be True if we killed a Priest
+                    # If we killed a Priest, stop processing remaining targets and end immediately
+                    if self.done_forced:
                         return self._finish_step(True, False)
 
         elif atype == "swap_position":
@@ -700,12 +724,14 @@ class HexPuzzleEnv(gym.Env):
                 for p in self.player_pieces:
                     if not p.get("dead", False):
                         self._kill_piece(p, piece["side"])
+                        # If we killed a Priest, stop processing remaining targets
                         if self.done_forced:
                             break
             else:
                 for e in self.enemy_pieces:
                     if not e.get("dead", False):
                         self._kill_piece(e, piece["side"])
+                        # If we killed a Priest, stop processing remaining targets
                         if self.done_forced:
                             break
 
@@ -719,12 +745,14 @@ class HexPuzzleEnv(gym.Env):
                     for p in self.player_pieces:
                         if not p.get("dead", False):
                             self._kill_piece(p, side)
+                            # If we killed a Priest, stop processing remaining targets
                             if self.done_forced:
                                 break
                 else:
                     for e in self.enemy_pieces:
                         if not e.get("dead", False):
                             self._kill_piece(e, side)
+                            # If we killed a Priest, stop processing remaining targets
                             if self.done_forced:
                                 break
                 to_remove.append(i)

@@ -204,62 +204,39 @@ def update_piece_positions(step_data, original_pieces):
         step_data: The step data containing positions
         original_pieces: List of original pieces with class/label info
     """
+    # Get position arrays from step data
     player_pos = step_data["positions"]["player"]
     enemy_pos = step_data["positions"]["enemy"]
     
-    # Split original pieces by side and create class counts for labeling
+    # Get original pieces in their original order
     orig_player_pieces = [p for p in original_pieces if p["side"] == "player"]
     orig_enemy_pieces = [e for e in original_pieces if e["side"] == "enemy"]
     
-    # Create class counters for unique labeling
-    player_class_counts = {}
-    enemy_class_counts = {}
-    
     new_pieces = []
     
-    # Update player pieces
+    # Important: Maintain exact same order as training environment
+    # Training environment keeps pieces in the same order and uses indices to track them
     for i, pos in enumerate(player_pos):
+        if i >= len(orig_player_pieces):
+            break
+        piece = deepcopy(orig_player_pieces[i])
         q, r = float(pos[0]), float(pos[1])
         if q == 9999 or r == 9999:  # Dead piece
             continue
-            
-        if i < len(orig_player_pieces):
-            piece = deepcopy(orig_player_pieces[i])
-            piece["q"] = q
-            piece["r"] = r
-            
-            # Create a clear label based on class
-            piece_class = piece["class"]
-            if piece_class not in player_class_counts:
-                player_class_counts[piece_class] = 1
-            else:
-                player_class_counts[piece_class] += 1
-                
-            # Format: P-Class-Number (e.g., P-Priest-1)
-            piece["label"] = f"P-{piece_class}-{player_class_counts[piece_class]}"
-            new_pieces.append(piece)
+        piece["q"] = q
+        piece["r"] = r
+        new_pieces.append(piece)
     
-    # Update enemy pieces
     for i, pos in enumerate(enemy_pos):
+        if i >= len(orig_enemy_pieces):
+            break
+        piece = deepcopy(orig_enemy_pieces[i])
         q, r = float(pos[0]), float(pos[1])
         if q == 9999 or r == 9999:  # Dead piece
             continue
-            
-        if i < len(orig_enemy_pieces):
-            piece = deepcopy(orig_enemy_pieces[i])
-            piece["q"] = q
-            piece["r"] = r
-            
-            # Create a clear label based on class
-            piece_class = piece["class"]
-            if piece_class not in enemy_class_counts:
-                enemy_class_counts[piece_class] = 1
-            else:
-                enemy_class_counts[piece_class] += 1
-                
-            # Format: E-Class-Number (e.g., E-Guardian-1)
-            piece["label"] = f"E-{piece_class}-{enemy_class_counts[piece_class]}"
-            new_pieces.append(piece)
+        piece["q"] = q
+        piece["r"] = r
+        new_pieces.append(piece)
     
     # Update the scenario
     scenario["pieces"].clear()
