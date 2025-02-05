@@ -141,6 +141,8 @@ class HexPuzzleEnv(gym.Env):
         )
 
         self.turn_number = 1
+        self.iteration_number = 1
+        self.step_number = 1
         self.turn_side = "player"
         self.done_forced = False
         self.current_step_reward = 0.0
@@ -302,6 +304,8 @@ class HexPuzzleEnv(gym.Env):
 
         # Reset game state
         self.turn_number = 1
+        self.iteration_number += 1
+        self.step_number = 1
         self.turn_side = "player"
         self.done_forced = False
         self.non_bloodwarden_kills = 0
@@ -367,6 +371,7 @@ class HexPuzzleEnv(gym.Env):
     def step(self, action_idx):
         # Reset the current step reward at the start of each step
         self.current_step_reward = 0.0
+        self.step_number += 1
 
         if self.done_forced:
             return self.get_obs(), 0.0, True, False, {}
@@ -745,6 +750,9 @@ class HexPuzzleEnv(gym.Env):
         if piece.get("dead", False):
             return
 
+        # Debug info
+        print(f"DEBUG: Killing piece - Class: {piece['class']}, Side: {piece['side']}, Killer: {killer_side}")
+
         # Validate the piece class and state
         if piece["class"] not in pieces_data["classes"]:
             print(f"[WARNING] Invalid piece class: {piece['class']}")
@@ -753,11 +761,15 @@ class HexPuzzleEnv(gym.Env):
         # Only give rewards and end episode for enemy kills
         if piece["side"] != killer_side:
             # Check if it's a Priest kill BEFORE marking as dead
-            is_priest = piece["class"] == "Priest"
+            is_priest = piece["class"].strip() == "Priest"  # Add strip() to handle any whitespace
+            print(f"DEBUG: is_priest={is_priest}, class={piece['class']}")
+            
             if is_priest:
+                print(f"DEBUG: Priest kill detected! Reward +30. Iteration: {self.iteration_number}, step: {self.step_number}, turn: {self.turn_number}, side {self.turn_side}, piece {piece['class']}, killer {killer_side}, piece side {piece['side']}, piece label {piece['label']}")
                 self.current_step_reward += 30
                 self.done_forced = True  # End episode immediately
             else:
+                print(f"DEBUG: Non-priest kill detected! Reward +5")
                 self.current_step_reward += 5  # Regular enemy kill
 
         # Mark piece as dead and move off board
