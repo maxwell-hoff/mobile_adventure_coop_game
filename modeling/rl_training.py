@@ -141,8 +141,8 @@ class HexPuzzleEnv(gym.Env):
         )
 
         self.turn_number = 1
-        self.iteration_number = 1
-        self.step_number = 1
+        self.iteration_number = 0
+        self.step_number = 0
         self.turn_side = "player"
         self.done_forced = False
         self.current_step_reward = 0.0
@@ -272,6 +272,9 @@ class HexPuzzleEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         if len(self.current_episode) > 0:
+            # Add iteration info to the episode before saving
+            for step in self.current_episode:
+                step["iteration_number"] = self.iteration_number
             self.all_episodes.append(self.current_episode)
 
         self.current_episode = []
@@ -321,6 +324,7 @@ class HexPuzzleEnv(gym.Env):
             "positions": self._log_positions(),
             "grid_radius": self.grid_radius,
             "blocked_hexes": deepcopy(self.scenario["blockedHexes"]),
+            "iteration_number": self.iteration_number
         }
         self.current_episode.append(init_dict)
 
@@ -456,6 +460,8 @@ class HexPuzzleEnv(gym.Env):
             "grid_radius": self.grid_radius,
             "blocked_hexes": deepcopy(self.scenario["blockedHexes"]),
             "non_bloodwarden_kills": self.non_bloodwarden_kills,
+            "iteration_number": self.iteration_number,
+            "step_number": self.step_number
         }
         self.current_episode.append(step_data)
 
