@@ -2,54 +2,333 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Hex Map with Zoom</title>
+  <title>Coop Adventure</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <!-- Add Sortable.js for drag-and-drop -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 </head>
 <body>
-  <h1>Hex Map with Zoom</h1>
+  <h1>Coop Adventure</h1>
 
-  <div id="controls">
-    <!-- This single button toggles between "World View" and "Region View" 
-         depending on current zoom level. Hidden at world level. -->
-    <button id="toggleZoomBtn" style="display:none;" onclick="handleToggleZoom()">
-      <!-- Text set dynamically in JS -->
-    </button>
-  </div>
+  <!-- SCREEN 1: SIGN UP -->
+  <section id="signUpScreen" class="screen">
+    <h2>Create an Account</h2>
+    <form id="signupForm">
+      <div>
+        <label>Username:</label>
+        <input type="text" id="signupUsername" required>
+      </div>
+      <div>
+        <label>Password:</label>
+        <input type="password" id="signupPassword" required>
+      </div>
+      <button type="submit" class="btn">Sign Up</button>
+    </form>
+    <hr>
+    <p>Already have an account? 
+       <button class="btn" onclick="showScreen('loginScreen')">Go to Login</button>
+    </p>
+  </section>
 
-  <!-- Container for our SVG map -->
-  <div id="map-container">
-    <svg id="map-svg" width="800" height="600">
-      <!-- We'll place shapes programmatically -->
-      <!-- A text label to show region name on hover -->
-      <text id="hoverLabel" x="400" y="30" text-anchor="middle" font-size="16" fill="#222"></text>
-    </svg>
-  </div>
+  <!-- SCREEN 2: LOGIN -->
+  <section id="loginScreen" class="screen">
+    <h2>Login</h2>
+    <form id="loginForm">
+      <div>
+        <label>Username:</label>
+        <input type="text" id="loginUsername" required>
+      </div>
+      <div>
+        <label>Password:</label>
+        <input type="password" id="loginPassword" required>
+      </div>
+      <button type="submit" class="btn">Login</button>
+    </form>
+    <hr>
+    <p>Need an account?
+       <button class="btn" onclick="showScreen('signUpScreen')">Go to Sign Up</button>
+    </p>
+  </section>
 
-  <!-- New container for player piece controls -->
-  <div id="player-controls" style="display: none;">
-    <h3>Player Pieces</h3>
-    <ul id="player-pieces" class="player-pieces">
-      <!-- Pieces will be added here dynamically -->
-    </ul>
-    <div id="action-description" class="action-description"></div>
-    <button id="complete-turn" class="complete-turn-btn">Complete Turn</button>
-  </div>
+  <!-- SCREEN 3: CHARACTER SELECTION / CREATION -->
+  <section id="characterScreen" class="screen">
+    <h2>Character Selection</h2>
 
-  <!-- New container for enemy pieces -->
-  <div id="enemy-controls" style="display: none;">
-    <h3>Enemy Pieces</h3>
-    <ul id="enemy-pieces" class="enemy-pieces">
-      <!-- Enemy pieces will be added here dynamically -->
-    </ul>
-  </div>
-  
-  <div id="battle-log" style="width: 800px; margin: 20px auto; padding: 20px; background: #f5f5f5; border-radius: 8px; max-height: 200px; overflow-y: auto;">
-    <h3>Battle Log</h3>
-    <div id="log-entries"></div>
-  </div>
-  
+    <!-- List of existing characters -->
+    <div>
+      <h3>Your Characters</h3>
+      <div id="characterList"></div>
+    </div>
+
+    <!-- Show selected character info -->
+    <div id="characterInfo" style="margin-top:20px; border:1px solid #ccc; padding:10px; display:none;">
+      <h3>Selected Character</h3>
+      <p><b>Name:</b> <span id="charNameInfo"></span></p>
+      <p><b>Class:</b> <span id="charClassInfo"></span></p>
+      <p><b>Location:</b> <span id="charLocationInfo"></span></p>
+      <p><b>Level:</b> <span id="charLevelInfo"></span></p>
+    </div>
+
+    <!-- Button to continue with selected character -->
+    <button id="continueBtn" class="btn" style="margin-top: 20px; display:none;">Continue</button>
+    <hr>
+
+    <!-- New character creation -->
+    <div>
+      <h3>Create a New Character</h3>
+      <label for="newCharName">Character Name:</label>
+      <input type="text" id="newCharName" placeholder="Enter unique name">
+      <br><br>
+      <label>Select Class:</label>
+      <div id="classOptions" style="margin-top:10px;">
+        <!-- JS will populate valid classes here as clickable blocks -->
+      </div>
+      <button id="createCharBtn" class="btn" style="margin-top:10px;">Create</button>
+    </div>
+  </section>
+
+  <!-- SCREEN 4: MAIN MAP / PUZZLE SCREEN -->
+  <section id="mainScreen" class="screen">
+    <!-- <h2>Welcome to the Game!</h2> -->
+
+    <div id="controls">
+      <button id="toggleZoomBtn" style="display:none;" onclick="handleToggleZoom()">
+        <!-- Text set dynamically in JS -->
+      </button>
+    </div>
+
+    <div id="map-container">
+      <svg id="map-svg" width="800" height="600">
+        <text id="hoverLabel" x="400" y="30" text-anchor="middle" font-size="16" fill="#222"></text>
+      </svg>
+    </div>
+
+    <div id="player-controls" style="display: none;">
+      <h3>Player Pieces</h3>
+      <ul id="player-pieces" class="player-pieces"></ul>
+      <div id="action-description" class="action-description"></div>
+      <button id="complete-turn" class="complete-turn-btn">Complete Turn</button>
+    </div>
+
+    <div id="enemy-controls" style="display: none;">
+      <h3>Enemy Pieces</h3>
+      <ul id="enemy-pieces" class="enemy-pieces"></ul>
+    </div>
+    
+    <div id="battle-log" style="width: 800px; margin: 20px auto; padding: 20px; background: #f5f5f5; border-radius: 8px; max-height: 200px; overflow-y: auto;">
+      <h3>Battle Log</h3>
+      <div id="log-entries"></div>
+    </div>
+  </section>
+
+
+  <!-- Main Script Logic -->
+  <script>
+    // Helper to show/hide screens by ID
+    function showScreen(screenId) {
+      const screens = document.querySelectorAll('.screen');
+      screens.forEach(s => s.classList.remove('active'));
+      document.getElementById(screenId).classList.add('active');
+    }
+
+    // On page load, let's default to the Login screen (or Sign Up if you prefer)
+    window.addEventListener('DOMContentLoaded', () => {
+      showScreen('loginScreen');
+      loadClassOptions(); // load the valid classes for new character creation
+    });
+
+    // -------------- SIGN UP --------------
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('signupUsername').value;
+      const password = document.getElementById('signupPassword').value;
+
+      try {
+        const resp = await fetch('/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          alert(data.message);
+          showScreen('loginScreen'); // move to login
+        } else {
+          alert(data.error || data.message);
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error signing up.');
+      }
+    });
+
+    // -------------- LOGIN --------------
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('loginUsername').value;
+      const password = document.getElementById('loginPassword').value;
+
+      try {
+        const resp = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          alert(data.message);
+          // Now go to the character selection screen
+          showScreen('characterScreen');
+          loadCharacterList();
+        } else {
+          alert(data.error || data.message);
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error logging in.');
+      }
+    });
+
+    // -------------- CHARACTER SELECTION SCREEN --------------
+    async function loadCharacterList() {
+      // Clear old info
+      document.getElementById('characterList').innerHTML = '';
+      document.getElementById('characterInfo').style.display = 'none';
+      document.getElementById('continueBtn').style.display = 'none';
+
+      try {
+        const resp = await fetch('/get_characters');
+        if (resp.status === 401) {
+          alert("Not logged in. Returning to login screen.");
+          showScreen('loginScreen');
+          return;
+        }
+        const data = await resp.json();
+        if (Array.isArray(data)) {
+          // data is a list of characters
+          data.forEach(char => {
+            createCharacterListItem(char);
+          });
+        } else {
+          console.error("Error fetching characters:", data);
+        }
+      } catch (err) {
+        console.error("Error in loadCharacterList:", err);
+      }
+    }
+
+    let selectedCharacter = null;  // store which char is selected
+
+    function createCharacterListItem(char) {
+      const parentDiv = document.getElementById('characterList');
+      const div = document.createElement('div');
+      div.className = 'char-list-item';
+      div.textContent = char.name;
+      div.addEventListener('click', () => {
+        // select this char
+        selectCharacter(char, div);
+      });
+      parentDiv.appendChild(div);
+    }
+
+    function selectCharacter(char, elementDiv) {
+      // Deselect old
+      document.querySelectorAll('.char-list-item').forEach(el => {
+        el.classList.remove('selected');
+      });
+      // highlight new
+      elementDiv.classList.add('selected');
+      selectedCharacter = char;
+      window.selectedCharacter = char;
+      // Show info
+      document.getElementById('charNameInfo').textContent = char.name;
+      document.getElementById('charClassInfo').textContent = char.char_class;
+      document.getElementById('charLocationInfo').textContent = char.location;
+      document.getElementById('charLevelInfo').textContent = char.level;
+      document.getElementById('characterInfo').style.display = 'block';
+      document.getElementById('continueBtn').style.display = 'inline-block';
+    }
+
+    // Continue with selected character
+    document.getElementById('continueBtn').addEventListener('click', () => {
+      if (!selectedCharacter) {
+        alert("Please select a character first.");
+        return;
+      }
+      // In a real game, we might do an API call like /load_character/<id>, etc.
+      // For now, we can just go to the main game screen
+      alert("Loading character: " + selectedCharacter.name);
+      showScreen('mainScreen');
+      // Here you might do additional logic to load puzzle data, etc.
+    });
+
+    // -------------- CREATE NEW CHARACTER --------------
+    async function loadClassOptions() {
+      // fetch /get_classes
+      try {
+        const resp = await fetch('/get_classes');
+        const data = await resp.json();
+        if (Array.isArray(data)) {
+          // data is an array of classes
+          const container = document.getElementById('classOptions');
+          container.innerHTML = '';
+          data.forEach(cls => {
+            const div = document.createElement('div');
+            div.className = 'class-option';
+            div.textContent = cls;
+            div.addEventListener('click', () => {
+              selectClassOption(div);
+            });
+            container.appendChild(div);
+          });
+        }
+      } catch (err) {
+        console.error("Error loading classes:", err);
+      }
+    }
+
+    let selectedClass = null;
+
+    function selectClassOption(div) {
+      // deselect all
+      document.querySelectorAll('.class-option').forEach(d => d.classList.remove('selected'));
+      // select this
+      div.classList.add('selected');
+      selectedClass = div.textContent;
+    }
+
+    document.getElementById('createCharBtn').addEventListener('click', async () => {
+      const charName = document.getElementById('newCharName').value;
+      if (!charName || !selectedClass) {
+        alert("Please enter a character name and select a class.");
+        return;
+      }
+      try {
+        const resp = await fetch('/create_character', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ char_name: charName, char_class: selectedClass })
+        });
+        const data = await resp.json();
+        if (data.success) {
+          alert(data.message);
+          // reload the character list
+          loadCharacterList();
+          // reset fields
+          document.getElementById('newCharName').value = '';
+          selectedClass = null;
+          document.querySelectorAll('.class-option').forEach(d => d.classList.remove('selected'));
+        } else {
+          alert(data.error || data.message);
+        }
+      } catch (err) {
+        console.error("Error creating character:", err);
+      }
+    });
+
+  </script>
+
+  <!-- Your existing puzzle logic JS: map.js, etc. -->
   <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 </body>
 </html>

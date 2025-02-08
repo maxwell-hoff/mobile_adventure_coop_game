@@ -6,11 +6,10 @@ import yaml
 import os
 import time
 import sys
-import random
+import math
 
 from copy import deepcopy
 from itertools import combinations
-import math
 
 # PPO-related
 from sb3_contrib import MaskablePPO
@@ -18,22 +17,20 @@ from sb3_contrib.common.maskable.utils import get_action_masks
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-# Force a fixed seed (you can remove or adjust if you want the randomness each run to differ)
 np.random.seed(42)
 random.seed(42)
 
-# Load scenario/world data:
-with open(os.path.join("data", "world.yaml"), "r") as f:
+# Load scenario + pieces data
+with open("data/world.yaml","r") as f:
     world_data = yaml.safe_load(f)
-with open(os.path.join("data", "pieces.yaml"), "r") as f:
+with open("data/pieces.yaml","r") as f:
     pieces_data = yaml.safe_load(f)
 
-##################################
-# Utility / Helper functions
-##################################
+###############################################
+# Utility
+###############################################
 
 def hex_distance(q1, r1, q2, r2):
-    """Cube distance in axial coords."""
     return (
         abs(q1 - q2)
         + abs(r1 - r2)
@@ -41,11 +38,7 @@ def hex_distance(q1, r1, q2, r2):
     ) // 2
 
 def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
-    """
-    True if no blocked hex or living piece fully blocks the line [start->end].
-    Skip the start & end hex in the check. If any interior hex is blocked or occupied => no LOS.
-    """
-    if q1 == q2 and r1 == r2:
+    if (q1 == q2) and (r1 == r2):
         return True
     N = max(abs(q2 - q1), abs(r2 - r1), abs((q1 + r1) - (q2 + r2)))
     if N == 0:
@@ -56,9 +49,9 @@ def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
     line_hexes = []
     for i in range(N + 1):
         t = i / N
-        qf = q1 + (q2 - q1) * t
-        rf = r1 + (r2 - r1) * t
-        sf = s1 + (s2 - s1) * t
+        qf = q1 + (q2 - q1)*t
+        rf = r1 + (r2 - r1)*t
+        sf = s1 + (s2 - s1)*t
         rq = round(qf)
         rr = round(rf)
         rs = round(sf)
@@ -70,67 +63,46 @@ def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
             rq = -rr - rs
         elif rdiff > sdiff:
             rr = -rq - rs
-
         line_hexes.append((rq, rr))
 
-    # skip first & last
     for (hq, hr) in line_hexes[1:-1]:
         if (hq, hr) in blocked_hexes:
             return False
         for p in all_pieces:
-            if not p.get("dead", False) and (p["q"], p["r"]) == (hq, hr):
+            if (not p.get("dead", False)) and (p["q"], p["r"]) == (hq, hr):
                 return False
     return True
-
 
 ##################################
 # Environment
 ##################################
 
 class HexPuzzleEnv(gym.Env):
-    """
-    A hex-based puzzle environment with optional randomization of:
-      - radius
-      - blocked hexes
-      - piece composition (but ensuring at least 1 Priest per side)
-      - positions of pieces
-    """
     def __init__(
         self,
         puzzle_scenario,
         max_turns=10,
         render_mode=None,
-        # existing param for randomizing final positions of each piece:
         randomize_positions=False,
-
-        # NEW randomization parameters (all default off for backward-compatibility):
         randomize_radius=False,
         radius_min=2,
         radius_max=5,
-
         randomize_blocked=False,
         min_blocked=1,
         max_blocked=5,
-
         randomize_pieces=False,
-        # For each side, we ensure at least 1 Priest. Then we add additional pieces
-        # from some set. The user can define how many total pieces for each side (including the Priest).
-        # If you only want 2 total for player side, that means 1 Priest + 1 random.
         player_min_pieces=3,
         player_max_pieces=4,
         enemy_min_pieces=3,
-        enemy_max_pieces=5,
+        enemy_max_pieces=5
     ):
         super().__init__()
-
-        # Store the original scenario. We'll use this to revert each reset if randomization is off.
         self.original_scenario = deepcopy(puzzle_scenario)
         self.scenario = deepcopy(puzzle_scenario)
 
         self.max_turns = max_turns
         self.render_mode = render_mode
 
-        # randomization toggles
         self.randomize_positions = randomize_positions
         self.randomize_radius = randomize_radius
         self.radius_min = radius_min
@@ -144,25 +116,23 @@ class HexPuzzleEnv(gym.Env):
         self.enemy_min_pieces = enemy_min_pieces
         self.enemy_max_pieces = enemy_max_pieces
 
-        # The base radius from the scenario:
         self.grid_radius = self.scenario["subGridRadius"]
 
-        # Initialize pieces
         self._init_pieces_from_scenario(self.scenario)
-
-        # Build all hex coords
         self.all_hexes = []
-        for q in range(-self.grid_radius, self.grid_radius + 1):
-            for r in range(-self.grid_radius, self.grid_radius + 1):
+        for q in range(-self.grid_radius,self.grid_radius+1):
+            for r in range(-self.grid_radius,self.grid_radius+1):
                 if abs(q + r) <= self.grid_radius:
-                    self.all_hexes.append((q, r))
+                    self.all_hexes.append((q,r))
 
-        # We'll define a max so stable_baselines3 sees a fixed discrete action space:
         self.max_actions_for_side = 500
         self.action_space = gym.spaces.Discrete(self.max_actions_for_side)
 
-        # Observations = (q, r) for all pieces
-        self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
+        if self.randomize_pieces:
+            max_pieces = self.player_max_pieces + self.enemy_max_pieces
+        else:
+            max_pieces = len(self.player_pieces) + len(self.enemy_pieces)
+        self.obs_size = 2 * max_pieces
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius,
             high=self.grid_radius,
@@ -171,10 +141,12 @@ class HexPuzzleEnv(gym.Env):
         )
 
         self.turn_number = 1
+        self.iteration_number = 0
+        self.step_number = 0
         self.turn_side = "player"
         self.done_forced = False
+        self.current_step_reward = 0.0
 
-        # Logging / state
         self.all_episodes = []
         self.current_episode = []
         self.non_bloodwarden_kills = 0
@@ -185,295 +157,359 @@ class HexPuzzleEnv(gym.Env):
         return self.player_pieces + self.enemy_pieces
 
     def _init_pieces_from_scenario(self, scenario_dict):
-        """
-        Assign all pieces from scenario_dict to self.player_pieces / self.enemy_pieces,
-        ensuring each piece has a unique 'label' string (e.g. 'P', 'P2', 'G1', 'G2', etc.).
-        """
-
-        # 1) Ensure piece labels are unique
-        self._uniqueify_piece_labels(scenario_dict["pieces"])
-
-        # 2) Then split into player vs. enemy
-        self.player_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "player"]
-        self.enemy_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "enemy"]
-
-    def _uniqueify_piece_labels(self, piece_list):
-        """
-        For any repeated labels like "P", "G", etc. in piece_list,
-        rename them as "P2", "P3", "G2", etc. so each piece label is unique.
-        """
-        label_counts = {}
-        for piece in piece_list:
-            old_label = piece["label"]
-
-            # If we've already seen this label, bump its count and rename
-            if old_label in label_counts:
-                label_counts[old_label] += 1
-                # e.g. if old_label='P' and this is the second P, rename to 'P2'
-                new_label = f"{old_label}{label_counts[old_label]}"
-                piece["label"] = new_label
+        """Initialize pieces with explicit, unambiguous labels based on side and class."""
+        valid_classes = set(pieces_data["classes"].keys())
+        
+        # First validate and fix any invalid classes
+        for pc in scenario_dict["pieces"]:
+            if pc["class"] not in valid_classes:
+                print(f"[WARNING] Invalid class {pc['class']}. Defaulting to 'Priest'.")
+                pc["class"] = "Priest"
+            # Ensure original_class is set
+            if "original_class" not in pc:
+                pc["original_class"] = pc["class"]
+            # Validate class consistency
+            elif pc["class"] != pc["original_class"]:
+                print(f"[WARNING] Class mismatch in piece! Original: {pc['original_class']}, Current: {pc['class']}")
+                pc["class"] = pc["original_class"]  # Restore original class
+        
+        # Split pieces by side first
+        player_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "player"]
+        enemy_pieces = [p for p in scenario_dict["pieces"] if p["side"] == "enemy"]
+        
+        # Create class counters for each side
+        player_class_counts = {}
+        enemy_class_counts = {}
+        
+        # Label player pieces
+        for piece in player_pieces:
+            piece_class = piece["class"]
+            if piece_class not in player_class_counts:
+                player_class_counts[piece_class] = 1
             else:
-                label_counts[old_label] = 1
-                # The first occurrence keeps the original label
-                # (You could also rename the very first one as label+count if preferred)
+                player_class_counts[piece_class] += 1
+            piece["label"] = f"P-{piece_class}-{player_class_counts[piece_class]}"
+        
+        # Label enemy pieces
+        for piece in enemy_pieces:
+            piece_class = piece["class"]
+            if piece_class not in enemy_class_counts:
+                enemy_class_counts[piece_class] = 1
+            else:
+                enemy_class_counts[piece_class] += 1
+            piece["label"] = f"E-{piece_class}-{enemy_class_counts[piece_class]}"
+        
+        # Final validation
+        for p in player_pieces + enemy_pieces:
+            assert p["class"] == p["original_class"], f"Class consistency error: {p['class']} != {p['original_class']}"
+            assert p["class"] in valid_classes, f"Invalid piece class after initialization: {p['class']}"
+        
+        # Store pieces in instance variables
+        self.player_pieces = player_pieces
+        self.enemy_pieces = enemy_pieces
 
     def _build_all_hexes(self):
-        """Rebuild self.all_hexes from self.grid_radius."""
         self.all_hexes = []
-        for q in range(-self.grid_radius, self.grid_radius + 1):
-            for r in range(-self.grid_radius, self.grid_radius + 1):
+        for q in range(-self.grid_radius, self.grid_radius+1):
+            for r in range(-self.grid_radius, self.grid_radius+1):
                 if abs(q + r) <= self.grid_radius:
-                    self.all_hexes.append((q, r))
+                    self.all_hexes.append((q,r))
 
     def _randomize_scenario(self):
-        """
-        Randomly modify:
-          - subGridRadius
-          - blockedHexes
-          - piece composition
-        (only if those toggles are on). Then re-init scenario's pieces from scratch.
-        """
-        # 1) Possibly randomize radius
         if self.randomize_radius:
             self.scenario["subGridRadius"] = random.randint(self.radius_min, self.radius_max)
         else:
             self.scenario["subGridRadius"] = self.original_scenario["subGridRadius"]
-
         self.grid_radius = self.scenario["subGridRadius"]
         self._build_all_hexes()
 
-        # 2) Possibly randomize the blocked hexes
         if self.randomize_blocked:
-            # how many do we block?
-            blocked_count = random.randint(self.min_blocked, self.max_blocked)
-            # pick them from all_hexes at random, ensuring we don't pick duplicates
-            chosen_blocked = random.sample(self.all_hexes, min(blocked_count, len(self.all_hexes)))
-            self.scenario["blockedHexes"] = [{"q": q, "r": r} for (q, r) in chosen_blocked]
+            count = random.randint(self.min_blocked, self.max_blocked)
+            picks = random.sample(self.all_hexes, min(count, len(self.all_hexes)))
+            self.scenario["blockedHexes"] = [{"q":q,"r":r} for (q,r) in picks]
         else:
-            # revert to the original blocked
             self.scenario["blockedHexes"] = deepcopy(self.original_scenario["blockedHexes"])
 
-        # 3) Possibly randomize the set of pieces
         if self.randomize_pieces:
-            # We'll define some known classes for the player's side and the enemy's side.
-            # At minimum, each side must have 1 Priest. Then we fill the rest with random picks.
+            player_classes = ["Warlock","Sorcerer","Priest"]
+            enemy_classes  = ["Guardian","BloodWarden","Hunter","Priest"]
+            pcount = random.randint(self.player_min_pieces, self.player_max_pieces)
+            ecount = random.randint(self.enemy_min_pieces, self.enemy_max_pieces)
 
-            # Example available classes:
-            player_classes = ["Warlock", "Sorcerer", "Priest"]  # you can add more if you wish
-            enemy_classes = ["Guardian", "BloodWarden", "Hunter", "Priest"]
-
-            # Decide how many total pieces each side should have (including the guaranteed Priest).
-            p_count = random.randint(self.player_min_pieces, self.player_max_pieces)
-            e_count = random.randint(self.enemy_min_pieces, self.enemy_max_pieces)
-
-            # Always ensure 1 Priest on each side
-            # Then for the leftover slots, pick from the other classes
-            def pick_side_pieces(side, class_list, total_count):
-                # Always 1 priest:
-                pieces = [{"class": "Priest", "label": "eP", "color": "#556b2f", "side": side, "q": 0, "r": 0}]
-                # The remainder:
-                remainder = total_count - 1
-                # Filter out Priest from random picks to avoid duplicates, or allow duplicates if you want:
-                # If you do NOT want duplicates, remove "Priest" from class_list:
-                other_classes = [c for c in class_list if c != "Priest"]
+            def pick_side_pieces(side, class_list, count):
+                pieces = []
+                # ensure 1 Priest
+                pieces.append({
+                    "class": "Priest",
+                    "color": "#556b2f" if side=="player" else "#dc143c",
+                    "side": side,
+                    "q": 0,
+                    "r": 0
+                })
+                remainder = count - 1
+                other_classes = [c for c in class_list if c!="Priest"]
                 for _ in range(remainder):
                     c = random.choice(other_classes)
-                    label = c[0] if c != "BloodWarden" else "eBW"
-                    color = "#556b2f" if side == "player" else "#dc143c"
-                    pieces.append({"class": c, "label": label, "color": color, "side": side, "q": 0, "r": 0})
+                    pieces.append({
+                        "class": c,
+                        "color": "#556b2f" if side=="player" else "#dc143c",
+                        "side": side,
+                        "q": 0,
+                        "r": 0
+                    })
                 return pieces
 
-            new_player_pieces = pick_side_pieces("player", player_classes, p_count)
-            new_enemy_pieces = pick_side_pieces("enemy", enemy_classes, e_count)
-
-            self.scenario["pieces"] = new_player_pieces + new_enemy_pieces
+            new_player = pick_side_pieces("player", player_classes, pcount)
+            new_enemy  = pick_side_pieces("enemy",  enemy_classes, ecount)
+            self.scenario["pieces"] = new_player + new_enemy
         else:
-            # revert to original
             self.scenario["pieces"] = deepcopy(self.original_scenario["pieces"])
 
     def _randomize_piece_positions(self):
-        """
-        Shuffle the final piece coordinates on valid (non-blocked) hexes.
-        """
-        blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
-        valid_hexes = [(q, r) for (q, r) in self.all_hexes if (q, r) not in blocked_hexes]
-
-        total_pieces_needed = len(self.player_pieces) + len(self.enemy_pieces)
-        if total_pieces_needed > len(valid_hexes):
-            print("[WARNING] Not enough valid hexes to place all pieces randomly!")
+        blocked_hexes = {(bh["q"], bh["r"]) for bh in self.scenario["blockedHexes"]}
+        valid_hexes = [(q,r) for (q,r) in self.all_hexes if (q,r) not in blocked_hexes]
+        needed = len(self.player_pieces) + len(self.enemy_pieces)
+        if needed > len(valid_hexes):
+            print("[WARNING] Not enough valid hexes for random placement.")
             return
-
-        chosen_hexes = random.sample(valid_hexes, total_pieces_needed)
+        picks = random.sample(valid_hexes, needed)
         idx = 0
         for p in self.player_pieces:
-            (q, r) = chosen_hexes[idx]
-            p["q"], p["r"] = q, r
+            p["q"], p["r"] = picks[idx]
             idx += 1
         for e in self.enemy_pieces:
-            (q, r) = chosen_hexes[idx]
-            e["q"], e["r"] = q, r
+            e["q"], e["r"] = picks[idx]
             idx += 1
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         if len(self.current_episode) > 0:
+            # Add iteration info to the episode before saving
+            for step in self.current_episode:
+                step["iteration_number"] = self.iteration_number
             self.all_episodes.append(self.current_episode)
+
         self.current_episode = []
-        for p in self.all_pieces:
-            p["moved_this_turn"] = False
+        self.current_step_reward = 0.0
 
-        # Deepcopy the original scenario, then apply random modifications if toggles are on
+        # Start fresh
         self.scenario = deepcopy(self.original_scenario)
-        self._randomize_scenario()  # modifies self.scenario if toggles are set
+        
+        # First randomize the scenario if needed
+        if self.randomize_radius:
+            self.scenario["subGridRadius"] = random.randint(self.radius_min, self.radius_max)
+            self.grid_radius = self.scenario["subGridRadius"]
+            self._build_all_hexes()
 
-        # Re-init pieces, radius, all_hexes
+        if self.randomize_blocked:
+            count = random.randint(self.min_blocked, self.max_blocked)
+            picks = random.sample(self.all_hexes, min(count, len(self.all_hexes)))
+            self.scenario["blockedHexes"] = [{"q":q,"r":r} for (q,r) in picks]
+
+        # Initialize pieces first
+        if self.randomize_pieces:
+            self._create_random_pieces()
+        
+        # Now initialize all pieces properly
         self._init_pieces_from_scenario(self.scenario)
-        self.grid_radius = self.scenario["subGridRadius"]
-        self._build_all_hexes()
-
-        # final position randomization (the old behavior from randomize_positions)
+        
+        # Randomize positions if needed
         if self.randomize_positions:
             self._randomize_piece_positions()
 
+        # Reset game state
         self.turn_number = 1
+        self.iteration_number += 1
+        self.step_number = 1
         self.turn_side = "player"
         self.done_forced = False
         self.non_bloodwarden_kills = 0
         self.delayedAttacks.clear()
 
-        # Build initial step log
+        for p in self.all_pieces:
+            p["moved_this_turn"] = False
+
         init_dict = {
             "turn_number": 0,
             "turn_side": None,
             "reward": 0.0,
-            "positions": self._log_positions()
+            "positions": self._log_positions(),
+            "grid_radius": self.grid_radius,
+            "blocked_hexes": deepcopy(self.scenario["blockedHexes"]),
+            "iteration_number": self.iteration_number
         }
         self.current_episode.append(init_dict)
 
-        # Need to update observation_space to reflect new # of pieces:
-        self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
-        # Rebuild observation_space bounds:
-        self.observation_space = gym.spaces.Box(
-            low=-self.grid_radius,
-            high=self.grid_radius,
-            shape=(self.obs_size,),
-            dtype=np.float32
-        )
-
         return self.get_obs(), {}
 
+    def _create_random_pieces(self):
+        """Create random pieces with proper initialization."""
+        player_classes = ["Warlock","Sorcerer","Priest"]
+        enemy_classes  = ["Guardian","BloodWarden","Hunter","Priest"]
+        pcount = random.randint(self.player_min_pieces, self.player_max_pieces)
+        ecount = random.randint(self.enemy_min_pieces, self.enemy_max_pieces)
+
+        def create_side_pieces(side, class_list, count):
+            pieces = []
+            # Always ensure one Priest
+            priest_piece = {
+                "class": "Priest",
+                "side": side,
+                "color": "#556b2f" if side=="player" else "#dc143c",
+                "q": 0,
+                "r": 0,
+                "dead": False,
+                "moved_this_turn": False,
+                "original_class": "Priest"  # Track original class
+            }
+            pieces.append(priest_piece)
+            
+            # Add remaining pieces
+            other_classes = [c for c in class_list if c!="Priest"]
+            for _ in range(count - 1):
+                c = random.choice(other_classes)
+                piece = {
+                    "class": c,
+                    "side": side,
+                    "color": "#556b2f" if side=="player" else "#dc143c",
+                    "q": 0,
+                    "r": 0,
+                    "dead": False,
+                    "moved_this_turn": False,
+                    "original_class": c  # Track original class
+                }
+                pieces.append(piece)
+            return pieces
+
+        # Create pieces for both sides
+        new_player = create_side_pieces("player", player_classes, pcount)
+        new_enemy = create_side_pieces("enemy", enemy_classes, ecount)
+        
+        # Validate piece classes before updating
+        for p in new_player + new_enemy:
+            if p["class"] != p["original_class"]:
+                print(f"WARNING: Class mismatch detected! Original: {p['original_class']}, Current: {p['class']}")
+            assert p["class"] in pieces_data["classes"], f"Invalid piece class: {p['class']}"
+        
+        # Update scenario
+        self.scenario["pieces"] = new_player + new_enemy
+
     def step(self, action_idx):
+        # Reset the current step reward at the start of each step
+        self.current_step_reward = 0.0
+        self.step_number += 1
+
         if self.done_forced:
             return self.get_obs(), 0.0, True, False, {}
 
-        side_living = [pc for pc in self.all_pieces if pc["side"] == self.turn_side and not pc.get("dead", False)]
-        if len(side_living) == 0:
-            end_reward, term, _ = self._apply_end_conditions(0.0)
-            return self._finish_step(end_reward, term, False)
+        valid = self.build_action_list()
+        if action_idx >= len(valid):
+            return self.get_obs(), 0.0, True, False, {}
 
-        valid_actions = self.build_action_list()
-        if len(valid_actions) == 0:
-            end_reward, term, _ = self._apply_end_conditions(0.0)
-            return self._finish_step(end_reward, term, False)
-
-        if action_idx < 0 or action_idx >= len(valid_actions):
-            return self._finish_step(-1.0, False, False)
-
-        (pidx, sub_action) = valid_actions[action_idx]
+        (pidx, sub_action) = valid[action_idx]
         piece = self.all_pieces[pidx]
         piece["moved_this_turn"] = True
-        if piece.get("dead", False) or piece["side"] != self.turn_side:
-            return self._finish_step(-1.0, False, False)
 
-        # Scoring penalty if the piece could have attacked but instead does a different action
+        # Before we execute the action, check if piece could have attacked but chooses
+        # something else => apply small penalty.
         could_attack = self._could_have_attacked(piece)
         is_attack = sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"]
-        step_mod = 0.0
         if could_attack and not is_attack:
-            step_mod -= 4.0
+            self.current_step_reward -= 4.0
 
         atype = sub_action["type"]
         if atype == "move":
             (q, r) = sub_action["dest"]
             piece["q"] = q
             piece["r"] = r
+
         elif atype == "pass":
-            step_mod -= 1.0
+            self.current_step_reward -= 1.0
+
         elif atype == "aoe":
             if sub_action.get("name") == "necrotizing_consecrate":
-                self._schedule_necro(piece)
+                if piece["class"] == "BloodWarden":  # Extra validation
+                    self._schedule_necro(piece)
             else:
                 for tgt in sub_action["targets"]:
                     if not tgt.get("dead", False):
-                        self._kill_piece(tgt)
+                        self._kill_piece(tgt, killer_side=piece["side"])
+                        # If we killed a Priest, stop processing remaining targets and end immediately
+                        if self.done_forced:
+                            return self._finish_step(True, False)
+
         elif atype == "single_target_attack":
-            target_piece = sub_action["target_piece"]
-            if target_piece is not None and not target_piece.get("dead", False):
-                self._kill_piece(target_piece)
+            tgt = sub_action["target_piece"]
+            if tgt and not tgt.get("dead", False):
+                self._kill_piece(tgt, killer_side=piece["side"])
+                if self.done_forced:  # Will be True if we killed a Priest
+                    return self._finish_step(True, False)
+
         elif atype == "multi_target_attack":
             for tgt in sub_action["targets"]:
                 if not tgt.get("dead", False):
-                    self._kill_piece(tgt)
+                    self._kill_piece(tgt, killer_side=piece["side"])
+                    # If we killed a Priest, stop processing remaining targets and end immediately
+                    if self.done_forced:
+                        return self._finish_step(True, False)
+
         elif atype == "swap_position":
-            target_piece = sub_action["target_piece"]
-            if target_piece is not None and not target_piece.get("dead", False):
-                old_q, old_r = piece["q"], piece["r"]
-                piece["q"], piece["r"] = target_piece["q"], target_piece["r"]
-                target_piece["q"], target_piece["r"] = old_q, old_r
+            # Extra validation that piece can actually swap
+            pclass_data = pieces_data["classes"].get(piece["class"], {})
+            valid_actions = pclass_data.get("actions", {})
+            if "swap_position" in valid_actions:
+                tgt = sub_action["target_piece"]
+                if tgt and not tgt.get("dead", False):
+                    old_q, old_r = piece["q"], piece["r"]
+                    piece["q"], piece["r"] = tgt["q"], tgt["r"]
+                    tgt["q"], tgt["r"] = old_q, old_r
+                else:
+                    self.current_step_reward -= 1.0
             else:
-                step_mod -= 1.0
+                self.current_step_reward -= 1.0
 
-        final_reward, terminated, truncated = self._apply_end_conditions(step_mod)
-        next_obs, rew, ter, tru, info = self._finish_step(final_reward, terminated, truncated)
-        return next_obs, rew, ter, tru, info
+        # Apply end conditions (like turn limit)
+        if self.turn_number >= self.max_turns:
+            self.current_step_reward -= 20
+            return self._finish_step(True, True)
 
-    def _finish_step(self, reward, terminated, truncated):
-        """
-        Called at the end of each .step() to finalize the step's
-        data in self.current_episode, and possibly flip turn side.
-        """
+        return self._finish_step(False, False)
+
+    def _finish_step(self, terminated, truncated):
         step_data = {
             "turn_number": self.turn_number,
             "turn_side": self.turn_side,
-            "reward": reward,
-            "positions": self._log_positions()
+            "reward": self.current_step_reward,
+            "positions": self._log_positions(),
+            "grid_radius": self.grid_radius,
+            "blocked_hexes": deepcopy(self.scenario["blockedHexes"]),
+            "non_bloodwarden_kills": self.non_bloodwarden_kills,
+            "iteration_number": self.iteration_number,
+            "step_number": self.step_number
         }
-        if hasattr(self, "mcts_debug"):
-            step_data["mcts_debug"] = self.mcts_debug
-            del self.mcts_debug  # clear for next step
+        self.current_episode.append(step_data)
 
-        # If we are terminating or truncating, mark it done
         if terminated or truncated:
             step_data["non_bloodwarden_kills"] = self.non_bloodwarden_kills
             self.done_forced = True
 
-        self.current_episode.append(step_data)
-
-        # If not done yet, maybe switch sides if all living pieces have moved
         if not (terminated or truncated):
+            # proceed to next side if all moved
             if self._all_side_pieces_have_moved(self.turn_side):
-                # Switch from player -> enemy OR enemy -> player
                 if self.turn_side == "player":
                     self.turn_side = "enemy"
                 else:
                     self.turn_side = "player"
                     self.turn_number += 1
-
-                # Reset the "moved_this_turn" flag
                 for pc in self.all_pieces:
                     pc["moved_this_turn"] = False
-
-                # Possibly trigger delayed attacks
                 self._check_delayed_attacks()
 
         obs = self.get_obs()
-        return obs, reward, terminated, truncated, {}
+        return obs, self.current_step_reward, terminated, truncated, {}
 
     def build_action_list(self):
         actions = []
-
-        # Only include living pieces on the current turn_side
-        # that have NOT yet moved_this_turn.
         living_side = [
             (i, pc)
             for (i, pc) in enumerate(self.all_pieces)
@@ -482,59 +518,60 @@ class HexPuzzleEnv(gym.Env):
             and not pc.get("moved_this_turn", False)
         ]
 
-        if len(living_side) == 0:
+        if not living_side:
             return actions
 
+        # Identify enemies vs. allies
         if self.turn_side == "player":
             enemies = [e for e in self.enemy_pieces if not e.get("dead", False)]
-            allies = [p for p in self.player_pieces if not p.get("dead", False)]
+            allies  = [p for p in self.player_pieces if not p.get("dead", False)]
         else:
             enemies = [p for p in self.player_pieces if not p.get("dead", False)]
-            allies = [e for e in self.enemy_pieces if not e.get("dead", False)]
+            allies  = [e for e in self.enemy_pieces if not e.get("dead", False)]
 
         blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
 
         for (pidx, piece) in living_side:
-            pclass = pieces_data["classes"][piece["class"]]
-            if "move" in pclass["actions"]:
-                mrange = pclass["actions"]["move"]["range"]
+            pclass = piece["class"]
+            if pclass not in pieces_data["classes"]:
+                continue  # Skip invalid piece classes
+            pclass_data = pieces_data["classes"][pclass]
+            
+            # Only add actions that are valid for this piece class
+            valid_actions = pclass_data.get("actions", {})
+
+            # Move
+            if "move" in valid_actions:
+                mrange = valid_actions["move"]["range"]
                 for (q, r) in self.all_hexes:
                     if (q, r) != (piece["q"], piece["r"]):
                         if hex_distance(piece["q"], piece["r"], q, r) <= mrange:
                             if not self._occupied_or_blocked(q, r):
                                 actions.append((pidx, {"type": "move", "dest": (q, r)}))
 
+            # Pass
             actions.append((pidx, {"type": "pass"}))
 
-            for aname, adata in pclass["actions"].items():
+            # Other actions
+            for aname, adata in valid_actions.items():
                 if aname == "move":
                     continue
                 if aname == "necrotizing_consecrate":
-                    actions.append((pidx, {"type": "aoe", "name": "necrotizing_consecrate"}))
+                    # Special AoE check
+                    if pclass == "BloodWarden":  # Only BloodWarden can use this
+                        actions.append((pidx, {"type": "aoe", "name": "necrotizing_consecrate"}))
                     continue
 
-                atype = adata["action_type"]
+                atype = adata.get("action_type")
+                if not atype:
+                    continue
+
                 rng = adata.get("range", 0)
                 requires_los = adata.get("requires_los", False)
                 ally_only = adata.get("ally_only", False)
 
+                # Single-target Attack
                 if atype == "single_target_attack":
-                    for enemyP in enemies:
-                        dist = hex_distance(piece["q"], piece["r"], enemyP["q"], enemyP["r"])
-                        if dist <= rng:
-                            if (not requires_los) or line_of_sight(
-                                piece["q"], piece["r"],
-                                enemyP["q"], enemyP["r"],
-                                blocked_hexes, self.all_pieces
-                            ):
-                                actions.append((pidx, {
-                                    "type": "single_target_attack",
-                                    "action_name": aname,
-                                    "target_piece": enemyP,
-                                }))
-                elif atype == "multi_target_attack":
-                    max_tg = adata.get("max_num_targets", 1)
-                    in_range_enemies = []
                     for eP in enemies:
                         dist = hex_distance(piece["q"], piece["r"], eP["q"], eP["r"])
                         if dist <= rng:
@@ -543,40 +580,56 @@ class HexPuzzleEnv(gym.Env):
                                 eP["q"], eP["r"],
                                 blocked_hexes, self.all_pieces
                             ):
-                                in_range_enemies.append(eP)
-                    from itertools import combinations
+                                actions.append((pidx, {
+                                    "type": "single_target_attack",
+                                    "action_name": aname,
+                                    "target_piece": eP,
+                                }))
+
+                # Multi-target Attack
+                elif atype == "multi_target_attack":
+                    max_tg = adata.get("max_num_targets", 1)
+                    in_range = []
+                    for eP in enemies:
+                        dist = hex_distance(piece["q"], piece["r"], eP["q"], eP["r"])
+                        if dist <= rng:
+                            if (not requires_los) or line_of_sight(
+                                piece["q"], piece["r"],
+                                eP["q"], eP["r"],
+                                blocked_hexes, self.all_pieces
+                            ):
+                                in_range.append(eP)
                     for size in range(1, max_tg + 1):
-                        for combo in combinations(in_range_enemies, size):
+                        for combo in combinations(in_range, size):
                             actions.append((pidx, {
                                 "type": "multi_target_attack",
                                 "action_name": aname,
                                 "targets": list(combo)
                             }))
+
+                # Swap position (only if piece class explicitly allows it)
                 elif atype == "swap_position":
-                    if ally_only:
-                        possible_targets = allies
-                    else:
-                        possible_targets = self.all_pieces
-                    possible_targets = [
-                        x for x in possible_targets
-                        if x is not piece and not x.get("dead", False)
-                    ]
-                    for tgt in possible_targets:
-                        dist = hex_distance(piece["q"], piece["r"], tgt["q"], tgt["r"])
-                        if dist <= rng:
-                            if (not requires_los) or line_of_sight(
-                                piece["q"], piece["r"],
-                                tgt["q"], tgt["r"],
-                                blocked_hexes, self.all_pieces
-                            ):
-                                actions.append((pidx, {
-                                    "type": "swap_position",
-                                    "action_name": aname,
-                                    "target_piece": tgt
-                                }))
+                    if "swap_position" in valid_actions:  # Extra validation
+                        possible = allies if ally_only else self.all_pieces
+                        possible = [x for x in possible if x is not piece and not x.get("dead", False)]
+                        for tgt in possible:
+                            dist = hex_distance(piece["q"], piece["r"], tgt["q"], tgt["r"])
+                            if dist <= rng:
+                                if (not requires_los) or line_of_sight(
+                                    piece["q"], piece["r"],
+                                    tgt["q"], tgt["r"],
+                                    blocked_hexes, self.all_pieces
+                                ):
+                                    actions.append((pidx, {
+                                        "type": "swap_position",
+                                        "action_name": aname,
+                                        "target_piece": tgt
+                                    }))
+
+                # AoE (generic)
                 elif atype == "aoe":
                     radius = adata.get("radius", 0)
-                    in_range_enemies = []
+                    in_range = []
                     for eP in enemies:
                         dist = hex_distance(piece["q"], piece["r"], eP["q"], eP["r"])
                         if dist <= radius:
@@ -585,27 +638,28 @@ class HexPuzzleEnv(gym.Env):
                                 eP["q"], eP["r"],
                                 blocked_hexes, self.all_pieces
                             ):
-                                in_range_enemies.append(eP)
-                    if len(in_range_enemies) > 0:
+                                in_range.append(eP)
+                    if in_range:
                         actions.append((pidx, {
                             "type": "aoe",
                             "action_name": aname,
                             "name": aname,
-                            "targets": in_range_enemies
+                            "targets": in_range
                         }))
 
         return actions[: self.max_actions_for_side]
 
     def _occupied_or_blocked(self, q, r):
-        blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
+        blocked_hexes = {(bh["q"], bh["r"]) for bh in self.scenario["blockedHexes"]}
         if (q, r) in blocked_hexes:
             return True
         for p in self.all_pieces:
-            if not p.get("dead", False) and (p["q"], p["r"]) == (q, r):
+            if (not p.get("dead", False)) and (p["q"], p["r"]) == (q, r):
                 return True
         return False
 
     def _could_have_attacked(self, piece):
+        # Only check if there's at least one enemy in range for an action
         if piece["side"] == "player":
             enemies = [e for e in self.enemy_pieces if not e.get("dead", False)]
         else:
@@ -613,42 +667,40 @@ class HexPuzzleEnv(gym.Env):
         if not enemies:
             return False
 
-        pclass = pieces_data["classes"][piece["class"]]
-        blocked_hexes = {(h["q"], h["r"]) for h in self.scenario["blockedHexes"]}
+        pclass_data = pieces_data["classes"][piece["class"]]
+        blocked_hexes = {(bh["q"], bh["r"]) for bh in self.scenario["blockedHexes"]}
 
-        for aname, adata in pclass["actions"].items():
-            if aname == "move":
-                continue
+        for aname, adata in pclass_data["actions"].items():
             atype = adata["action_type"]
-            rng = adata.get("range", 0)
-            requires_los = adata.get("requires_los", False)
-
-            if atype in ["single_target_attack", "multi_target_attack"]:
-                for e in enemies:
-                    dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
-                    if dist <= rng:
-                        if (not requires_los) or line_of_sight(
-                            piece["q"], piece["r"],
-                            e["q"], e["r"],
-                            blocked_hexes, self.all_pieces
-                        ):
-                            return True
-            elif atype == "aoe":
-                radius = adata.get("radius", 0)
-                for e in enemies:
-                    dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
-                    if dist <= radius:
-                        if (not requires_los) or line_of_sight(
-                            piece["q"], piece["r"],
-                            e["q"], e["r"],
-                            blocked_hexes, self.all_pieces
-                        ):
-                            return True
+            if atype in ["single_target_attack", "multi_target_attack", "aoe"]:
+                rng = adata.get("range", 0)
+                requires_los = adata.get("requires_los", False)
+                if atype == "aoe":
+                    radius = adata.get("radius", 0)
+                    for e in enemies:
+                        dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
+                        if dist <= radius:
+                            if (not requires_los) or line_of_sight(
+                                piece["q"], piece["r"], e["q"], e["r"],
+                                blocked_hexes, self.all_pieces
+                            ):
+                                return True
+                else:
+                    # single or multi
+                    for e in enemies:
+                        dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
+                        if dist <= rng:
+                            if (not requires_los) or line_of_sight(
+                                piece["q"], piece["r"], e["q"], e["r"],
+                                blocked_hexes, self.all_pieces
+                            ):
+                                return True
         return False
 
     def _schedule_necro(self, piece):
-        pclass = pieces_data["classes"][piece["class"]]
-        necro_data = pclass["actions"]["necrotizing_consecrate"]
+        # Delayed AoE from BloodWarden
+        pclass_data = pieces_data["classes"][piece["class"]]
+        necro_data = pclass_data["actions"]["necrotizing_consecrate"]
         c_speed = necro_data.get("cast_speed", 0)
         if c_speed > 0:
             trig = self.turn_number + c_speed
@@ -657,7 +709,7 @@ class HexPuzzleEnv(gym.Env):
                 "turn_side": piece["side"],
                 "reward": 0.0,
                 "positions": self._log_positions(),
-                "desc": f"{piece['class']}({piece['label']}) starts necro => triggers on turn {trig}"
+                "desc": f"{piece['class']}({piece['label']}) starts necro => triggers turn {trig}"
             }
             self.current_episode.append(evt)
             self.delayedAttacks.append({
@@ -667,153 +719,168 @@ class HexPuzzleEnv(gym.Env):
                 "action_name": "necrotizing_consecrate"
             })
         else:
-            # immediate effect => kills all enemies
+            # Immediate effect => kills all enemies
             if piece["side"] == "enemy":
                 for p in self.player_pieces:
                     if not p.get("dead", False):
-                        self._kill_piece(p)
+                        self._kill_piece(p, piece["side"])
+                        # If we killed a Priest, stop processing remaining targets
+                        if self.done_forced:
+                            break
             else:
                 for e in self.enemy_pieces:
                     if not e.get("dead", False):
-                        self._kill_piece(e)
+                        self._kill_piece(e, piece["side"])
+                        # If we killed a Priest, stop processing remaining targets
+                        if self.done_forced:
+                            break
 
     def _check_delayed_attacks(self):
+        # Trigger delayed necro if time
         to_remove = []
         for i, att in enumerate(self.delayedAttacks):
             if att["trigger_turn"] == self.turn_number:
-                c_side = att["caster_side"]
-                if c_side == "enemy":
+                side = att["caster_side"]
+                if side == "enemy":
                     for p in self.player_pieces:
                         if not p.get("dead", False):
-                            self._kill_piece(p)
+                            self._kill_piece(p, side)
+                            # If we killed a Priest, stop processing remaining targets
+                            if self.done_forced:
+                                break
                 else:
                     for e in self.enemy_pieces:
                         if not e.get("dead", False):
-                            self._kill_piece(e)
+                            self._kill_piece(e, side)
+                            # If we killed a Priest, stop processing remaining targets
+                            if self.done_forced:
+                                break
                 to_remove.append(i)
         for idx in reversed(to_remove):
             self.delayedAttacks.pop(idx)
 
     def _apply_end_conditions(self, base_reward):
+        # CHANGES MADE:
+        # Now, the only end conditions are:
+        # 1) Turn limit => -20 and truncated.
+        # 2) A priest has been killed (handled in _kill_piece => self.done_forced).
         rew = base_reward
         term = False
         trunc = False
 
-        p_alive = [p for p in self.player_pieces if not p.get("dead", False)]
-        e_alive = [e for e in self.enemy_pieces if not e.get("dead", False)]
-        player_priest_alive = any(p["class"] == "Priest" for p in p_alive)
-        enemy_priest_alive = any(e["class"] == "Priest" for e in e_alive)
-
-        # both wiped => -30
-        if len(p_alive) == 0 and len(e_alive) == 0:
-            rew -= 30
-            term = True
-        else:
-            # one side wiped => +30 if you caused it, -30 if it's your side
-            if len(p_alive) == 0:
-                if self.turn_side == "enemy":
-                    rew += 30
-                else:
-                    rew -= 30
-                term = True
-            elif len(e_alive) == 0:
-                if self.turn_side == "player":
-                    rew += 30
-                else:
-                    rew -= 30
-                term = True
-
-        if not term:
-            # priest => kill theirs => +30, lose yours => -30
-            if self.turn_side == "player":
-                if not enemy_priest_alive:
-                    rew += 30
-                    term = True
-                elif not player_priest_alive:
-                    rew -= 30
-                    term = True
-            else:
-                if not player_priest_alive:
-                    rew += 30
-                    term = True
-                elif not enemy_priest_alive:
-                    rew -= 30
-                    term = True
-
-        # If we haven't ended, also check turn_number => tie => -20
-        if not term:
-            if self.turn_number >= self.max_turns:
-                rew -= 20
-                trunc = True
+        if self.turn_number >= self.max_turns:
+            rew -= 20
+            trunc = True
 
         return rew, term, trunc
 
-    def _kill_piece(self, piece):
-        if not piece.get("dead", False):
-            # If it's your turn-side piece you kill, that's a negative. If it's the enemy, that's a positive.
-            if piece["side"] == self.turn_side:
-                self.current_episode[-1]["reward"] += -5
+    def _kill_piece(self, piece, killer_side):
+        """Kill a piece and handle rewards.
+        
+        Only ends episode if a Priest is killed by the opposing side.
+        Gives +30 reward for killing enemy Priest.
+        Gives +5 reward for killing any other enemy piece.
+        """
+        if piece.get("dead", False):
+            return
+
+        # Debug info
+        print(f"DEBUG: Killing piece - Class: {piece['class']}, Side: {piece['side']}, Killer: {killer_side}")
+
+        # Validate the piece class and state
+        if piece["class"] not in pieces_data["classes"]:
+            print(f"[WARNING] Invalid piece class: {piece['class']}")
+            return
+
+        # Only give rewards and end episode for enemy kills
+        if piece["side"] != killer_side:
+            # Check if it's a Priest kill BEFORE marking as dead
+            is_priest = piece["class"].strip() == "Priest"  # Add strip() to handle any whitespace
+            print(f"DEBUG: is_priest={is_priest}, class={piece['class']}")
+            
+            if is_priest:
+                print(f"DEBUG: Priest kill detected! Reward +30. Iteration: {self.iteration_number}, step: {self.step_number}, turn: {self.turn_number}, side {self.turn_side}, piece {piece['class']}, killer {killer_side}, piece side {piece['side']}, piece label {piece['label']}")
+                self.current_step_reward += 30
+                self.done_forced = True  # End episode immediately
             else:
-                self.current_episode[-1]["reward"] += +5
+                print(f"DEBUG: Non-priest kill detected! Reward +5")
+                self.current_step_reward += 5  # Regular enemy kill
 
-            # Additional penalty if you kill a priest at the same time:
-            if piece["class"] == "Priest":
-                self.current_episode[-1]["reward"] -= 3
+        # Mark piece as dead and move off board
+        piece["dead"] = True
+        piece["q"] = 9999
+        piece["r"] = 9999
 
-            if piece["class"] != "BloodWarden":
-                self.non_bloodwarden_kills += 1
-            piece["dead"] = True
-            piece["q"] = 9999
-            piece["r"] = 9999
+        # Track non-bloodwarden kills
+        if piece["class"] != "Priest" and killer_side != "BloodWarden":
+            self.non_bloodwarden_kills += 1
 
     def get_obs(self):
         coords = []
         for p in self.player_pieces:
-            coords.append(p["q"])
-            coords.append(p["r"])
+            coords.extend([p["q"], p["r"]])
         for e in self.enemy_pieces:
-            coords.append(e["q"])
-            coords.append(e["r"])
+            coords.extend([e["q"], e["r"]])
+        while len(coords) < self.obs_size:
+            coords.append(0)
         return np.array(coords, dtype=np.float32)
 
     def _log_positions(self):
+        # Add debug info about piece order
+        print("\nTRAINING DEBUG: Current piece order:")
+        print("Player pieces:")
+        for i, p in enumerate(self.player_pieces):
+            print(f"  {i}: {p['label']} ({p['class']}) at ({p['q']},{p['r']})")
+        print("Enemy pieces:")
+        for i, e in enumerate(self.enemy_pieces):
+            print(f"  {i}: {e['label']} ({e['class']}) at ({e['q']},{e['r']})")
+        print("------------------------")
+        
         pa = np.array([[p["q"], p["r"]] for p in self.player_pieces], dtype=np.float32)
-        ea = np.array([[p["q"], p["r"]] for p in self.enemy_pieces], dtype=np.float32)
-        return {"player": pa, "enemy": ea}
+        ea = np.array([[e["q"], e["r"]] for e in self.enemy_pieces], dtype=np.float32)
+        
+        # Add piece information to the returned data
+        return {
+            "player": pa,
+            "enemy": ea,
+            "player_pieces": [{
+                "label": p["label"],
+                "class": p["class"],
+                "side": p["side"]
+            } for p in self.player_pieces],
+            "enemy_pieces": [{
+                "label": e["label"],
+                "class": e["class"],
+                "side": e["side"]
+            } for e in self.enemy_pieces]
+        }
 
     def _get_action_mask(self):
+        # We only mask valid actions. If done, mask all except action 0 to avoid crashes.
         if self.done_forced:
             mask = np.zeros(self.max_actions_for_side, dtype=bool)
             mask[0] = True
             return mask
 
-        side_living = [pc for pc in self.all_pieces if pc["side"] == self.turn_side and not pc.get("dead", False)]
-        if len(side_living) == 0:
-            mask = np.zeros(self.max_actions_for_side, dtype=bool)
-            mask[0] = True
-            return mask
-
-        val_acts = self.build_action_list()
+        valid = self.build_action_list()
         mask = np.zeros(self.max_actions_for_side, dtype=bool)
-        for i in range(len(val_acts)):
+        for i in range(len(valid)):
             mask[i] = True
         return mask
 
     def action_masks(self):
         return self._get_action_mask()
-    
+
     def sync_with_puzzle_scenario(self, scenario_dict, turn_side="enemy"):
         self.scenario = deepcopy(scenario_dict)
         self._init_pieces_from_scenario(self.scenario)
         self.grid_radius = self.scenario["subGridRadius"]
         self._build_all_hexes()
-
         self.turn_side = turn_side
         self.turn_number = 1
         self.done_forced = False
         self.delayedAttacks.clear()
 
-        # Rebuild observation space
         self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius,
@@ -821,8 +888,6 @@ class HexPuzzleEnv(gym.Env):
             shape=(self.obs_size,),
             dtype=np.float32
         )
-
-        # Also ensure current_episode starts with an init step
         self.current_episode = []
         init_dict = {
             "turn_number": 0,
@@ -833,12 +898,8 @@ class HexPuzzleEnv(gym.Env):
         self.current_episode.append(init_dict)
 
     def _all_side_pieces_have_moved(self, side):
-        """
-        Return True if every living piece on `side` has `moved_this_turn=True`.
-        """
         for piece in self.all_pieces:
             if piece["side"] == side and not piece.get("dead", False):
-                # If we do not find "moved_this_turn" or it's False, then not all have moved
                 if not piece.get("moved_this_turn", False):
                     return False
         return True
@@ -859,7 +920,6 @@ def make_env_fn(
     enemy_min_pieces=3,
     enemy_max_pieces=5
 ):
-    """Factory for creating the HexPuzzleEnv with desired randomization params."""
     def _init():
         env = HexPuzzleEnv(
             puzzle_scenario=scenario_dict,
@@ -881,91 +941,56 @@ def make_env_fn(
         return env
     return _init
 
-
-############################
-#  SIMPLE MCTS IMPLEMENTATION
-############################
-
-############################
-#  SIMPLE MCTS IMPLEMENTATION
-############################
+###########################################
+#  Simple MCTS / Tree / PPO approach below
+###########################################
 
 class MCTSNode:
-    """
-    A node in the MCTS search tree, keyed by (obs_bytes, turn_side).
-    """
     def __init__(self, obs_bytes, turn_side):
         self.obs_bytes = obs_bytes
         self.turn_side = turn_side
-
-        # valid actions and children
-        self.actions = None  # list of action indices
-        # stats: action_idx -> [N, Q]
+        self.actions = None
         self.stats = {}
         self.untried = []
-
-        # sum of visits across all actions
         self.visit_sum = 0
 
 def obs_to_key(obs, turn_side):
-    """
-    Key for the MCTS dictionary, e.g. (obs_bytes, turn_side).
-    """
     return (obs.tobytes(), turn_side)
 
-mcts_tree = {}  # global dictionary: (obs_bytes, turn_side) -> MCTSNode
+mcts_tree = {}
 
 def mcts_policy(env, max_iterations=50):
-    """
-    Perform MCTS from the current env state, returning the best action index.
-
-    1) We look up (obs, side) in mcts_tree; if no node, create it.
-    2) We run a number of MCTS iterations (selection/expansion/rollout/backprop).
-    3) Then pick the action with the highest visit count (N).
-    """
     root_obs = env.get_obs()
     root_side = env.turn_side
     root_key = obs_to_key(root_obs, root_side)
 
-    # -----------------------------
-    # Ensure we have a root node
-    # -----------------------------
     if root_key not in mcts_tree:
         node = MCTSNode(root_obs.tobytes(), root_side)
         valid_acts = env.build_action_list()
         node.actions = list(range(len(valid_acts)))
         node.untried = list(range(len(valid_acts)))
-        # initialize stats for each action
         for a_idx in node.actions:
-            node.stats[a_idx] = [0, 0.0]  # [N, Q]
+            node.stats[a_idx] = [0, 0.0]
         mcts_tree[root_key] = node
     else:
         node = mcts_tree[root_key]
 
-    # -----------------------------
-    # MCTS iterations
-    # -----------------------------
     for _ in range(max_iterations):
         env_copy = deepcopy(env)
         search_path = []
         rollout_return = mcts_search(env_copy, search_path)
 
-        # Backprop to all visited (node, action) pairs:
         for (visited_key, act_idx) in search_path:
             if visited_key not in mcts_tree:
                 continue
             visited_node = mcts_tree[visited_key]
             N, Q = visited_node.stats[act_idx]
             N += 1
-            # simple incremental average update for Q
             new_Q = Q + (rollout_return - Q) / N
             visited_node.stats[act_idx] = [N, new_Q]
-
             visited_node.visit_sum += 1
 
-    # -----------------------------
-    # Pick best action by visits
-    # -----------------------------
+    # Pick the action with the highest visit count
     best_action = 0
     best_visits = -1
     for a_idx, (visits, qval) in node.stats.items():
@@ -973,29 +998,19 @@ def mcts_policy(env, max_iterations=50):
             best_visits = visits
             best_action = a_idx
 
-    # Optional debug info
     mcts_debug_info = {}
     for a_idx, (visits, qval) in node.stats.items():
         mcts_debug_info[a_idx] = {"visits": visits, "q_value": round(qval, 3)}
     mcts_debug_info["chosen_action_idx"] = best_action
-    env.mcts_debug = mcts_debug_info  # attach to env for logging
+    env.mcts_debug = mcts_debug_info
 
     return best_action
 
-
 def mcts_search(env_copy, path, depth=0, max_depth=20):
-    """
-    One MCTS simulation:
-      - selection+expansion: pick actions down tree
-      - if we reach a new state => expand
-      - once we can’t go deeper or game ends => rollout
-      - return final reward
-
-    We store (node_key, action_idx) in `path` so we can backprop after.
-    """
+    # We only do MCTS on the "enemy" side in this example. 
     if env_copy.turn_side != "enemy":
         return env_copy.current_episode[-1]["reward"]
-    
+
     if depth >= max_depth or env_copy.done_forced:
         return env_copy.current_episode[-1]["reward"]
 
@@ -1003,9 +1018,6 @@ def mcts_search(env_copy, path, depth=0, max_depth=20):
     side = env_copy.turn_side
     node_key = obs_to_key(obs, side)
 
-    # -----------------------------
-    # If missing, create a brand-new node
-    # -----------------------------
     if node_key not in mcts_tree:
         new_node = MCTSNode(obs.tobytes(), side)
         valid_actions = env_copy.build_action_list()
@@ -1015,7 +1027,6 @@ def mcts_search(env_copy, path, depth=0, max_depth=20):
             new_node.stats[a_idx] = [0, 0.0]
         mcts_tree[node_key] = new_node
 
-        # Try expanding with one untried action (if any exist)
         if not new_node.untried:
             return env_copy.current_episode[-1]["reward"]
         action_idx = new_node.untried.pop()
@@ -1023,48 +1034,26 @@ def mcts_search(env_copy, path, depth=0, max_depth=20):
         obs2, rew, term, trunc, _ = env_copy.step(action_idx)
         if term or trunc:
             return env_copy.current_episode[-1]["reward"]
-        # Then do a random rollout from there
         return rollout(env_copy, depth + 1, max_depth)
-        
-        # if new_node.untried:
-        #     action_idx = new_node.untried.pop()
-        #     path.append((node_key, action_idx))
-        #     # Step
-        #     obs2, rew, term, trunc, _ = env_copy.step(action_idx)
-        #     if term or trunc:
-        #         return env_copy.current_episode[-1]["reward"]
-        #     # Then do a random rollout from there
-        #     return rollout(env_copy, depth + 1, max_depth)
-        # else:
-        #     # No untried => return current state's reward
-        #     return env_copy.current_episode[-1]["reward"]
-
-    # -----------------------------
-    # Otherwise we have a node already
-    # -----------------------------
-    node = mcts_tree[node_key]
-
-    # If untried actions remain, expand
-    if node.untried:
-        a_idx = node.untried.pop()
-        path.append((node_key, a_idx))
-        obs2, rew, term, trunc, _ = env_copy.step(a_idx)
-        if term or trunc:
-            return env_copy.current_episode[-1]["reward"]
-        return rollout(env_copy, depth+1, max_depth)
     else:
-        # Selection: pick best child by UCT
-        a_idx = best_uct_action(node)
-        if a_idx is None:
-            # fallback
-            return env_copy.current_episode[-1]["reward"]
-        path.append((node_key, a_idx))
-        obs2, rew, term, trunc, _ = env_copy.step(a_idx)
-        if term or trunc:
-            return env_copy.current_episode[-1]["reward"]
-        # go deeper
-        return mcts_search(env_copy, path, depth+1, max_depth)
-
+        node = mcts_tree[node_key]
+        # If there's still an untried action, pick it
+        if node.untried:
+            a_idx = node.untried.pop()
+            path.append((node_key, a_idx))
+            obs2, rew, term, trunc, _ = env_copy.step(a_idx)
+            if term or trunc:
+                return env_copy.current_episode[-1]["reward"]
+            return rollout(env_copy, depth+1, max_depth)
+        else:
+            a_idx = best_uct_action(node)
+            if a_idx is None:
+                return env_copy.current_episode[-1]["reward"]
+            path.append((node_key, a_idx))
+            obs2, rew, term, trunc, _ = env_copy.step(a_idx)
+            if term or trunc:
+                return env_copy.current_episode[-1]["reward"]
+            return mcts_search(env_copy, path, depth+1, max_depth)
 
 def best_uct_action(node, c=1.4):
     best_score = -999999
@@ -1072,52 +1061,41 @@ def best_uct_action(node, c=1.4):
     for a_idx in node.actions:
         N, Q = node.stats[a_idx]
         if N == 0:
-            # immediate expansion preference
             return a_idx
-        # UCT formula
         uct_val = Q + c * math.sqrt(math.log(node.visit_sum + 1) / N)
         if uct_val > best_score:
             best_score = uct_val
             best_action = a_idx
     return best_action
 
-
 def rollout(env_copy, depth, max_depth):
     while depth < max_depth and not env_copy.done_forced:
-        # If the env flips to player, we stop
         if env_copy.turn_side != "enemy":
+            # We only push random actions for the enemy in this example
             break
-
         valid = env_copy.build_action_list()
         if not valid:
             break
-
         a_idx = random.randint(0, len(valid)-1)
         obs2, rew, term, trunc, _ = env_copy.step(a_idx)
         if term or trunc:
             break
         depth += 1
-
     return env_copy.current_episode[-1]["reward"]
 
-
-############################
-#  Simple "tree" approach
-############################
-
 def tree_select_action(env, depth=1):
+    # A simple heuristic "tree" approach for the active side
     valid_actions = env.build_action_list()
     if not valid_actions:
-        return 0  # fallback
-
+        return 0  # If no actions, do nothing
     best_score = -99999.0
     best_idx = 0
     for i, (pidx, sub_action) in enumerate(valid_actions):
         env_copy = deepcopy(env)
         obs_next, reward_next, terminated, truncated, info = env_copy.step(i)
         total = reward_next
+        # Just a shallow look-ahead
         if not terminated and not truncated and depth > 1:
-            # random next step
             enemy_actions = env_copy.build_action_list()
             if enemy_actions:
                 rand_idx = random.randint(0, len(enemy_actions)-1)
@@ -1126,7 +1104,6 @@ def tree_select_action(env, depth=1):
         if total > best_score:
             best_score = total
             best_idx = i
-
     return best_idx
 
 def run_tree_search(env):
@@ -1136,14 +1113,8 @@ def run_tree_search(env):
         action_idx = tree_select_action(env, depth=1)
         obs, reward, terminated, truncated, info = env.step(action_idx)
         done = terminated or truncated
-    # store final ep
     if len(env.current_episode) > 0:
         env.all_episodes.append(env.current_episode)
-
-
-############################
-# PPO
-############################
 
 def _run_one_episode(model, env):
     obs, info = env.reset()
@@ -1152,48 +1123,26 @@ def _run_one_episode(model, env):
         action, state = model.predict(obs, state=state, deterministic=True)
         obs, reward, done, _, info = env.step(action)
 
-
 def main():
     parser = argparse.ArgumentParser(description="Hex Puzzle RL with optional randomization.")
-    parser.add_argument("--randomize", action="store_true",
-                        help="If set, randomize piece positions each reset (the old behavior).")
-
-    parser.add_argument("--approach", choices=["ppo", "tree", "mcts"], default="ppo",
-                        help="Which approach to use: 'ppo', 'tree', or 'mcts'. Default is ppo.")
-
-    # Additional toggles for radius, blocked, piece composition:
-    parser.add_argument("--randomize-radius", action="store_true",
-                        help="Randomize puzzle subGridRadius each reset.")
-    parser.add_argument("--radius-min", type=int, default=2,
-                        help="Minimum radius if randomize-radius is used.")
-    parser.add_argument("--radius-max", type=int, default=5,
-                        help="Maximum radius if randomize-radius is used.")
-
-    parser.add_argument("--randomize-blocked", action="store_true",
-                        help="Randomize blocked hexes each reset.")
-    parser.add_argument("--min-blocked", type=int, default=1,
-                        help="Minimum # of blocked hexes if randomize-blocked is used.")
-    parser.add_argument("--max-blocked", type=int, default=5,
-                        help="Maximum # of blocked hexes if randomize-blocked is used.")
-
-    parser.add_argument("--randomize-pieces", action="store_true",
-                        help="Randomize the actual piece composition each reset (ensure 1 Priest/side).")
-
-    parser.add_argument("--player-min-pieces", type=int, default=3,
-                        help="Min # of pieces for player's side (including Priest) if randomize-pieces.")
-    parser.add_argument("--player-max-pieces", type=int, default=4,
-                        help="Max # of pieces for player's side (including Priest) if randomize-pieces.")
-    parser.add_argument("--enemy-min-pieces", type=int, default=3,
-                        help="Min # of pieces for enemy side (including Priest) if randomize-pieces.")
-    parser.add_argument("--enemy-max-pieces", type=int, default=5,
-                        help="Max # of pieces for enemy side (including Priest) if randomize-pieces.")
-
+    parser.add_argument("--randomize", action="store_true", help="Randomize piece positions each reset.")
+    parser.add_argument("--approach", choices=["ppo", "tree", "mcts"], default="ppo")
+    parser.add_argument("--randomize-radius", action="store_true")
+    parser.add_argument("--radius-min", type=int, default=2)
+    parser.add_argument("--radius-max", type=int, default=5)
+    parser.add_argument("--randomize-blocked", action="store_true")
+    parser.add_argument("--min-blocked", type=int, default=1)
+    parser.add_argument("--max-blocked", type=int, default=5)
+    parser.add_argument("--randomize-pieces", action="store_true")
+    parser.add_argument("--player-min-pieces", type=int, default=3)
+    parser.add_argument("--player-max-pieces", type=int, default=4)
+    parser.add_argument("--enemy-min-pieces", type=int, default=3)
+    parser.add_argument("--enemy-max-pieces", type=int, default=5)
     args = parser.parse_args()
 
     scenario = world_data["regions"][0]["puzzleScenarios"][0]
     scenario_copy = deepcopy(scenario)
 
-    # Build our environment factory:
     env_fn = make_env_fn(
         scenario_copy,
         randomize_positions=args.randomize,
@@ -1218,15 +1167,14 @@ def main():
             verbose=1,
             learning_rate=1e-5,
             n_steps=4096,
-            batch_size=512,
+            batch_size=64,
             clip_range=0.2,
-            ent_coef=0.0,
+            ent_coef=0.1,
             max_grad_norm=0.3
         )
-
-        print("Training PPO for up to ~20 minutes (modify as needed).")
+        print("Training PPO for ~2 minutes. Adjust as desired.")
         start_time = time.time()
-        time_limit = 60 * 60  # in seconds
+        time_limit = 60 * 60  # seconds
 
         iteration_count_before = 0
         while True:
@@ -1243,60 +1191,50 @@ def main():
                 final = ep[-1]
                 rew = final["reward"]
                 side = final["turn_side"]
-                if rew >= 30 and side == "player":
-                    print(f"Player side apparently wiped out the enemy in iteration {i+1}.")
+                # Only print when a priest is killed (reward >= 30)
+                if rew >= 30:
+                    if side == "player":
+                        print(f"Player side killed enemy priest in iteration {i+1}.")
+                    else:
+                        print(f"Enemy side killed player priest in iteration {i+1}.")
             iteration_count_before = len(all_eps)
 
-        # gather episodes
         all_episodes = vec_env.envs[0].all_episodes
-
-        # if args.randomize:
-        #     print("\nPerforming 1 test iteration on the FIXED scenario (no randomization) to see how it does.")
-        #     test_env = DummyVecEnv([make_env_fn(scenario_copy)])  # no randomization
-        #     _run_one_episode(model, test_env)
-        #     all_episodes += test_env.envs[0].all_episodes
 
     elif args.approach == "tree":
         print("Running simple 'tree' approach (no PPO).")
         start_time = time.time()
-        time_limit = 60  # 1 minute
+        time_limit = 60
         all_episodes = []
         ep_count = 0
-
         while True:
-            elapsed = time.time() - start_time
-            if elapsed >= time_limit:
+            if time.time() - start_time >= time_limit:
                 print("Time limit => stop tree-based approach.")
                 break
-
             env = env_fn()
             run_tree_search(env)
             all_episodes.extend(env.all_episodes)
             ep_count += 1
-            print(f"Tree-based episode {ep_count} finished, total episodes so far: {len(all_episodes)}")
+            print(f"Tree-based episode {ep_count} finished.")
 
-    elif args.approach == "mcts":
+    else:  # MCTS
         print("Running MCTS approach. Both Player and Enemy side uses MCTS")
         start_time = time.time()
-        time_limit = 60 # in seconds
+        time_limit = 60
         all_episodes = []
         ep_count = 0
-
         while True:
-            elapsed = time.time() - start_time
-            if elapsed >= time_limit:
+            if time.time() - start_time >= time_limit:
                 print("Time limit => stop MCTS approach.")
                 break
-
             env = env_fn()
             eps = run_mcts_episode(env, max_iterations=2000)
             if len(env.current_episode) > 0:
                 env.all_episodes.append(env.current_episode)
             all_episodes.extend(env.all_episodes)
             ep_count += 1
-            print(f"MCTS-based episode {ep_count} done, total episodes so far: {len(all_episodes)}")
+            print(f"MCTS-based episode {ep_count} done.")
 
-    # Summaries
     iteration_outcomes = []
     for i, episode in enumerate(all_episodes):
         if len(episode) == 0:
@@ -1307,25 +1245,43 @@ def main():
         side = final["turn_side"]
         nbk = final.get("non_bloodwarden_kills", 0)
 
+        # Only mention priest kills in the summary
         if rew >= 30:
-            outcome_str = f"Iteration {i+1}: {side.upper()} side WINS (nb_kills={nbk}) => final reward={rew}"
-        elif rew <= -30:
-            outcome_str = f"Iteration {i+1}: {side.upper()} side LOSES => -30 (nb_kills={nbk}), reward={rew}"
+            if side == "player":
+                outcome_str = f"Iteration {i+1}: PLAYER kills enemy Priest => +30"
+            else:
+                outcome_str = f"Iteration {i+1}: ENEMY kills player Priest => +30"
         elif rew == -20:
-            outcome_str = f"Iteration {i+1}: time-limit penalty => -20"
+            outcome_str = f"Iteration {i+1}: time-limit => -20"
         else:
             outcome_str = f"Iteration {i+1}: final reward={rew}, side={side}, nb_kills={nbk}"
         iteration_outcomes.append(outcome_str)
 
-    # Save episodes if desired
     np.save("actions_log.npy", np.array(all_episodes, dtype=object), allow_pickle=True)
     print(f"\nSaved actions_log.npy with scenario data. Approach = {args.approach}")
     print(f"Collected {len(all_episodes)} total episodes.")
-
-    # Optional: print final iteration outcomes
     for line in iteration_outcomes[-10:]:
         print(line)
 
+def run_mcts_episode(env, max_iterations=2000):
+    """
+    Simple demonstration of how you might run an MCTS-based enemy turn
+    while also controlling the player's turn with MCTS (or anything else).
+    """
+    obs, info = env.reset()
+    done = False
+    while not done:
+        if env.turn_side == "enemy":
+            a_idx = mcts_policy(env, max_iterations=max_iterations)
+        else:
+            valid = env.build_action_list()
+            if not valid:
+                a_idx = 0
+            else:
+                a_idx = random.randint(0, len(valid)-1)
+        obs, reward, terminated, truncated, info = env.step(a_idx)
+        done = terminated or truncated
+    return env.current_episode
 
 if __name__ == "__main__":
     main()

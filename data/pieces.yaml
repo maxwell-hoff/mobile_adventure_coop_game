@@ -1,6 +1,7 @@
 classes:
   Warlock:
     description: "A powerful spellcaster who manipulates dark energies"
+    label:
     actions:
       move:
         action_type: "move"
@@ -36,6 +37,7 @@ classes:
   
   Sorcerer:
     description: "A versatile magic user specializing in elemental spells"
+    label: "S"
     actions:
       move:
         action_type: "move"
@@ -61,6 +63,7 @@ classes:
 
   Priest:
     description: "A holy guardian with healing and protective abilities"
+    label: "P"
     actions:
       move:
         action_type: "move"
@@ -74,6 +77,7 @@ classes:
 
   Guardian:
     description: "A stalwart defender with heavy armor"
+    label: "G"
     actions:
       move:
         action_type: "move"
@@ -90,6 +94,7 @@ classes:
 
   BloodWarden:
     description: "A fearsome commander who draws power from life force"
+    label: "BW"
     actions:
       move:
         action_type: "move"
@@ -107,6 +112,7 @@ classes:
 
   Hunter:
     description: "A skilled tracker with exceptional mobility"
+    label: "H"
     actions:
       move:
         action_type: "move"
