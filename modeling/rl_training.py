@@ -1165,10 +1165,16 @@ def main():
             "MlpPolicy",
             vec_env,
             verbose=1,
+            learning_rate=1e-5,
+            n_steps=4096,
+            batch_size=64,
+            clip_range=0.2,
+            ent_coef=0.1,
+            max_grad_norm=0.3
         )
         print("Training PPO for ~2 minutes. Adjust as desired.")
         start_time = time.time()
-        time_limit = .1 * 60  # seconds
+        time_limit = 60 * 60  # seconds
 
         iteration_count_before = 0
         while True:
