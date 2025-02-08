@@ -2245,3 +2245,31 @@ function applyEnemyActionToScenario(actionResult) {
   // If your puzzle scenario needs any other updates (like if a piece is "dead" but not removed),
   // do it here. Then your scenario is consistent for the next re-draw.
 }
+
+async function pollActions() {
+  try {
+    const resp = await fetch('/api/get_actions');
+    if (!resp.ok) {
+      console.error('Failed to fetch actions', resp.status);
+      return;
+    }
+    const data = await resp.json();
+    // data is an array of action objects
+    // e.g. [ { type: "enemy_action", data: { piece_label: "...", ... }}, ... ]
+
+    // For each new action, update your game state or UI
+    // In a real app, you’d keep track of which ones you’ve already seen.
+
+    // Example: Show them in the battle log
+    data.forEach(actionObj => {
+      // parse and do something
+      const msg = `Action Type: ${actionObj.type}, data = ${JSON.stringify(actionObj.data)}`;
+      addBattleLog(msg);
+    });
+  } catch (err) {
+    console.error('Error polling actions:', err);
+  }
+}
+
+// Then call pollActions every 3 seconds, for example:
+setInterval(pollActions, 3000);
