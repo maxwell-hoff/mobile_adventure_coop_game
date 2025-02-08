@@ -4,6 +4,7 @@ import os
 import random
 import sqlite3
 from passlib.hash import bcrypt
+import redis
 
 # If you want to run MCTS or PPO, import from your training script:
 from modeling.rl_training import HexPuzzleEnv, mcts_policy, make_env_fn
@@ -14,6 +15,9 @@ import numpy as np
 
 app = Flask(__name__)
 app.secret_key = "CHANGE_THIS_TO_SOMETHING_SECRET"
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+redis_client = redis.from_url(REDIS_URL) 
 
 # Load world and pieces data (unchanged)
 with open(os.path.join("data", "world.yaml"), "r", encoding="utf-8") as f:
@@ -347,11 +351,29 @@ def enemy_action():
           "truncated:", truncated, "info:", info)
     print("[DEBUG] chosen_subaction =>", chosen_subaction)
 
-    # Return the result
-    return jsonify({
+    result = {
         "piece_label": piece_label,
         "sub_action": chosen_subaction
-    }), 200
+    }
+
+    # === NEW: Push the action details into Redis list
+    action_record = {
+        "type": "enemy_action",
+        "data": result
+    }
+    redis_client.lpush("game_actions", json.dumps(action_record))
+    # Optionally limit the list size
+    redis_client.ltrim("game_actions", 0, 1000)
+
+    return jsonify(result), 200
+
+# (Optional) Add a route to retrieve actions for polling
+@app.route("/api/get_actions", methods=["GET"])
+def get_actions():
+    # Return all actions stored in 'game_actions'
+    actions_raw = redis_client.lrange("game_actions", 0, -1)
+    actions_list = [json.loads(a) for a in actions_raw]
+    return jsonify(actions_list), 200
 
 
 
