@@ -130,18 +130,32 @@ def generate_candidate_puzzle(
 def evaluate_puzzle(scenario, num_trials=5, approach="random", agent=None):
     """
     Evaluate the candidate puzzle by simulating episodes.
-    (See original documentation for details.)
+    
+    This function now creates the environment with the same settings as used during training:
+      - randomize_radius=True
+      - randomize_blocked=True
+      - randomize_pieces=True
+      - player_min_pieces=3, player_max_pieces=4
+      - enemy_min_pieces=3, enemy_max_pieces=5
+    
+    This ensures that the observation produced (of shape (18,)) matches what the PPO model expects.
     """
     total_reward = 0.0
     total_turns = 0
 
-    # For each trial, create a new environment instance.
-    from rl_training import HexPuzzleEnv  # import here so that we have it available
+    from rl_training import HexPuzzleEnv  # import the environment
     for _ in range(num_trials):
         env = HexPuzzleEnv(
             puzzle_scenario=copy.deepcopy(scenario),
             max_turns=10,
-            randomize_positions=False
+            randomize_positions=True,
+            randomize_radius=True,      # match training setting
+            randomize_blocked=True,     # match training setting
+            randomize_pieces=True,      # match training setting
+            player_min_pieces=3,
+            player_max_pieces=4,
+            enemy_min_pieces=3,
+            enemy_max_pieces=5
         )
         obs, _ = env.reset()
         done = False
@@ -165,6 +179,7 @@ def evaluate_puzzle(scenario, num_trials=5, approach="random", agent=None):
     avg_reward = total_reward / num_trials
     avg_turns = total_turns / num_trials
     return {"avg_reward": avg_reward, "avg_turns": avg_turns}
+
 
 #########################################
 # 3. Putting It Together: Generate & Evaluate
