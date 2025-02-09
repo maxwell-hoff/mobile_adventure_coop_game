@@ -16,7 +16,7 @@ import numpy as np
 app = Flask(__name__)
 app.secret_key = "CHANGE_THIS_TO_SOMETHING_SECRET"
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:5000/0")
 redis_client = redis.from_url(REDIS_URL) 
 
 # Load world and pieces data (unchanged)
