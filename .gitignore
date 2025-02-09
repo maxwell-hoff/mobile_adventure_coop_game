@@ -3,3 +3,4 @@ actions_log.npy
 userData.db
 data/gen_world.yaml
 dump.rdb
+ppo_model.zip

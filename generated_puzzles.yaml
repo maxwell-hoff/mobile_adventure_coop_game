@@ -1,0 +1,288 @@
+- name: Puzzle Scenario (difficulty 3)
+  subGridRadius: 3
+  blockedHexes:
+  - q: 0
+    r: -1
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: -1
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: -1
+    r: 2
+  difficulty: 3
+  evaluation:
+    avg_reward: -7.2
+    avg_turns: 7.0
+- name: Puzzle Scenario (difficulty 2)
+  subGridRadius: 3
+  blockedHexes:
+  - q: 3
+    r: 0
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 2
+    r: 0
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: -1
+    r: 2
+  difficulty: 2
+  evaluation:
+    avg_reward: -17.2
+    avg_turns: 9.0
+- name: Puzzle Scenario (difficulty 3)
+  subGridRadius: 4
+  blockedHexes:
+  - q: 1
+    r: 3
+  - q: 1
+    r: 2
+  - q: -1
+    r: 2
+  - q: 0
+    r: -2
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 2
+    r: 0
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: -1
+    r: 0
+  difficulty: 3
+  evaluation:
+    avg_reward: -4.0
+    avg_turns: 8.0
+- name: Puzzle Scenario (difficulty 1)
+  subGridRadius: 3
+  blockedHexes:
+  - q: -1
+    r: 1
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 1
+    r: 0
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: 1
+  difficulty: 1
+  evaluation:
+    avg_reward: -10.8
+    avg_turns: 7.8
+- name: Puzzle Scenario (difficulty 1)
+  subGridRadius: 3
+  blockedHexes:
+  - q: 2
+    r: -3
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 1
+    r: 0
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: 1
+  difficulty: 1
+  evaluation:
+    avg_reward: -10.0
+    avg_turns: 6.8
+- name: Puzzle Scenario (difficulty 1)
+  subGridRadius: 3
+  blockedHexes:
+  - q: 1
+    r: 0
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 1
+    r: 0
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: 1
+  difficulty: 1
+  evaluation:
+    avg_reward: -16.0
+    avg_turns: 8.8
+- name: Puzzle Scenario (difficulty 2)
+  subGridRadius: 3
+  blockedHexes:
+  - q: -1
+    r: -2
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: -1
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: -1
+    r: 1
+  difficulty: 2
+  evaluation:
+    avg_reward: 2.8
+    avg_turns: 4.0
+- name: Puzzle Scenario (difficulty 1)
+  subGridRadius: 3
+  blockedHexes:
+  - q: 2
+    r: -1
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 1
+    r: 0
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: 1
+  difficulty: 1
+  evaluation:
+    avg_reward: -2.0
+    avg_turns: 5.0
+- name: Puzzle Scenario (difficulty 1)
+  subGridRadius: 3
+  blockedHexes:
+  - q: 1
+    r: -1
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 1
+    r: 0
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: 1
+  difficulty: 1
+  evaluation:
+    avg_reward: -16.0
+    avg_turns: 8.4
+- name: Puzzle Scenario (difficulty 2)
+  subGridRadius: 3
+  blockedHexes:
+  - q: -1
+    r: 0
+  - q: 3
+    r: -3
+  pieces:
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 2
+    r: 0
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: 1
+    r: 2
+  difficulty: 2
+  evaluation:
+    avg_reward: -15.0
+    avg_turns: 9.6
