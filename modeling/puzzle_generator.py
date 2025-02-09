@@ -82,32 +82,94 @@ def generate_candidate_puzzle(
     sub_grid_radius=None,
     num_blocked=None,
     pieces_config=None,
-    difficulty=1
+    difficulty=1,
+    player_min_pieces=3,
+    enemy_min_pieces=3
 ):
     """
     Generate a candidate puzzle scenario as a dictionary.
-    (See original documentation for details.)
+    
+    This function now ensures that:
+      - The player side always has at least one Priest.
+      - The enemy side always has at least one Priest and one BloodWarden.
+      - The total number of pieces for each side meets the given minimum.
+    
+    Other parameters (like subGridRadius and blockedHexes) are generated as before.
     """
+    # Choose grid size based on difficulty if not provided.
     if sub_grid_radius is None:
         sub_grid_radius = random.choice([3, 4]) if difficulty >= 2 else 3
 
+    # Build a list of all hex coordinates for the subgrid.
     all_hexes = []
     for q in range(-sub_grid_radius, sub_grid_radius + 1):
         for r in range(-sub_grid_radius, sub_grid_radius + 1):
             if abs(q + r) <= sub_grid_radius:
                 all_hexes.append({'q': q, 'r': r})
     
+    # Decide how many hexes to block.
     if num_blocked is None:
         num_blocked = random.randint(1, sub_grid_radius) if difficulty >= 2 else 1
     blocked_hexes = random.sample(all_hexes, min(num_blocked, len(all_hexes)))
-
-    if pieces_config is None:
-        pieces_config = [
-            { "class": "Warlock",  "label": "W", "color": "#556b2f", "side": "player", "q": -1, "r": 0 },
-            { "class": "Guardian", "label": "G", "color": "#dc143c", "side": "enemy",  "q": 1,  "r": 0 },
-            { "class": "Hunter",   "label": "H", "color": "#dc143c", "side": "enemy",  "q": 0,  "r": 1 }
-        ]
     
+    # If no pieces_config is provided, build one using our minimums.
+    if pieces_config is None:
+        # --- Build player pieces ---
+        player_pieces = []
+        # Always include a Priest.
+        player_pieces.append({
+            "class": "Priest",
+            "label": "P",
+            "color": "#556b2f",
+            "side": "player",
+            "q": -1,
+            "r": 0
+        })
+        # Fill up to player_min_pieces using other classes.
+        while len(player_pieces) < player_min_pieces:
+            cls = random.choice(["Warlock", "Sorcerer"])
+            player_pieces.append({
+                "class": cls,
+                "label": cls[0],
+                "color": "#556b2f",
+                "side": "player",
+                "q": -1,  # initial placeholder
+                "r": 0
+            })
+        
+        # --- Build enemy pieces ---
+        enemy_pieces = []
+        # Always include a Priest and a BloodWarden.
+        enemy_pieces.append({
+            "class": "Priest",
+            "label": "P",
+            "color": "#dc143c",
+            "side": "enemy",
+            "q": 1,
+            "r": 0
+        })
+        enemy_pieces.append({
+            "class": "BloodWarden",
+            "label": "BW",
+            "color": "#dc143c",
+            "side": "enemy",
+            "q": 2,
+            "r": 0
+        })
+        # Fill up to enemy_min_pieces using other enemy classes.
+        while len(enemy_pieces) < enemy_min_pieces:
+            cls = random.choice(["Guardian", "Hunter"])
+            enemy_pieces.append({
+                "class": cls,
+                "label": cls[0],
+                "color": "#dc143c",
+                "side": "enemy",
+                "q": 1,  # placeholder
+                "r": 0
+            })
+        pieces_config = player_pieces + enemy_pieces
+
+    # Optionally, if difficulty is higher, adjust the enemy positions a little.
     if difficulty >= 2:
         for piece in pieces_config:
             if piece["side"] == "enemy":
@@ -190,9 +252,8 @@ def main():
     candidate_puzzles = []
     
     for i in range(num_candidates):
-        difficulty = random.randint(1, 3)
+        difficulty = random.randint(1, 10)
         candidate = generate_candidate_puzzle(difficulty=difficulty)
-        # Use approach "ppo" to evaluate with the pre-trained model if desired:
         evaluation = evaluate_puzzle(candidate, num_trials=5, approach="ppo", agent=model)
         candidate["evaluation"] = evaluation
         
