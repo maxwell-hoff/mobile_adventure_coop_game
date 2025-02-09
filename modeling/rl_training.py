@@ -1174,7 +1174,7 @@ def main():
         )
         print("Training PPO for ~2 minutes. Adjust as desired.")
         start_time = time.time()
-        time_limit = 60 * 60  # seconds
+        time_limit = 30 * 60  # seconds
 
         iteration_count_before = 0
         while True:
