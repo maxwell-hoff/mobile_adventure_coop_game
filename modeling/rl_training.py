@@ -1174,7 +1174,7 @@ def main():
         )
         print("Training PPO for ~2 minutes. Adjust as desired.")
         start_time = time.time()
-        time_limit = 30 * 60  # seconds
+        time_limit = 2 * 60  # seconds
 
         iteration_count_before = 0
         while True:
@@ -1200,6 +1200,9 @@ def main():
             iteration_count_before = len(all_eps)
 
         all_episodes = vec_env.envs[0].all_episodes
+
+        model.save("ppo_model.zip")
+        print("PPO model saved to ppo_model.zip")
 
     elif args.approach == "tree":
         print("Running simple 'tree' approach (no PPO).")
