@@ -362,4 +362,9 @@ body {
   .poi-marker:hover {
     transform: scale(1.3);
   }
-  
+  .puzzle-marker {
+    fill: yellow;
+    stroke: orange;
+    stroke-width: 2px;
+    pointer-events: none; /* so they don’t interfere with mouse events */
+  }

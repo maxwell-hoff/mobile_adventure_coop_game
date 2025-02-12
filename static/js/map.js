@@ -475,6 +475,29 @@ function drawRegionView(region) {
     translateX: regionPanX,
     translateY: regionPanY
   });
+
+  // After drawing all the hexes in the region (i.e. after the loop over region.worldHexes),
+  // add code to overlay a marker on each puzzle trigger hex.
+  if (region.puzzleScenarios && region.puzzleScenarios.length > 0) {
+    region.puzzleScenarios.forEach(puzzle => {
+      // puzzle.triggerHex should be of the form: { q: value, r: value }
+      if (puzzle.triggerHex) {
+        const { q, r } = puzzle.triggerHex;
+        // Convert axial to pixel coordinates (using your existing function)
+        const { x, y } = axialToPixel(q, r);
+        // Create an SVG circle as the puzzle marker
+        const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        marker.setAttribute("cx", x);
+        marker.setAttribute("cy", y);
+        marker.setAttribute("r", 6); // marker radius; adjust as needed
+        marker.setAttribute("class", "puzzle-marker");
+        // Optionally, add a tooltip or data attribute if needed:
+        marker.setAttribute("title", puzzle.name);
+        // Append the marker to your region group (gRegion)
+        gRegion.appendChild(marker);
+      }
+    });
+  }
 }
 
 function handleRegionWheelZoom(evt) {
