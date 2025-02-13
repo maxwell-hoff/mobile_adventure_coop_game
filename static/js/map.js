@@ -489,7 +489,7 @@ function drawRegionView(region) {
         const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
         marker.setAttribute("cx", x);
         marker.setAttribute("cy", y);
-        marker.setAttribute("r", 6); // marker radius; adjust as needed
+        marker.setAttribute("r", 2); // marker radius; adjust as needed
         marker.setAttribute("class", "puzzle-marker");
         // Optionally, add a tooltip or data attribute if needed:
         marker.setAttribute("title", puzzle.name);

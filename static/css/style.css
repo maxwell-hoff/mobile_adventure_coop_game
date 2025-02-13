@@ -365,6 +365,6 @@ body {
   .puzzle-marker {
     fill: yellow;
     stroke: orange;
-    stroke-width: 2px;
+    stroke-width: 0.5px;
     pointer-events: none; /* so they don’t interfere with mouse events */
   }
