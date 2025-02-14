@@ -590,10 +590,18 @@ function drawHexDetailView(region, clickedHex) {
   currentView = "section";
   currentSection = clickedHex;
 
-  // First, check if the clicked hex is one of the points of interest with an embedded story.
-  let poi = region.pointsOfInterest && region.pointsOfInterest.find(p => p.q === clickedHex.q && p.r === clickedHex.r);
+  // Determine if the clicked hex corresponds to a POI's story trigger.
+  // If a POI has a defined detailHex, then the story should only trigger when
+  // the clicked hex matches that detailHex; otherwise, it triggers on the POI's own coordinates.
+  let poi = region.pointsOfInterest && region.pointsOfInterest.find(p => {
+    if (p.detailHex) {
+      return (p.detailHex.q === clickedHex.q && p.detailHex.r === clickedHex.r);
+    }
+    return (p.q === clickedHex.q && p.r === clickedHex.r);
+  });
+
+  // If there's a matching POI with story lines that haven't been shown, trigger the overlay.
   if (poi && poi.story && poi.story.lines && poi.story.lines.length > 0 && !poi.story.shown) {
-    // Show the story overlay and, when closed, mark the story as shown and re‑draw.
     showStoryOverlay(poi.story.lines, function() {
       poi.story.shown = true;
       drawHexDetailView(region, clickedHex);
@@ -691,7 +699,7 @@ function drawHexDetailView(region, clickedHex) {
     }
   }
 
-  // (Optional) Set up blocked hexes here if defined in the puzzle scenario.
+  // (Optional) Set up blocked hexes if defined in the puzzle scenario.
   blockedHexes.clear();
   if (puzzleScenario && puzzleScenario.blockedHexes) {
     puzzleScenario.blockedHexes.forEach(h => {
@@ -767,12 +775,12 @@ function drawHexDetailView(region, clickedHex) {
   // Draw an exclamation marker ("!") only on the designated detail hex for POIs with story data.
   if (region.pointsOfInterest) {
     region.pointsOfInterest.forEach(poi => {
-      if (poi.story && poi.story.lines && poi.story.lines.length > 0) {
-        // Use the defined detailHex if available; otherwise, fallback to the POI's own coordinates.
-        const detailCoords = poi.detailHex ? poi.detailHex : { q: poi.q, r: poi.r };
-        const { x, y } = subAxialToPixel(detailCoords.q, detailCoords.r);
-        // Only draw if the designated hex exists in the current sub-grid.
-        const found = subHexList.some(sh => sh.q === detailCoords.q && sh.r === detailCoords.r);
+      if (poi.story && poi.story.lines && poi.story.lines.length > 0 && poi.detailHex) {
+        // Use the designated detailHex coordinates.
+        const { q: dq, r: dr } = poi.detailHex;
+        const { x, y } = subAxialToPixel(dq, dr);
+        // Only draw if the designated hex exists in the current sub‑grid.
+        const found = subHexList.some(sh => sh.q === dq && sh.r === dr);
         if (found) {
           const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
           textEl.setAttribute("x", x);
