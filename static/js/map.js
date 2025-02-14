@@ -1536,10 +1536,12 @@ function getHexesInLine(startQ, startR, endQ, endR) {
 
 
 function showStoryOverlay(storyLines) {
+  // Create a full-screen overlay if it doesn't already exist
   let overlay = document.getElementById("story-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.id = "story-overlay";
+    // These styles can also be moved to your CSS file.
     overlay.style.position = "fixed";
     overlay.style.top = "0";
     overlay.style.left = "0";
@@ -1558,12 +1560,16 @@ function showStoryOverlay(storyLines) {
     overlay.style.display = "block";
   }
   
+  // Create a container for the story text.
   const textContainer = document.createElement("div");
   textContainer.id = "story-text";
   overlay.appendChild(textContainer);
   
   let lineIndex = 0;
+  let storyActive = true; // Flag to control whether to continue printing
+  
   function showNextLine() {
+    if (!storyActive) return; // Stop if closed
     if (lineIndex < storyLines.length) {
       const lineP = document.createElement("p");
       lineP.textContent = storyLines[lineIndex];
@@ -1572,19 +1578,22 @@ function showStoryOverlay(storyLines) {
       overlay.scrollTop = overlay.scrollHeight;
       setTimeout(showNextLine, 2000);
     } else {
+      // All lines printed; create a Close button.
       const closeBtn = document.createElement("button");
       closeBtn.textContent = "Close";
       closeBtn.style.marginTop = "20px";
       closeBtn.style.padding = "10px 20px";
       closeBtn.style.fontSize = "16px";
       closeBtn.addEventListener("click", () => {
+        storyActive = false; // Stop any further calls
         overlay.style.display = "none";
-        // Redraw the detail view once the overlay is closed.
+        // Redraw the previous detail view (or region view) as needed.
         drawHexDetailView(currentRegion, currentSection);
       });
       textContainer.appendChild(closeBtn);
     }
   }
+  
   showNextLine();
 }
 
