@@ -1,5 +1,6 @@
 let worldData = null;
 let piecesData = null;
+let characterData = null;
 let currentView = "world"; // "world", "region", or "section"
 let currentRegion = null;
 let currentSection = null;
@@ -240,6 +241,7 @@ async function loadWorldData() {
   const data = await resp.json();
   worldData = data.world;
   piecesData = data.pieces;
+  characterData = data.characters;  // Load characters from backend
 }
 
 // ============= WORLD VIEW =============
@@ -335,6 +337,7 @@ function drawWorldView() {
     translateX: worldPanX,
     translateY: worldPanY
   });
+  drawCharacterRegionMarkers(gWorld);
 }
 
 function handleWorldWheelZoom(evt) {
@@ -492,6 +495,7 @@ function drawRegionView(region) {
     translateX: regionPanX,
     translateY: regionPanY
   });
+  drawCharacterRegionMarkers(gRegion);
 
   // After drawing all the hexes in the region (i.e. after the loop over region.worldHexes),
   // add code to overlay a marker on each puzzle trigger hex.
@@ -526,6 +530,57 @@ function handleRegionWheelZoom(evt) {
   if (newZoom > MAX_REGION_ZOOM) newZoom = MAX_REGION_ZOOM;
   regionZoom = newZoom;
   drawRegionView(currentRegion);
+}
+
+// Draw markers on the world/region view.
+function drawCharacterRegionMarkers(g) {
+  if (!characterData || !Array.isArray(characterData)) return;
+  characterData.forEach(character => {
+    // Parse the regionLocation string (expected to be "q,r")
+    let parts = character.regionLocation.split(",");
+    let q = parseFloat(parts[0]);
+    let r = parseFloat(parts[1]);
+    let { x, y } = axialToPixel(q, r);
+    const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    marker.setAttribute("cx", x);
+    marker.setAttribute("cy", y);
+    marker.setAttribute("r", 4); // Adjust as needed
+    marker.setAttribute("fill", character.color || "blue");
+    marker.setAttribute("stroke", "black");
+    marker.setAttribute("stroke-width", "1");
+    marker.classList.add("character-region-marker");
+    g.appendChild(marker);
+  });
+}
+
+// Draw markers on the detail (sub-grid) view.
+function drawCharacterDetailMarkers(g, subHexList, subAxialToPixel) {
+  if (!characterData || !Array.isArray(characterData)) return;
+  characterData.forEach(character => {
+    // Parse the detailLocation string (expected to be "q,r")
+    let parts = character.detailLocation.split(",");
+    let q = parseFloat(parts[0]);
+    let r = parseFloat(parts[1]);
+    // Only draw if the character’s detail location is valid (i.e. exists in the sub-hex list)
+    if (subHexList.some(hex => hex.q === q && hex.r === r)) {
+      let key = `${q},${r}`;
+      if (!blockedHexes.has(key)) {
+        let { x, y } = subAxialToPixel(q, r);
+        // Use a distinct marker (a square, for example)
+        const size = 6;
+        const marker = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        marker.setAttribute("x", x - size / 2);
+        marker.setAttribute("y", y - size / 2);
+        marker.setAttribute("width", size);
+        marker.setAttribute("height", size);
+        marker.setAttribute("fill", character.color || "blue");
+        marker.setAttribute("stroke", "orange");
+        marker.setAttribute("stroke-width", "1");
+        marker.classList.add("character-detail-marker");
+        g.appendChild(marker);
+      }
+    }
+  });
 }
 
 /**
@@ -771,6 +826,7 @@ function drawHexDetailView(region, clickedHex) {
     scale: 2,
     rotation: 30
   });
+  drawCharacterDetailMarkers(gDetail, subHexList, subAxialToPixel);
 }
 
 // Move this outside of setupPlayerControls to make it globally accessible

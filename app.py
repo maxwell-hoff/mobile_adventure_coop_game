@@ -59,6 +59,28 @@ def index():
 
 @app.route("/api/map_data")
 def map_data():
+    # Query characters from the database:
+    with sqlite3.connect("userData.db") as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, char_name, char_class, regionLocation, detailLocation, level FROM characters")
+        rows = cur.fetchall()
+
+    characters = []
+    for r in rows:
+        characters.append({
+            "id": r[0],
+            "name": r[1],
+            "char_class": r[2],
+            "regionLocation": r[3],  # stored as "q,r"
+            "detailLocation": r[4],  # stored as "q,r"
+            "level": r[5]
+        })
+
+    game_data = {
+        "world": world_data,
+        "pieces": pieces_data,
+        "characters": characters
+    }
     return jsonify(game_data)
 
 
@@ -67,7 +89,7 @@ def map_data():
 # ---------------------------------------
 def init_db():
     with sqlite3.connect("userData.db") as conn:
-        # Ensure 'users' table still exists (unchanged)
+        # Ensure 'users' table exists
         conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,21 +99,20 @@ def init_db():
             currentLocation TEXT
         );
         """)
-
-        # Create 'characters' table to hold multiple chars per user
+        # Create the 'characters' table with two location fields.
         conn.execute("""
         CREATE TABLE IF NOT EXISTS characters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             char_name TEXT,
             char_class TEXT,
-            location TEXT,
+            regionLocation TEXT, 
+            detailLocation TEXT, 
             level INTEGER DEFAULT 1,
-            UNIQUE(user_id, char_name),   -- must be unique for that user
+            UNIQUE(user_id, char_name),
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         """)
-
         conn.commit()
 
 init_db()
@@ -374,8 +395,6 @@ def get_actions():
     actions_raw = redis_client.lrange("game_actions", 0, -1)
     actions_list = [json.loads(a) for a in actions_raw]
     return jsonify(actions_list), 200
-
-
 
 if __name__ == "__main__":
     app.run(debug=True)
