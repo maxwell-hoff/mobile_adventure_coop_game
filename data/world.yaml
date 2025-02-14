@@ -2367,12 +2367,11 @@ regions:
   - q: -12
     r: 10
     name: "Mystic Pond"
-        story:
-          lines:
-            - "You approach a serene, shimmering pond..."
-            - "The water reflects your deepest fears and hopes."
-        # New field: detailHex specifies which hex (in the detail view) gets the exclamation marker.
-        detailHex: { q: 1, r: -1 }
+    story:
+      lines:
+        - "You approach a serene, shimmering pond..."
+        - "The water reflects your deepest fears and hopes."
+    detailHex: { q: 1, r: -1 }
   - q: 12
     r: -6
     name: "Abandoned Cabin"

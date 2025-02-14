@@ -593,12 +593,12 @@ function drawHexDetailView(region, clickedHex) {
   // First, check if the clicked hex is one of the points of interest with an embedded story.
   let poi = region.pointsOfInterest && region.pointsOfInterest.find(p => p.q === clickedHex.q && p.r === clickedHex.r);
   if (poi && poi.story && poi.story.lines && poi.story.lines.length > 0 && !poi.story.shown) {
-    // Show the story overlay and, when closed, mark the story as shown and re‑draw the detail view.
+    // Show the story overlay and, when closed, mark the story as shown and re‑draw.
     showStoryOverlay(poi.story.lines, function() {
       poi.story.shown = true;
       drawHexDetailView(region, clickedHex);
     });
-    return; // Exit early so that the map detail view is not drawn now.
+    return; // Exit early so that the normal detail view isn’t drawn until after closing.
   }
 
   // Continue drawing the normal detail view.
@@ -691,6 +691,16 @@ function drawHexDetailView(region, clickedHex) {
     }
   }
 
+  // (Optional) Set up blocked hexes here if defined in the puzzle scenario.
+  blockedHexes.clear();
+  if (puzzleScenario && puzzleScenario.blockedHexes) {
+    puzzleScenario.blockedHexes.forEach(h => {
+      const key = `${h.q},${h.r}`;
+      blockedHexes.add(key);
+      console.log("Added blocked hex:", key);
+    });
+  }
+
   // Draw the sub-hexes.
   subHexList.forEach(sh => {
     let { x, y } = subAxialToPixel(sh.q, sh.r);
@@ -757,11 +767,12 @@ function drawHexDetailView(region, clickedHex) {
   // Draw an exclamation marker ("!") only on the designated detail hex for POIs with story data.
   if (region.pointsOfInterest) {
     region.pointsOfInterest.forEach(poi => {
-      if (poi.story && poi.story.lines && poi.story.lines.length > 0 && poi.detailHex) {
-        // Convert the designated detail hex coordinates to pixel positions in the sub-grid.
-        const { x, y } = subAxialToPixel(poi.detailHex.q, poi.detailHex.r);
-        // Optionally, only draw if this hex is actually in our current subHexList.
-        const found = subHexList.some(sh => sh.q === poi.detailHex.q && sh.r === poi.detailHex.r);
+      if (poi.story && poi.story.lines && poi.story.lines.length > 0) {
+        // Use the defined detailHex if available; otherwise, fallback to the POI's own coordinates.
+        const detailCoords = poi.detailHex ? poi.detailHex : { q: poi.q, r: poi.r };
+        const { x, y } = subAxialToPixel(detailCoords.q, detailCoords.r);
+        // Only draw if the designated hex exists in the current sub-grid.
+        const found = subHexList.some(sh => sh.q === detailCoords.q && sh.r === detailCoords.r);
         if (found) {
           const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
           textEl.setAttribute("x", x);
@@ -1587,12 +1598,11 @@ function getHexesInLine(startQ, startR, endQ, endR) {
 
 
 function showStoryOverlay(storyLines, onCloseCallback) {
-  // Create (or reuse) a full-screen overlay.
+  // Create (or reuse) the full-screen overlay
   let overlay = document.getElementById("story-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.id = "story-overlay";
-    // These styles can be moved to your CSS.
     overlay.style.position = "fixed";
     overlay.style.top = "0";
     overlay.style.left = "0";
@@ -1617,10 +1627,10 @@ function showStoryOverlay(storyLines, onCloseCallback) {
   overlay.appendChild(textContainer);
   
   let lineIndex = 0;
-  let storyActive = true; // Flag to control whether to continue printing
+  let storyActive = true; // Flag to control printing
   
   function showNextLine() {
-    if (!storyActive) return; // Stop if closed
+    if (!storyActive) return;
     if (lineIndex < storyLines.length) {
       const lineP = document.createElement("p");
       lineP.textContent = storyLines[lineIndex];
@@ -1636,9 +1646,9 @@ function showStoryOverlay(storyLines, onCloseCallback) {
       closeBtn.style.padding = "10px 20px";
       closeBtn.style.fontSize = "16px";
       closeBtn.addEventListener("click", () => {
-        storyActive = false; // Stop any further calls
-        overlay.remove();    // Remove the overlay entirely
-        if (onCloseCallback) {
+        storyActive = false; // Stop further printing
+        overlay.style.display = "none";
+        if (typeof onCloseCallback === "function") {
           onCloseCallback();
         }
       });
