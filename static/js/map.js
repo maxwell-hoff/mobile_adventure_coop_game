@@ -754,20 +754,25 @@ function drawHexDetailView(region, clickedHex) {
     gDetail.appendChild(poly);
   });
 
-  // Draw an exclamation marker ("!") on any sub-hex that is a story trigger.
+  // Draw an exclamation marker ("!") only on the designated detail hex for POIs with story data.
   if (region.pointsOfInterest) {
     region.pointsOfInterest.forEach(poi => {
-      if (poi.story && poi.story.lines && poi.story.lines.length > 0) {
-        const { x, y } = subAxialToPixel(poi.q, poi.r);
-        const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        textEl.setAttribute("x", x);
-        textEl.setAttribute("y", y);
-        textEl.setAttribute("text-anchor", "middle");
-        textEl.setAttribute("dominant-baseline", "middle");
-        textEl.setAttribute("fill", "orange");
-        textEl.setAttribute("font-size", SUB_HEX_SIZE * 1.5);
-        textEl.textContent = "!";
-        gDetail.appendChild(textEl);
+      if (poi.story && poi.story.lines && poi.story.lines.length > 0 && poi.detailHex) {
+        // Convert the designated detail hex coordinates to pixel positions in the sub-grid.
+        const { x, y } = subAxialToPixel(poi.detailHex.q, poi.detailHex.r);
+        // Optionally, only draw if this hex is actually in our current subHexList.
+        const found = subHexList.some(sh => sh.q === poi.detailHex.q && sh.r === poi.detailHex.r);
+        if (found) {
+          const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          textEl.setAttribute("x", x);
+          textEl.setAttribute("y", y);
+          textEl.setAttribute("text-anchor", "middle");
+          textEl.setAttribute("dominant-baseline", "middle");
+          textEl.setAttribute("fill", "orange");
+          textEl.setAttribute("font-size", SUB_HEX_SIZE * 1.5);
+          textEl.textContent = "!";
+          gDetail.appendChild(textEl);
+        }
       }
     });
   }
