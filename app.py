@@ -215,7 +215,7 @@ def get_characters():
     with sqlite3.connect("userData.db") as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, char_name, char_class, location, level
+            SELECT id, char_name, char_class, regionLocation, detailLocation, level
             FROM characters
             WHERE user_id = ?
         """, (user_id,))
@@ -250,6 +250,8 @@ def create_character():
     char_name = data.get("char_name")
     char_class = data.get("char_class")
     location = "regionId=1|q=0|r=0"  
+    region = "regionId=1"
+    detail = "q=0|r=0"
 
     if not char_name or not char_class:
         return jsonify(error="Name and class are required for new character."), 400
@@ -262,9 +264,9 @@ def create_character():
         cur = conn.cursor()
         try:
             cur.execute("""
-                INSERT INTO characters (user_id, char_name, char_class, location, level)
-                VALUES (?, ?, ?, ?, 1)
-            """, (user_id, char_name, char_class, location))
+                INSERT INTO characters (user_id, char_name, char_class, regionLocation, detailLocation, level)
+                VALUES (?, ?, ?, ?, ?, 1)
+            """, (user_id, char_name, char_class, region, detail))
             conn.commit()
         except sqlite3.IntegrityError:
             # likely UNIQUE constraint for (user_id, char_name)
