@@ -535,6 +535,21 @@ function drawHexDetailView(region, clickedHex) {
   currentView = "section";
   currentSection = clickedHex;
 
+  // Check if this hex should trigger a story overlay.
+  // We assume that the region may have a "storyEvents" array where each event has a triggerHex.
+  if (region.storyEvents && region.storyEvents.length > 0) {
+    const storyEvent = region.storyEvents.find(event => {
+      return event.triggerHex &&
+             event.triggerHex.q === clickedHex.q &&
+             event.triggerHex.r === clickedHex.r;
+    });
+    if (storyEvent) {
+      // Instead of drawing the detail view, show the story overlay.
+      showStoryOverlay(storyEvent.lines);
+      return; // Do not continue with drawing the map detail.
+    }
+  }
+
   const toggleBtn = document.getElementById("toggleZoomBtn");
   toggleBtn.style.display = "inline-block";
   toggleBtn.textContent = "Region View";
@@ -879,6 +894,25 @@ function drawHexDetailView(region, clickedHex) {
 
     gDetail.appendChild(poly);
   });
+
+  if (puzzleScenario && region.storyEvents) {
+    // Check if this hex is a story trigger
+    const isStoryHex = region.storyEvents.some(event =>
+      event.triggerHex && event.triggerHex.q === sh.q && event.triggerHex.r === sh.r
+    );
+    if (isStoryHex) {
+      // Draw a "!" text element on this hex.
+      const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      textEl.setAttribute("x", x);
+      textEl.setAttribute("y", y);
+      textEl.setAttribute("text-anchor", "middle");
+      textEl.setAttribute("dominant-baseline", "middle");
+      textEl.setAttribute("fill", "orange");
+      textEl.setAttribute("font-size", SUB_HEX_SIZE * 1.5);
+      textEl.textContent = "!";
+      gDetail.appendChild(textEl);
+    }
+  }
 
   // Draw pieces if we have a puzzle scenario
   if (puzzleScenario && puzzleScenario.pieces) {
@@ -1698,6 +1732,68 @@ function getHexesInLine(startQ, startR, endQ, endR) {
   }
   
   return hexes;
+}
+
+
+function showStoryOverlay(storyLines) {
+  // Create a full-screen overlay div if it doesn't exist
+  let overlay = document.getElementById("story-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "story-overlay";
+    // You can adjust these styles or move them to your CSS file
+    overlay.style.position = "fixed";
+    overlay.style.top = "0";
+    overlay.style.left = "0";
+    overlay.style.width = "100%";
+    overlay.style.height = "100%";
+    overlay.style.backgroundColor = "rgba(0, 0, 0, 0.85)";
+    overlay.style.color = "#fff";
+    overlay.style.fontFamily = "Arial, sans-serif";
+    overlay.style.fontSize = "18px";
+    overlay.style.padding = "40px";
+    overlay.style.overflowY = "auto";
+    overlay.style.zIndex = "1000";
+    document.body.appendChild(overlay);
+  } else {
+    overlay.innerHTML = "";
+    overlay.style.display = "block";
+  }
+  
+  // Create a container for the text
+  const textContainer = document.createElement("div");
+  textContainer.id = "story-text";
+  overlay.appendChild(textContainer);
+  
+  let lineIndex = 0;
+  function showNextLine() {
+    if (lineIndex < storyLines.length) {
+      // Append the next line (with a line break)
+      const lineP = document.createElement("p");
+      lineP.textContent = storyLines[lineIndex];
+      textContainer.appendChild(lineP);
+      lineIndex++;
+      // Scroll down smoothly
+      overlay.scrollTop = overlay.scrollHeight;
+      // Call next line after a delay (e.g. 2000 ms)
+      setTimeout(showNextLine, 2000);
+    } else {
+      // All lines are done, add a "Close" button
+      const closeBtn = document.createElement("button");
+      closeBtn.textContent = "Close";
+      closeBtn.style.marginTop = "20px";
+      closeBtn.style.padding = "10px 20px";
+      closeBtn.style.fontSize = "16px";
+      closeBtn.addEventListener("click", () => {
+        overlay.style.display = "none";
+        // Redraw the previous detail view (or region view)
+        drawHexDetailView(currentRegion, currentSection);
+      });
+      textContainer.appendChild(closeBtn);
+    }
+  }
+  
+  showNextLine();
 }
 
 // Add back the setupPlayerControls function

@@ -2499,6 +2499,18 @@ regions:
     triggerHex:
       q: -3
       r: -5
+  storyEvents:
+  - name: "The Scream"
+    triggerHex:
+      q: 0
+      r: 0
+    lines:
+      - "You wake to a faint awful scream coming from down the road. An anxious few seconds pass as you wait to see if there are proceeding noises."
+      - "Then there are shouts. Followed by more screams. You arise quickly, peak outside, and see the orange glow from a torch or two in the distance..."
+      - "“We need to go check on them, we can’t abandon them like this”"
+      - "“No. They’ll kill us.”"
+      - "“They’ll kill us no matter what.”"
+      - "“Let’s at least see how close we get. Just be ready to run.”"
 - regionId: 2
   name: Generated Region 2
   worldHexes:
