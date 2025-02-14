@@ -355,16 +355,16 @@ body {
     stroke-width: 1px;  /* or 2px, 4px, etc. */
   }
   
-  .poi-marker {
+  /* .poi-marker {
     cursor: pointer;
     transition: transform 0.15s;
-  }
-  .poi-marker:hover {
+  } */
+  /* .poi-marker:hover {
     transform: scale(1.3);
-  }
+  } */
   .puzzle-marker {
-    fill: yellow;
-    stroke: orange;
-    stroke-width: 0.5px;
+    fill: red;
+    stroke: yellow;
+    stroke-width: 1px;
     pointer-events: none; /* so they don’t interfere with mouse events */
   }

@@ -300,10 +300,27 @@ function drawWorldView() {
     });
     gWorld.appendChild(path);
 
-    // In world view, place small circle markers on POIs
+    // Draw POI markers (already in your code)
     drawPOIMarkers(gWorld, region, 3.5);
 
-    // Add these region hexes so we can center the entire world
+    // --- NEW: Draw puzzle markers ---
+    if (region.puzzleScenarios && region.puzzleScenarios.length > 0) {
+      region.puzzleScenarios.forEach(puzzle => {
+        if (puzzle.triggerHex) {
+          const { q, r } = puzzle.triggerHex;
+          const { x, y } = axialToPixel(q, r);
+          const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          marker.setAttribute("cx", x);
+          marker.setAttribute("cy", y);
+          marker.setAttribute("r", 3.5); // adjust marker size as needed
+          marker.setAttribute("class", "puzzle-marker");
+          marker.setAttribute("title", puzzle.name);
+          gWorld.appendChild(marker);
+        }
+      });
+    }
+
+    // Add region hexes for centering
     region.worldHexes.forEach(hex => {
       worldHexList.push(hex);
     });
@@ -341,10 +358,10 @@ function drawPOIMarkers(gGroup, region, marker_size) {
       circle.setAttribute("cx", x);
       circle.setAttribute("cy", y);
       circle.setAttribute("r", marker_size);
-      circle.setAttribute("fill", "red");
+      circle.setAttribute("fill", "green");
       circle.setAttribute("stroke", "white");
       circle.setAttribute("stroke-width", "1");
-      circle.classList.add("poi-marker");
+      // circle.classList.add("poi-marker");
 
       circle.addEventListener("mouseenter", (evt) => {
         evt.stopPropagation();
@@ -418,7 +435,7 @@ function drawRegionView(region) {
     // If POI, color differently
     const key = `${hex.q},${hex.r}`;
     if (poiSet.has(key)) {
-      poly.setAttribute("style", "fill: #A30404;"); // distinct color for POI
+      poly.setAttribute("style", "fill:green;"); // distinct color for POI
     } else {
       poly.setAttribute("fill", regionColor(region.regionId));
     }
@@ -521,6 +538,9 @@ function drawHexDetailView(region, clickedHex) {
   const toggleBtn = document.getElementById("toggleZoomBtn");
   toggleBtn.style.display = "inline-block";
   toggleBtn.textContent = "Region View";
+  toggleBtn.onclick = () => {
+    drawRegionView(region);
+  };
 
   const svg = document.getElementById("map-svg");
   svg.innerHTML = "";
