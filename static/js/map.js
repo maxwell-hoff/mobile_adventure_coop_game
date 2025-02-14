@@ -567,13 +567,13 @@ function drawCharacterDetailMarkers(g, subHexList, subAxialToPixel) {
       if (!blockedHexes.has(key)) {
         let { x, y } = subAxialToPixel(q, r);
         // Use a distinct marker (a square, for example)
-        const size = 6;
+        const size = 3;
         const marker = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         marker.setAttribute("x", x - size / 2);
         marker.setAttribute("y", y - size / 2);
         marker.setAttribute("width", size);
         marker.setAttribute("height", size);
-        marker.setAttribute("fill", character.color || "blue");
+        marker.setAttribute("fill", character.color || "yellow");
         marker.setAttribute("stroke", "orange");
         marker.setAttribute("stroke-width", "1");
         marker.classList.add("character-detail-marker");
@@ -592,10 +592,13 @@ function drawHexDetailView(region, clickedHex) {
 
   // First, check if the clicked hex is one of the points of interest with an embedded story.
   let poi = region.pointsOfInterest && region.pointsOfInterest.find(p => p.q === clickedHex.q && p.r === clickedHex.r);
-  if (poi && poi.story && poi.story.lines && poi.story.lines.length > 0) {
-    // Instead of drawing the detail view, show the story overlay.
-    showStoryOverlay(poi.story.lines);
-    return; // Exit early so that the map detail view is not drawn.
+  if (poi && poi.story && poi.story.lines && poi.story.lines.length > 0 && !poi.story.shown) {
+    // Show the story overlay and, when closed, mark the story as shown and re‑draw the detail view.
+    showStoryOverlay(poi.story.lines, function() {
+      poi.story.shown = true;
+      drawHexDetailView(region, clickedHex);
+    });
+    return; // Exit early so that the map detail view is not drawn now.
   }
 
   // Continue drawing the normal detail view.
@@ -644,7 +647,6 @@ function drawHexDetailView(region, clickedHex) {
   }
 
   // Determine the puzzle scenario, if any.
-  // (For backward compatibility if you’re using puzzle scenarios from before.)
   puzzleScenario = null;
   if (region.puzzleScenarios) {
     puzzleScenario = region.puzzleScenarios.find(ps => ps.triggerHex.q === clickedHex.q && ps.triggerHex.r === clickedHex.r);
@@ -687,16 +689,6 @@ function drawHexDetailView(region, clickedHex) {
         subHexList.push({ q, r });
       }
     }
-  }
-
-  // Set up blocked hexes if defined in the puzzle scenario.
-  blockedHexes.clear();
-  if (puzzleScenario && puzzleScenario.blockedHexes) {
-    puzzleScenario.blockedHexes.forEach(h => {
-      const key = `${h.q},${h.r}`;
-      blockedHexes.add(key);
-      console.log("Added blocked hex:", key);
-    });
   }
 
   // Draw the sub-hexes.
@@ -763,11 +755,9 @@ function drawHexDetailView(region, clickedHex) {
   });
 
   // Draw an exclamation marker ("!") on any sub-hex that is a story trigger.
-  // We now assume that the story event is embedded in the POI.
   if (region.pointsOfInterest) {
     region.pointsOfInterest.forEach(poi => {
       if (poi.story && poi.story.lines && poi.story.lines.length > 0) {
-        // Draw the marker on the POI’s hex.
         const { x, y } = subAxialToPixel(poi.q, poi.r);
         const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
         textEl.setAttribute("x", x);
@@ -1591,13 +1581,13 @@ function getHexesInLine(startQ, startR, endQ, endR) {
 }
 
 
-function showStoryOverlay(storyLines) {
-  // Create a full-screen overlay if it doesn't already exist
+function showStoryOverlay(storyLines, onCloseCallback) {
+  // Create (or reuse) a full-screen overlay.
   let overlay = document.getElementById("story-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.id = "story-overlay";
-    // These styles can also be moved to your CSS file.
+    // These styles can be moved to your CSS.
     overlay.style.position = "fixed";
     overlay.style.top = "0";
     overlay.style.left = "0";
@@ -1642,9 +1632,10 @@ function showStoryOverlay(storyLines) {
       closeBtn.style.fontSize = "16px";
       closeBtn.addEventListener("click", () => {
         storyActive = false; // Stop any further calls
-        overlay.style.display = "none";
-        // Redraw the previous detail view (or region view) as needed.
-        drawHexDetailView(currentRegion, currentSection);
+        overlay.remove();    // Remove the overlay entirely
+        if (onCloseCallback) {
+          onCloseCallback();
+        }
       });
       textContainer.appendChild(closeBtn);
     }
