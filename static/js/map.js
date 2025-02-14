@@ -590,26 +590,42 @@ function drawHexDetailView(region, clickedHex) {
   currentView = "section";
   currentSection = clickedHex;
 
-  // Determine if the clicked hex corresponds to a POI's story trigger.
-  // If a POI has a defined detailHex, then the story should only trigger when
-  // the clicked hex matches that detailHex; otherwise, it triggers on the POI's own coordinates.
-  let poi = region.pointsOfInterest && region.pointsOfInterest.find(p => {
-    if (p.detailHex) {
-      return (p.detailHex.q === clickedHex.q && p.detailHex.r === clickedHex.r);
+  // --- Determine if a POI story should trigger ---
+  let triggeredPOI = null;
+  if (region.pointsOfInterest) {
+    // First, check among POIs that define a detailHex.
+    for (let poi of region.pointsOfInterest) {
+      if (poi.detailHex) {
+        if (poi.detailHex.q === clickedHex.q && poi.detailHex.r === clickedHex.r) {
+          triggeredPOI = poi;
+          break;
+        }
+      } else {
+        // If no detailHex is defined, trigger story if clickedHex matches the POI's region coordinate.
+        if (poi.q === clickedHex.q && poi.r === clickedHex.r) {
+          triggeredPOI = poi;
+          break;
+        }
+      }
     }
-    return (p.q === clickedHex.q && p.r === clickedHex.r);
-  });
-
-  // If there's a matching POI with story lines that haven't been shown, trigger the overlay.
-  if (poi && poi.story && poi.story.lines && poi.story.lines.length > 0 && !poi.story.shown) {
-    showStoryOverlay(poi.story.lines, function() {
-      poi.story.shown = true;
+  }
+  if (
+    triggeredPOI &&
+    triggeredPOI.story &&
+    triggeredPOI.story.lines &&
+    triggeredPOI.story.lines.length > 0 &&
+    !triggeredPOI.story.shown
+  ) {
+    showStoryOverlay(triggeredPOI.story.lines, function() {
+      // Mark the story as shown so that subsequent clicks don’t re-trigger it.
+      triggeredPOI.story.shown = true;
+      // Redraw the detail view after closing the story overlay.
       drawHexDetailView(region, clickedHex);
     });
-    return; // Exit early so that the normal detail view isn’t drawn until after closing.
+    return; // Do not continue drawing the detail view until the story overlay is closed.
   }
 
-  // Continue drawing the normal detail view.
+  // --- Continue drawing the normal detail view ---
   const toggleBtn = document.getElementById("toggleZoomBtn");
   toggleBtn.style.display = "inline-block";
   toggleBtn.textContent = "Region View";
@@ -654,7 +670,7 @@ function drawHexDetailView(region, clickedHex) {
     return pts.join(" ");
   }
 
-  // Determine the puzzle scenario, if any.
+  // --- Load puzzle scenario if present ---
   puzzleScenario = null;
   if (region.puzzleScenarios) {
     puzzleScenario = region.puzzleScenarios.find(ps => ps.triggerHex.q === clickedHex.q && ps.triggerHex.r === clickedHex.r);
@@ -662,9 +678,8 @@ function drawHexDetailView(region, clickedHex) {
 
   const playerControls = document.getElementById("player-controls");
   const enemyControls = document.getElementById("enemy-controls");
-  console.log("drawHexDetailView triggered with regionId=", region.regionId, "clickedHex=", clickedHex);
-  console.log("puzzleScenario found?", puzzleScenario);
   if (puzzleScenario) {
+    // (Optionally add player piece if not already present)
     if (window.selectedCharacter && window.selectedCharacter.location === "regionId=1|q=0|r=0") {
       const exists = puzzleScenario.pieces.some(p => p.label === window.selectedCharacter.name);
       if (!exists) {
@@ -687,9 +702,8 @@ function drawHexDetailView(region, clickedHex) {
     enemyControls.style.display = "none";
   }
 
-  // Use the puzzle scenario’s subGridRadius if available; otherwise, use default.
+  // --- Build the sub-grid for the detail view ---
   const gridRadius = puzzleScenario ? puzzleScenario.subGridRadius : SUB_GRID_RADIUS;
-
   let subHexList = [];
   for (let q = -gridRadius; q <= gridRadius; q++) {
     for (let r = -gridRadius; r <= gridRadius; r++) {
@@ -699,17 +713,16 @@ function drawHexDetailView(region, clickedHex) {
     }
   }
 
-  // (Optional) Set up blocked hexes if defined in the puzzle scenario.
+  // --- Set up blocked hexes if defined ---
   blockedHexes.clear();
   if (puzzleScenario && puzzleScenario.blockedHexes) {
     puzzleScenario.blockedHexes.forEach(h => {
       const key = `${h.q},${h.r}`;
       blockedHexes.add(key);
-      console.log("Added blocked hex:", key);
     });
   }
 
-  // Draw the sub-hexes.
+  // --- Draw the sub-hexes ---
   subHexList.forEach(sh => {
     let { x, y } = subAxialToPixel(sh.q, sh.r);
     let poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
@@ -717,16 +730,13 @@ function drawHexDetailView(region, clickedHex) {
     poly.setAttribute("points", subHexPolygonPoints(x, y));
     poly.setAttribute("data-q", sh.q);
     poly.setAttribute("data-r", sh.r);
-
     const hexKey = `${sh.q},${sh.r}`;
     if (blockedHexes.has(hexKey)) {
-      console.log("Coloring hex black:", hexKey);
       poly.setAttribute("fill", "#000000");
       poly.setAttribute("class", "hex-region blocked");
     } else {
       poly.setAttribute("fill", regionColor(region.regionId));
     }
-
     poly.addEventListener("mouseenter", () => {
       hoverLabel.textContent = `(q=${sh.q},r=${sh.r}) of ${region.name}`;
     });
@@ -772,14 +782,13 @@ function drawHexDetailView(region, clickedHex) {
     gDetail.appendChild(poly);
   });
 
-  // Draw an exclamation marker ("!") only on the designated detail hex for POIs with story data.
+  
+  // --- Draw the exclamation marker only for POIs with a defined detailHex ---
   if (region.pointsOfInterest) {
     region.pointsOfInterest.forEach(poi => {
-      if (poi.story && poi.story.lines && poi.story.lines.length > 0 && poi.detailHex) {
-        // Use the designated detailHex coordinates.
+      if (poi.detailHex && poi.story && poi.story.lines && poi.story.lines.length > 0) {
         const { q: dq, r: dr } = poi.detailHex;
         const { x, y } = subAxialToPixel(dq, dr);
-        // Only draw if the designated hex exists in the current sub‑grid.
         const found = subHexList.some(sh => sh.q === dq && sh.r === dr);
         if (found) {
           const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -796,7 +805,7 @@ function drawHexDetailView(region, clickedHex) {
     });
   }
 
-  // Draw pieces if available.
+  // --- Draw pieces if available ---
   if (puzzleScenario && puzzleScenario.pieces) {
     puzzleScenario.pieces.forEach(piece => {
       const { x, y } = subAxialToPixel(piece.q, piece.r);
