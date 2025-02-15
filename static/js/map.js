@@ -743,8 +743,6 @@ function drawHexDetailView(region, clickedHex) {
     poly.addEventListener("mouseleave", () => {
       hoverLabel.textContent = "";
     });
-
-    // Add click handler for hex selection (using your existing logic)
     poly.addEventListener("click", () => {
       if (isSelectingHex && currentHexSelector) {
         const pieceLabel = currentHexSelector.getAttribute("data-piece-label");
@@ -767,22 +765,13 @@ function drawHexDetailView(region, clickedHex) {
               validateTurnCompletion();
             }
           }
-          // (Other action types would be handled as before.)
+          // (Other action types can be handled here.)
         }
       }
     });
-
-    poly.addEventListener("mouseenter", () => {
-      hoverLabel.textContent = `(q=${sh.q},r=${sh.r}) of ${region.name}`;
-    });
-    poly.addEventListener("mouseleave", () => {
-      hoverLabel.textContent = "";
-    });
-
     gDetail.appendChild(poly);
   });
 
-  
   // --- Draw the exclamation marker only for POIs with a defined detailHex ---
   if (region.pointsOfInterest) {
     region.pointsOfInterest.forEach(poi => {
