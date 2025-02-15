@@ -20,7 +20,7 @@ import copy
 from sb3_contrib import MaskablePPO
 
 # Load the pre-trained model from file
-model = MaskablePPO.load("ppo_model.zip")
+model = MaskablePPO.load("ppo_model")
 
 # --- Option 1: Do not create a dummy environment here ---
 # If you are only using the model for reference or predictions (and it works without setting an env),
@@ -260,7 +260,7 @@ def main():
         candidate_puzzles.append(candidate)
         print(f"Candidate {i+1} (difficulty {difficulty}) evaluated as: {evaluation}")
     
-    with open("generated_puzzles.yaml", "w") as f:
+    with open("data/generated_puzzles.yaml", "w") as f:
         yaml.dump(candidate_puzzles, f, sort_keys=False)
     print("Saved candidate puzzles to generated_puzzles.yaml")
 
