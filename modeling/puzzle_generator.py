@@ -89,12 +89,9 @@ def generate_candidate_puzzle(
     """
     Generate a candidate puzzle scenario as a dictionary.
     
-    This function now ensures that:
-      - The player side always has at least one Priest.
-      - The enemy side always has at least one Priest and one BloodWarden.
-      - The total number of pieces for each side meets the given minimum.
-    
-    Other parameters (like subGridRadius and blockedHexes) are generated as before.
+    This version ensures that no two pieces (player or enemy) share the same hex.
+    It first creates a list of all hex coordinates for the subgrid, removes any blocked
+    hexes, and then randomly assigns unique positions to all pieces.
     """
     # Choose grid size based on difficulty if not provided.
     if sub_grid_radius is None:
@@ -112,7 +109,15 @@ def generate_candidate_puzzle(
         num_blocked = random.randint(1, sub_grid_radius) if difficulty >= 2 else 1
     blocked_hexes = random.sample(all_hexes, min(num_blocked, len(all_hexes)))
     
-    # If no pieces_config is provided, build one using our minimums.
+    # Build a set of blocked positions (as tuples for easy comparison).
+    def hex_tuple(h):
+        return (h['q'], h['r'])
+    blocked_set = {hex_tuple(h) for h in blocked_hexes}
+    
+    # Build a list of available hex positions (as tuples) excluding blocked ones.
+    available_hexes = [hex_tuple(h) for h in all_hexes if hex_tuple(h) not in blocked_set]
+    
+    # If no pieces_config is provided, build one using our minimum numbers.
     if pieces_config is None:
         # --- Build player pieces ---
         player_pieces = []
@@ -122,8 +127,8 @@ def generate_candidate_puzzle(
             "label": "P",
             "color": "#556b2f",
             "side": "player",
-            "q": -1,
-            "r": 0
+            "q": None,  # positions to be assigned
+            "r": None
         })
         # Fill up to player_min_pieces using other classes.
         while len(player_pieces) < player_min_pieces:
@@ -133,8 +138,8 @@ def generate_candidate_puzzle(
                 "label": cls[0],
                 "color": "#556b2f",
                 "side": "player",
-                "q": -1,  # initial placeholder
-                "r": 0
+                "q": None,
+                "r": None
             })
         
         # --- Build enemy pieces ---
@@ -145,16 +150,16 @@ def generate_candidate_puzzle(
             "label": "P",
             "color": "#dc143c",
             "side": "enemy",
-            "q": 1,
-            "r": 0
+            "q": None,
+            "r": None
         })
         enemy_pieces.append({
             "class": "BloodWarden",
             "label": "BW",
             "color": "#dc143c",
             "side": "enemy",
-            "q": 2,
-            "r": 0
+            "q": None,
+            "r": None
         })
         # Fill up to enemy_min_pieces using other enemy classes.
         while len(enemy_pieces) < enemy_min_pieces:
@@ -164,18 +169,23 @@ def generate_candidate_puzzle(
                 "label": cls[0],
                 "color": "#dc143c",
                 "side": "enemy",
-                "q": 1,  # placeholder
-                "r": 0
+                "q": None,
+                "r": None
             })
         pieces_config = player_pieces + enemy_pieces
 
-    # Optionally, if difficulty is higher, adjust the enemy positions a little.
-    if difficulty >= 2:
-        for piece in pieces_config:
-            if piece["side"] == "enemy":
-                piece["q"] += random.choice([-1, 0, 1])
-                piece["r"] += random.choice([-1, 0, 1])
-    
+    total_pieces = len(pieces_config)
+    # Ensure we have enough available hexes.
+    if total_pieces > len(available_hexes):
+        raise ValueError("Not enough available hexes to place all pieces uniquely.")
+
+    # Randomly assign unique positions from available_hexes.
+    assigned_positions = random.sample(available_hexes, total_pieces)
+    for i, pos in enumerate(assigned_positions):
+        pieces_config[i]["q"] = pos[0]
+        pieces_config[i]["r"] = pos[1]
+
+    # Note: Removed any post-assignment adjustments to ensure uniqueness.
     scenario = {
         "name": f"Puzzle Scenario (difficulty {difficulty})",
         "subGridRadius": sub_grid_radius,

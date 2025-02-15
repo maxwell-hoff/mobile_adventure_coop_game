@@ -1,6 +1,10 @@
-- name: Puzzle Scenario (difficulty 1)
+- name: Puzzle Scenario (difficulty 10)
   subGridRadius: 3
   blockedHexes:
+  - q: -1
+    r: -1
+  - q: 1
+    r: -1
   - q: 0
     r: -3
   pieces:
@@ -8,41 +12,41 @@
     label: P
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: -3
+    r: 2
+  - class: Sorcerer
+    label: S
+    color: '#556b2f'
+    side: player
+    q: -2
+    r: 3
   - class: Sorcerer
     label: S
     color: '#556b2f'
     side: player
     q: -1
-    r: 0
-  - class: Sorcerer
-    label: S
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
+    r: -2
   - class: Priest
     label: P
     color: '#dc143c'
     side: enemy
-    q: 1
-    r: 0
+    q: 2
+    r: 1
   - class: BloodWarden
     label: BW
     color: '#dc143c'
     side: enemy
-    q: 2
-    r: 0
-  - class: Guardian
-    label: G
+    q: 0
+    r: -2
+  - class: Hunter
+    label: H
     color: '#dc143c'
     side: enemy
-    q: 1
+    q: -1
     r: 0
-  difficulty: 1
+  difficulty: 10
   evaluation:
-    avg_reward: 0.0
+    avg_reward: 3.4
     avg_turns: 1.0
 - name: Puzzle Scenario (difficulty 6)
   subGridRadius: 4
@@ -58,41 +62,41 @@
     label: P
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 0
+    r: -3
   - class: Sorcerer
     label: S
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 4
+    r: -1
   - class: Warlock
     label: W
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 2
+    r: -4
   - class: Priest
     label: P
     color: '#dc143c'
     side: enemy
-    q: 1
+    q: 0
     r: 1
   - class: BloodWarden
     label: BW
     color: '#dc143c'
     side: enemy
-    q: 2
-    r: -1
+    q: -3
+    r: 4
   - class: Hunter
     label: H
     color: '#dc143c'
     side: enemy
-    q: 1
-    r: -1
+    q: -1
+    r: -3
   difficulty: 6
   evaluation:
-    avg_reward: 5.2
+    avg_reward: -0.6
     avg_turns: 1.0
 - name: Puzzle Scenario (difficulty 4)
   subGridRadius: 4
@@ -110,371 +114,379 @@
     label: P
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 3
+    r: 1
   - class: Sorcerer
     label: S
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 0
+    r: -2
   - class: Warlock
     label: W
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: -2
+    r: 1
   - class: Priest
     label: P
     color: '#dc143c'
     side: enemy
-    q: 1
-    r: -1
+    q: -3
+    r: 0
   - class: BloodWarden
     label: BW
     color: '#dc143c'
     side: enemy
-    q: 1
-    r: -1
+    q: 4
+    r: -3
   - class: Hunter
     label: H
     color: '#dc143c'
     side: enemy
     q: 2
-    r: 0
+    r: -2
   difficulty: 4
   evaluation:
-    avg_reward: -6.4
-    avg_turns: 2.8
-- name: Puzzle Scenario (difficulty 2)
+    avg_reward: -1.6
+    avg_turns: 1.0
+- name: Puzzle Scenario (difficulty 10)
   subGridRadius: 3
   blockedHexes:
-  - q: 0
+  - q: 3
     r: -2
-  - q: -2
-    r: 3
-  - q: 1
-    r: -3
   pieces:
   - class: Priest
     label: P
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 1
+    r: -3
   - class: Warlock
     label: W
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
-  - class: Warlock
-    label: W
+    q: -2
+    r: -1
+  - class: Sorcerer
+    label: S
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 0
+    r: -3
   - class: Priest
     label: P
     color: '#dc143c'
     side: enemy
     q: 1
-    r: -1
+    r: -2
   - class: BloodWarden
     label: BW
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: 1
-  - class: Hunter
-    label: H
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: 0
-  difficulty: 2
-  evaluation:
-    avg_reward: 0.2
-    avg_turns: 1.2
-- name: Puzzle Scenario (difficulty 9)
-  subGridRadius: 4
-  blockedHexes:
-  - q: -3
-    r: 1
-  pieces:
-  - class: Priest
-    label: P
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Sorcerer
-    label: S
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Warlock
-    label: W
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Priest
-    label: P
     color: '#dc143c'
     side: enemy
     q: 0
-    r: -1
-  - class: BloodWarden
-    label: BW
-    color: '#dc143c'
-    side: enemy
-    q: 3
     r: 0
-  - class: Hunter
-    label: H
+  - class: Guardian
+    label: G
     color: '#dc143c'
     side: enemy
-    q: 1
-    r: 1
-  difficulty: 9
+    q: -2
+    r: 0
+  difficulty: 10
   evaluation:
-    avg_reward: 1.2
+    avg_reward: 7.2
     avg_turns: 1.0
-- name: Puzzle Scenario (difficulty 8)
-  subGridRadius: 3
-  blockedHexes:
-  - q: 3
-    r: -3
-  - q: 3
-    r: -1
-  pieces:
-  - class: Priest
-    label: P
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Sorcerer
-    label: S
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Sorcerer
-    label: S
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Priest
-    label: P
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: 0
-  - class: BloodWarden
-    label: BW
-    color: '#dc143c'
-    side: enemy
-    q: 1
-    r: 1
-  - class: Hunter
-    label: H
-    color: '#dc143c'
-    side: enemy
-    q: 1
-    r: 0
-  difficulty: 8
-  evaluation:
-    avg_reward: 2.4
-    avg_turns: 1.0
-- name: Puzzle Scenario (difficulty 3)
-  subGridRadius: 3
-  blockedHexes:
-  - q: 2
-    r: -1
-  pieces:
-  - class: Priest
-    label: P
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Warlock
-    label: W
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Warlock
-    label: W
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Priest
-    label: P
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: 0
-  - class: BloodWarden
-    label: BW
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: -1
-  - class: Hunter
-    label: H
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: 1
-  difficulty: 3
-  evaluation:
-    avg_reward: 4.0
-    avg_turns: 1.0
-- name: Puzzle Scenario (difficulty 2)
-  subGridRadius: 3
+- name: Puzzle Scenario (difficulty 4)
+  subGridRadius: 4
   blockedHexes:
   - q: -2
-    r: 2
+    r: 4
   - q: 3
+    r: 1
+  - q: -4
+    r: 4
+  pieces:
+  - class: Priest
+    label: P
+    color: '#556b2f'
+    side: player
+    q: 2
     r: -2
-  pieces:
-  - class: Priest
-    label: P
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Warlock
-    label: W
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Warlock
-    label: W
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
-  - class: Priest
-    label: P
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: 0
-  - class: BloodWarden
-    label: BW
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: 1
-  - class: Guardian
-    label: G
-    color: '#dc143c'
-    side: enemy
-    q: 2
-    r: 1
-  difficulty: 2
-  evaluation:
-    avg_reward: -1.6
-    avg_turns: 1.2
-- name: Puzzle Scenario (difficulty 2)
-  subGridRadius: 3
-  blockedHexes:
-  - q: 0
-    r: 1
-  pieces:
-  - class: Priest
-    label: P
-    color: '#556b2f'
-    side: player
-    q: -1
-    r: 0
   - class: Sorcerer
     label: S
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 4
+    r: -4
   - class: Sorcerer
     label: S
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 1
+    r: -3
   - class: Priest
     label: P
     color: '#dc143c'
     side: enemy
-    q: 1
-    r: 1
+    q: -1
+    r: 2
   - class: BloodWarden
     label: BW
     color: '#dc143c'
     side: enemy
-    q: 2
+    q: -4
     r: 1
-  - class: Guardian
-    label: G
+  - class: Hunter
+    label: H
     color: '#dc143c'
     side: enemy
-    q: 1
-    r: 0
-  difficulty: 2
+    q: -3
+    r: 2
+  difficulty: 4
   evaluation:
     avg_reward: -3.4
     avg_turns: 1.0
-- name: Puzzle Scenario (difficulty 3)
-  subGridRadius: 4
+- name: Puzzle Scenario (difficulty 1)
+  subGridRadius: 3
   blockedHexes:
-  - q: 4
-    r: -2
-  - q: 1
-    r: -1
+  - q: -2
+    r: 1
   pieces:
   - class: Priest
     label: P
     color: '#556b2f'
     side: player
-    q: -1
+    q: 3
+    r: -2
+  - class: Sorcerer
+    label: S
+    color: '#556b2f'
+    side: player
+    q: 2
+    r: -1
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -3
+    r: 3
+  - class: Priest
+    label: P
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: -2
+  - class: BloodWarden
+    label: BW
+    color: '#dc143c'
+    side: enemy
+    q: -2
+    r: 3
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: -3
+  difficulty: 1
+  evaluation:
+    avg_reward: -2.6
+    avg_turns: 1.0
+- name: Puzzle Scenario (difficulty 4)
+  subGridRadius: 3
+  blockedHexes:
+  - q: -3
+    r: 2
+  - q: -3
+    r: 1
+  - q: 0
+    r: -3
+  pieces:
+  - class: Priest
+    label: P
+    color: '#556b2f'
+    side: player
+    q: 0
     r: 0
   - class: Warlock
     label: W
     color: '#556b2f'
     side: player
     q: -1
-    r: 0
+    r: -1
   - class: Warlock
     label: W
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
+    q: 3
+    r: -3
   - class: Priest
     label: P
     color: '#dc143c'
     side: enemy
     q: 1
-    r: 0
+    r: -1
   - class: BloodWarden
     label: BW
     color: '#dc143c'
     side: enemy
-    q: 3
+    q: -2
     r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: 3
+  difficulty: 4
+  evaluation:
+    avg_reward: 2.0
+    avg_turns: 1.0
+- name: Puzzle Scenario (difficulty 9)
+  subGridRadius: 4
+  blockedHexes:
+  - q: 2
+    r: 0
+  - q: 1
+    r: -4
+  - q: -1
+    r: 0
+  - q: -1
+    r: 1
+  pieces:
+  - class: Priest
+    label: P
+    color: '#556b2f'
+    side: player
+    q: -2
+    r: 3
+  - class: Sorcerer
+    label: S
+    color: '#556b2f'
+    side: player
+    q: -2
+    r: 1
+  - class: Sorcerer
+    label: S
+    color: '#556b2f'
+    side: player
+    q: -3
+    r: 1
+  - class: Priest
+    label: P
+    color: '#dc143c'
+    side: enemy
+    q: 3
+    r: -4
+  - class: BloodWarden
+    label: BW
+    color: '#dc143c'
+    side: enemy
+    q: -2
+    r: -1
   - class: Hunter
     label: H
     color: '#dc143c'
     side: enemy
+    q: -1
+    r: -1
+  difficulty: 9
+  evaluation:
+    avg_reward: -4.0
+    avg_turns: 2.8
+- name: Puzzle Scenario (difficulty 4)
+  subGridRadius: 4
+  blockedHexes:
+  - q: 0
+    r: 4
+  pieces:
+  - class: Priest
+    label: P
+    color: '#556b2f'
+    side: player
+    q: 3
+    r: -1
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -3
+    r: 3
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: -4
+    r: 4
+  - class: Priest
+    label: P
+    color: '#dc143c'
+    side: enemy
+    q: -4
+    r: 3
+  - class: BloodWarden
+    label: BW
+    color: '#dc143c'
+    side: enemy
+    q: -3
+    r: 4
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: 3
+    r: -3
+  difficulty: 4
+  evaluation:
+    avg_reward: -2.4
+    avg_turns: 1.0
+- name: Puzzle Scenario (difficulty 3)
+  subGridRadius: 4
+  blockedHexes:
+  - q: 0
+    r: 2
+  - q: 2
+    r: -2
+  - q: -2
+    r: 4
+  pieces:
+  - class: Priest
+    label: P
+    color: '#556b2f'
+    side: player
+    q: -2
+    r: 2
+  - class: Sorcerer
+    label: S
+    color: '#556b2f'
+    side: player
     q: 0
     r: 0
+  - class: Sorcerer
+    label: S
+    color: '#556b2f'
+    side: player
+    q: 1
+    r: -2
+  - class: Priest
+    label: P
+    color: '#dc143c'
+    side: enemy
+    q: -3
+    r: 3
+  - class: BloodWarden
+    label: BW
+    color: '#dc143c'
+    side: enemy
+    q: -1
+    r: 4
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: -2
+    r: -1
   difficulty: 3
   evaluation:
-    avg_reward: -0.6
+    avg_reward: -0.8
     avg_turns: 1.0
