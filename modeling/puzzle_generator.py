@@ -1,78 +1,25 @@
-__doc__ = """
+"""
 file: puzzle_generator.py
 author: Max Hoff
-date: 20250209
-description: A starting point for generating candidate puzzles and evaluating them
-using your RL environment (from rl_training.py). The idea is to generate
-a candidate puzzle scenario, run several simulated episodes with it,
-and then use the average outcome (e.g. average reward or turns taken) as a
-proxy for difficulty.
+description:
+  Generates candidate puzzles for a Hex-based scenario, then evaluates them
+  by having a PPO RL agent self-play. The puzzle's 'difficulty' is determined by
+  how often the player side (always going first) wins within a 10-turn limit,
+  compared to enemy wins or timeouts. Puzzles with zero player wins are considered
+  unwinnable and are filtered out.
 """
 
 import random
 import yaml
 import copy
-
-# Import your RL environment (and optionally your agent maker)
-# from rl_training import HexPuzzleEnv, make_env_fn
-
-# Optionally, if you have a pre-trained PPO model, you can import/load it here:
 from sb3_contrib import MaskablePPO
+from stable_baselines3.common.vec_env import DummyVecEnv
 
-# Load the pre-trained model from file
+# Import your RL environment and an env-maker function
+from rl_training import HexPuzzleEnv, make_env_fn
+
+# Load a pre-trained PPO model from file
 model = MaskablePPO.load("ppo_model")
-
-# --- Option 1: Do not create a dummy environment here ---
-# If you are only using the model for reference or predictions (and it works without setting an env),
-# you can simply skip setting an environment.
-#
-# from stable_baselines3.common.vec_env import DummyVecEnv
-# from rl_training import make_env_fn
-#
-# # This line caused the error because scenario_dict was not defined.
-# # env = DummyVecEnv([make_env_fn(scenario_dict, randomize_positions=False)])
-# # model.set_env(env)
-
-# --- Option 2: (Alternative) Define a dummy scenario and create an environment ---
-# Uncomment the following lines if your model needs an environment for proper inference.
-# from stable_baselines3.common.vec_env import DummyVecEnv
-# from rl_training import make_env_fn
-#
-# # Generate a dummy candidate scenario to serve as our "scenario_dict"
-# def generate_candidate_puzzle(
-#     sub_grid_radius=None,
-#     num_blocked=None,
-#     pieces_config=None,
-#     difficulty=1
-# ):
-#     if sub_grid_radius is None:
-#         sub_grid_radius = random.choice([3, 4]) if difficulty >= 2 else 3
-#     all_hexes = []
-#     for q in range(-sub_grid_radius, sub_grid_radius + 1):
-#         for r in range(-sub_grid_radius, sub_grid_radius + 1):
-#             if abs(q + r) <= sub_grid_radius:
-#                 all_hexes.append({'q': q, 'r': r})
-#     if num_blocked is None:
-#         num_blocked = random.randint(1, sub_grid_radius) if difficulty >= 2 else 1
-#     blocked_hexes = random.sample(all_hexes, min(num_blocked, len(all_hexes)))
-#     if pieces_config is None:
-#         pieces_config = [
-#             { "class": "Warlock",  "label": "W", "color": "#556b2f", "side": "player", "q": -1, "r": 0 },
-#             { "class": "Guardian", "label": "G", "color": "#dc143c", "side": "enemy",  "q": 1,  "r": 0 },
-#             { "class": "Hunter",   "label": "H", "color": "#dc143c", "side": "enemy",  "q": 0,  "r": 1 }
-#         ]
-#     scenario = {
-#         "name": f"Puzzle Scenario (difficulty {difficulty})",
-#         "subGridRadius": sub_grid_radius,
-#         "blockedHexes": blocked_hexes,
-#         "pieces": pieces_config,
-#         "difficulty": difficulty
-#     }
-#     return scenario
-#
-# dummy_scenario = generate_candidate_puzzle(difficulty=1)
-# env = DummyVecEnv([make_env_fn(dummy_scenario, randomize_positions=False)])
-# model.set_env(env)
 
 #########################################
 # 1. Candidate Puzzle Generation
@@ -82,175 +29,180 @@ def generate_candidate_puzzle(
     sub_grid_radius=None,
     num_blocked=None,
     pieces_config=None,
-    difficulty=1,
-    player_min_pieces=3,
-    enemy_min_pieces=3
 ):
     """
     Generate a candidate puzzle scenario as a dictionary.
-    
-    This version ensures that no two pieces (player or enemy) share the same hex.
-    It first creates a list of all hex coordinates for the subgrid, removes any blocked
-    hexes, and then randomly assigns unique positions to all pieces.
-    """
-    # Choose grid size based on difficulty if not provided.
-    if sub_grid_radius is None:
-        sub_grid_radius = random.choice([3, 4]) if difficulty >= 2 else 3
 
-    # Build a list of all hex coordinates for the subgrid.
+    - By default, picks a sub-grid radius randomly (3 or 4).
+    - Randomly blocks a few hexes.
+    - Ensures both sides have exactly 2 pieces: 1 Priest + 1 other class.
+    - Positions are randomly assigned to non-blocked hexes.
+    """
+    # Choose random sub-grid radius if not provided
+    if sub_grid_radius is None:
+        sub_grid_radius = random.choice([3, 4])  # or fix to 3 if you prefer
+
+    # Build a list of all hex coordinates for the subgrid
     all_hexes = []
     for q in range(-sub_grid_radius, sub_grid_radius + 1):
         for r in range(-sub_grid_radius, sub_grid_radius + 1):
             if abs(q + r) <= sub_grid_radius:
                 all_hexes.append({'q': q, 'r': r})
-    
-    # Decide how many hexes to block.
+
+    # Decide how many hexes to block; pick randomly but not too large
     if num_blocked is None:
-        num_blocked = random.randint(1, sub_grid_radius) if difficulty >= 2 else 1
+        # just pick some small random count. Adjust as you wish
+        max_to_block = max(1, sub_grid_radius)  # e.g., up to radius
+        num_blocked = random.randint(1, max_to_block)
     blocked_hexes = random.sample(all_hexes, min(num_blocked, len(all_hexes)))
-    
-    # Build a set of blocked positions (as tuples for easy comparison).
+
+    # Build a set of blocked positions (as tuples)
     def hex_tuple(h):
         return (h['q'], h['r'])
     blocked_set = {hex_tuple(h) for h in blocked_hexes}
-    
-    # Build a list of available hex positions (as tuples) excluding blocked ones.
+
+    # Build a list of available hex positions (as tuples) excluding blocked ones
     available_hexes = [hex_tuple(h) for h in all_hexes if hex_tuple(h) not in blocked_set]
-    
-    # If no pieces_config is provided, build one using our minimum numbers.
+
+    # If no pieces_config is provided, build one with exactly 2 pieces per side:
+    #   1 Priest + 1 random class
     if pieces_config is None:
+        # Some possible non-Priest classes:
+        possible_classes = ["Warlock", "Sorcerer", "Guardian", "BloodWarden", "Hunter"]
+
         # --- Build player pieces ---
-        player_pieces = []
-        # Always include a Priest.
-        player_pieces.append({
+        player_priest = {
             "class": "Priest",
             "label": "P",
             "color": "#556b2f",
             "side": "player",
-            "q": None,  # positions to be assigned
+            "q": None,
             "r": None
-        })
-        # Fill up to player_min_pieces using other classes.
-        while len(player_pieces) < player_min_pieces:
-            cls = random.choice(["Warlock", "Sorcerer"])
-            player_pieces.append({
-                "class": cls,
-                "label": cls[0],
-                "color": "#556b2f",
-                "side": "player",
-                "q": None,
-                "r": None
-            })
-        
+        }
+        player_other_class = random.choice(possible_classes)
+        player_other = {
+            "class": player_other_class,
+            "label": player_other_class[0],  # e.g. 'W', 'S', 'G', 'B', 'H'
+            "color": "#556b2f",
+            "side": "player",
+            "q": None,
+            "r": None
+        }
+        player_pieces = [player_priest, player_other]
+
         # --- Build enemy pieces ---
-        enemy_pieces = []
-        # Always include a Priest and a BloodWarden.
-        enemy_pieces.append({
+        enemy_priest = {
             "class": "Priest",
             "label": "P",
             "color": "#dc143c",
             "side": "enemy",
             "q": None,
             "r": None
-        })
-        enemy_pieces.append({
-            "class": "BloodWarden",
-            "label": "BW",
+        }
+        enemy_other_class = random.choice(possible_classes)
+        enemy_other = {
+            "class": enemy_other_class,
+            "label": enemy_other_class[0],  # e.g. 'W', 'S', 'G', 'B', 'H'
             "color": "#dc143c",
             "side": "enemy",
             "q": None,
             "r": None
-        })
-        # Fill up to enemy_min_pieces using other enemy classes.
-        while len(enemy_pieces) < enemy_min_pieces:
-            cls = random.choice(["Guardian", "Hunter"])
-            enemy_pieces.append({
-                "class": cls,
-                "label": cls[0],
-                "color": "#dc143c",
-                "side": "enemy",
-                "q": None,
-                "r": None
-            })
+        }
+        enemy_pieces = [enemy_priest, enemy_other]
+
         pieces_config = player_pieces + enemy_pieces
 
+    # Make sure we have enough hexes to place the 4 pieces
     total_pieces = len(pieces_config)
-    # Ensure we have enough available hexes.
     if total_pieces > len(available_hexes):
-        raise ValueError("Not enough available hexes to place all pieces uniquely.")
+        raise ValueError("Not enough available hexes to place all pieces.")
 
-    # Randomly assign unique positions from available_hexes.
+    # Randomly assign unique positions from available_hexes
     assigned_positions = random.sample(available_hexes, total_pieces)
     for i, pos in enumerate(assigned_positions):
         pieces_config[i]["q"] = pos[0]
         pieces_config[i]["r"] = pos[1]
 
-    # Note: Removed any post-assignment adjustments to ensure uniqueness.
     scenario = {
-        "name": f"Puzzle Scenario (difficulty {difficulty})",
+        "name": "Puzzle Scenario",
         "subGridRadius": sub_grid_radius,
         "blockedHexes": blocked_hexes,
-        "pieces": pieces_config,
-        "difficulty": difficulty
+        "pieces": pieces_config
     }
     return scenario
 
+
 #########################################
-# 2. Puzzle Evaluation via RL Simulation
+# 2. Puzzle Evaluation via RL Simulations
 #########################################
 
-def evaluate_puzzle(scenario, num_trials=5, approach="random", agent=None):
+def evaluate_puzzle(scenario, num_simulations=5):
     """
-    Evaluate the candidate puzzle by simulating episodes.
-    
-    This function now creates the environment with the same settings as used during training:
-      - randomize_radius=True
-      - randomize_blocked=True
-      - randomize_pieces=True
-      - player_min_pieces=3, player_max_pieces=4
-      - enemy_min_pieces=3, enemy_max_pieces=5
-    
-    This ensures that the observation produced (of shape (18,)) matches what the PPO model expects.
-    """
-    total_reward = 0.0
-    total_turns = 0
+    Evaluate the puzzle by self-play using the PPO model.
+    Runs `num_simulations` episodes. Each episode:
+      - Player side moves first (env defaults).
+      - The same PPO model is used for both player & enemy turns.
+      - If final reward >= +30 and final turn_side == 'player', that's a PLAYER WIN.
+      - If final reward >= +30 and final turn_side == 'enemy', that's an ENEMY WIN.
+      - If final reward <= -30, whichever side had the final turn was the winner
+        (meaning the other side got wiped). So if final turn_side='player' and rew <= -30,
+        the enemy actually won, etc.
+      - If final reward == -20 or we hit turn limit => that's a 'draw/timeout'.
 
-    from rl_training import HexPuzzleEnv  # import the environment
-    for _ in range(num_trials):
+    Returns a dict with tallies of wins/losses/draws and a 'puzzle_difficulty' measure
+    you can define as you like. Here, we'll define:
+      puzzle_difficulty = (enemy_wins - player_wins), for example.
+    """
+    player_wins = 0
+    enemy_wins = 0
+    draws = 0
+
+    for _ in range(num_simulations):
         env = HexPuzzleEnv(
             puzzle_scenario=copy.deepcopy(scenario),
             max_turns=10,
-            randomize_positions=True,
-            randomize_radius=True,      # match training setting
-            randomize_blocked=True,     # match training setting
-            randomize_pieces=True,      # match training setting
-            player_min_pieces=3,
-            player_max_pieces=4,
-            enemy_min_pieces=3,
-            enemy_max_pieces=5
+            randomize_positions=False
         )
         obs, _ = env.reset()
         done = False
+
         while not done:
-            valid_actions = env.build_action_list()
-            if not valid_actions:
-                break
-            if approach == "random":
-                action_idx = random.randint(0, len(valid_actions)-1)
-            elif approach == "ppo" and agent is not None:
-                action, _ = agent.predict(obs, deterministic=True)
-                action_idx = int(action)
-            elif approach == "mcts":
-                action_idx = random.randint(0, len(valid_actions)-1)
+            # PPO picks an action for the current side (player or enemy)
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, _ = env.step(action)
+
+        # Evaluate final outcome
+        final_step = env.current_episode[-1]
+        final_rew = final_step["reward"]
+        final_side = final_step["turn_side"]  # side that took the last turn
+
+        if final_rew >= 30:
+            # The side that moved last is the winner
+            if final_side == "player":
+                player_wins += 1
             else:
-                action_idx = random.randint(0, len(valid_actions)-1)
-            obs, reward, done, truncated, _ = env.step(action_idx)
-        final_reward = env.current_episode[-1].get("reward", 0.0)
-        total_reward += final_reward
-        total_turns += env.turn_number
-    avg_reward = total_reward / num_trials
-    avg_turns = total_turns / num_trials
-    return {"avg_reward": avg_reward, "avg_turns": avg_turns}
+                enemy_wins += 1
+        elif final_rew <= -30:
+            # If final_side = 'player' and reward <= -30 => the *enemy* effectively won
+            if final_side == "player":
+                enemy_wins += 1
+            else:
+                player_wins += 1
+        else:
+            # Usually -20 => timed out => draw
+            draws += 1
+
+    # You can define "puzzle_difficulty" however you like
+    # e.g. a puzzle is "hard" if the player rarely wins
+    # We'll do a simple numeric measure: enemy_wins - player_wins
+    puzzle_difficulty = enemy_wins - player_wins
+
+    return {
+        "player_wins": player_wins,
+        "enemy_wins": enemy_wins,
+        "draws": draws,
+        "puzzle_difficulty": puzzle_difficulty
+    }
 
 
 #########################################
@@ -259,20 +211,35 @@ def evaluate_puzzle(scenario, num_trials=5, approach="random", agent=None):
 
 def main():
     num_candidates = 10
+    num_simulations_per_puzzle = 1000  # You can configure
+
     candidate_puzzles = []
-    
+
     for i in range(num_candidates):
-        difficulty = random.randint(1, 10)
-        candidate = generate_candidate_puzzle(difficulty=difficulty)
-        evaluation = evaluate_puzzle(candidate, num_trials=5, approach="ppo", agent=model)
+        candidate = generate_candidate_puzzle()
+        evaluation = evaluate_puzzle(candidate, num_simulations=num_simulations_per_puzzle)
+
+        # Filter out if unwinnable (player_wins == 0)
+        if evaluation["player_wins"] == 0:
+            # skip unwinnable puzzles
+            print(f"Candidate {i+1} is unwinnable (player never wins). Excluding.")
+            continue
+
+        # Attach evaluation data
         candidate["evaluation"] = evaluation
-        
         candidate_puzzles.append(candidate)
-        print(f"Candidate {i+1} (difficulty {difficulty}) evaluated as: {evaluation}")
-    
-    with open("data/generated_puzzles.yaml", "w") as f:
-        yaml.dump(candidate_puzzles, f, sort_keys=False)
-    print("Saved candidate puzzles to generated_puzzles.yaml")
+
+        print(f"Candidate {i+1} => W:{evaluation['player_wins']}  "
+              f"L:{evaluation['enemy_wins']}  D:{evaluation['draws']}  "
+              f"Difficulty:{evaluation['puzzle_difficulty']}")
+
+    # Save the valid puzzles to YAML
+    if candidate_puzzles:
+        with open("data/generated_puzzles.yaml", "w") as f:
+            yaml.dump(candidate_puzzles, f, sort_keys=False)
+        print("Saved candidate puzzles to generated_puzzles.yaml")
+    else:
+        print("No valid (winnable) puzzles were generated.")
 
 if __name__ == "__main__":
     main()

@@ -816,13 +816,35 @@ class HexPuzzleEnv(gym.Env):
             self.non_bloodwarden_kills += 1
 
     def get_obs(self):
+        """
+        Return an 18-length observation vector by padding with zeros
+        if we have fewer than 9 total pieces.
+        """
+        # Build coords for each piece, [p1_q, p1_r, p2_q, p2_r, ...]
         coords = []
         for p in self.player_pieces:
-            coords.extend([p["q"], p["r"]])
+            coords.append(p["q"])
+            coords.append(p["r"])
         for e in self.enemy_pieces:
-            coords.extend([e["q"], e["r"]])
-        while len(coords) < self.obs_size:
-            coords.append(0)
+            coords.append(e["q"])
+            coords.append(e["r"])
+        
+        # The model expects 18 floats (for 9 pieces).
+        # If we have fewer than 9 pieces total, pad with zeros.
+        # If we have exactly 9 or more, you might want to either slice or keep them
+        # (depending on how you trained).
+        
+        desired_size = 18  # 9 pieces * 2 coords
+        current_size = len(coords)
+        
+        if current_size < desired_size:
+            # zero-pad at the end
+            coords += [0] * (desired_size - current_size)
+        elif current_size > desired_size:
+            # or if we have more pieces than expected, either slice them
+            # or raise an error. The line below just slices to 18:
+            coords = coords[:desired_size]
+        
         return np.array(coords, dtype=np.float32)
 
     def _log_positions(self):
