@@ -593,22 +593,25 @@ function drawHexDetailView(region, clickedHex) {
   // --- Determine if a POI story should trigger ---
   let triggeredPOI = null;
   if (region.pointsOfInterest) {
-    // First, check among POIs that define a detailHex.
     for (let poi of region.pointsOfInterest) {
       if (poi.detailHex) {
-        if (poi.detailHex.q === clickedHex.q && poi.detailHex.r === clickedHex.r) {
+        // For POIs with a detailHex, only trigger if the clicked hex exactly matches the detailHex.
+        if (Number(poi.detailHex.q) === Number(clickedHex.q) &&
+            Number(poi.detailHex.r) === Number(clickedHex.r)) {
           triggeredPOI = poi;
           break;
         }
       } else {
-        // If no detailHex is defined, trigger story if clickedHex matches the POI's region coordinate.
-        if (poi.q === clickedHex.q && poi.r === clickedHex.r) {
+        // For POIs without a detailHex, trigger immediately when the clicked hex matches the POI's own coordinates.
+        if (Number(poi.q) === Number(clickedHex.q) &&
+            Number(poi.r) === Number(clickedHex.r)) {
           triggeredPOI = poi;
           break;
         }
       }
     }
   }
+
   if (
     triggeredPOI &&
     triggeredPOI.story &&
@@ -617,12 +620,12 @@ function drawHexDetailView(region, clickedHex) {
     !triggeredPOI.story.shown
   ) {
     showStoryOverlay(triggeredPOI.story.lines, function() {
-      // Mark the story as shown so that subsequent clicks don’t re-trigger it.
+      // Mark the story as shown so that subsequent clicks won’t re-trigger it.
       triggeredPOI.story.shown = true;
       // Redraw the detail view after closing the story overlay.
       drawHexDetailView(region, clickedHex);
     });
-    return; // Do not continue drawing the detail view until the story overlay is closed.
+    return; // Exit early until the story overlay is closed.
   }
 
   // --- Continue drawing the normal detail view ---
@@ -679,7 +682,6 @@ function drawHexDetailView(region, clickedHex) {
   const playerControls = document.getElementById("player-controls");
   const enemyControls = document.getElementById("enemy-controls");
   if (puzzleScenario) {
-    // (Optionally add player piece if not already present)
     if (window.selectedCharacter && window.selectedCharacter.location === "regionId=1|q=0|r=0") {
       const exists = puzzleScenario.pieces.some(p => p.label === window.selectedCharacter.name);
       if (!exists) {
@@ -743,8 +745,6 @@ function drawHexDetailView(region, clickedHex) {
     poly.addEventListener("mouseleave", () => {
       hoverLabel.textContent = "";
     });
-
-    // Add click handler for hex selection (using your existing logic)
     poly.addEventListener("click", () => {
       if (isSelectingHex && currentHexSelector) {
         const pieceLabel = currentHexSelector.getAttribute("data-piece-label");
@@ -767,42 +767,29 @@ function drawHexDetailView(region, clickedHex) {
               validateTurnCompletion();
             }
           }
-          // (Other action types would be handled as before.)
         }
       }
     });
-
-    poly.addEventListener("mouseenter", () => {
-      hoverLabel.textContent = `(q=${sh.q},r=${sh.r}) of ${region.name}`;
-    });
-    poly.addEventListener("mouseleave", () => {
-      hoverLabel.textContent = "";
-    });
-
     gDetail.appendChild(poly);
   });
 
-  
-  // --- Draw the exclamation marker only for POIs with a defined detailHex ---
-  if (region.pointsOfInterest) {
-    region.pointsOfInterest.forEach(poi => {
-      if (poi.detailHex && poi.story && poi.story.lines && poi.story.lines.length > 0) {
-        const { q: dq, r: dr } = poi.detailHex;
-        const { x, y } = subAxialToPixel(dq, dr);
-        const found = subHexList.some(sh => sh.q === dq && sh.r === dr);
-        if (found) {
-          const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
-          textEl.setAttribute("x", x);
-          textEl.setAttribute("y", y);
-          textEl.setAttribute("text-anchor", "middle");
-          textEl.setAttribute("dominant-baseline", "middle");
-          textEl.setAttribute("fill", "orange");
-          textEl.setAttribute("font-size", SUB_HEX_SIZE * 1.5);
-          textEl.textContent = "!";
-          gDetail.appendChild(textEl);
-        }
-      }
-    });
+  // --- Draw the exclamation marker ONLY for the triggered POI (if it defines a detailHex) ---
+  if (triggeredPOI && triggeredPOI.detailHex && triggeredPOI.story && triggeredPOI.story.lines && triggeredPOI.story.lines.length > 0) {
+    const { q: dq, r: dr } = triggeredPOI.detailHex;
+    const { x, y } = subAxialToPixel(dq, dr);
+    // Only draw if the designated hex exists in the sub‑grid.
+    const found = subHexList.some(sh => sh.q === dq && sh.r === dr);
+    if (found) {
+      const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      textEl.setAttribute("x", x);
+      textEl.setAttribute("y", y);
+      textEl.setAttribute("text-anchor", "middle");
+      textEl.setAttribute("dominant-baseline", "middle");
+      textEl.setAttribute("fill", "orange");
+      textEl.setAttribute("font-size", SUB_HEX_SIZE * 1.5);
+      textEl.textContent = "!";
+      gDetail.appendChild(textEl);
+    }
   }
 
   // --- Draw pieces if available ---
