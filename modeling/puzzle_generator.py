@@ -1,12 +1,12 @@
-"""
+__doc__ = """
 file: puzzle_generator.py
-author: Max Hoff
 description:
   Generates candidate puzzles for a Hex-based scenario, then evaluates them
-  by having a PPO RL agent self-play. The puzzle's 'difficulty' is determined by
-  how often the player side (always going first) wins within a 10-turn limit,
-  compared to enemy wins or timeouts. Puzzles with zero player wins are considered
-  unwinnable and are filtered out.
+  via a PPO RL agent self-play. Each side:
+    - Must have exactly 1 Priest
+    - Has a random number of additional pieces from [Warlock, Sorcerer, Guardian, Hunter, BloodWarden].
+  We skip any puzzle where the player can't ever win, or if the player's win
+  rate exceeds a certain threshold (puzzle is too easy).
 """
 
 import random
@@ -15,143 +15,159 @@ import copy
 from sb3_contrib import MaskablePPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-# Import your RL environment and an env-maker function
-from rl_training import HexPuzzleEnv, make_env_fn
+from rl_training import HexPuzzleEnv
 
-# Load a pre-trained PPO model from file
+# Load your existing PPO model
 model = MaskablePPO.load("ppo_model")
 
-#########################################
-# 1. Candidate Puzzle Generation
-#########################################
+
+############################################
+# 1. Build side pieces (always 1 Priest + random others)
+############################################
+
+def build_side_pieces_with_priest(
+    side: str,
+    min_total_pieces: int = 2,
+    max_total_pieces: int = 5
+):
+    """
+    Create a random number (between min_total_pieces and max_total_pieces)
+    of total pieces for the given side. Exactly one of these pieces is a Priest.
+    The rest are chosen from [Warlock, Sorcerer, Guardian, Hunter, BloodWarden].
+    
+    Example:
+      min_total_pieces=2, max_total_pieces=5
+      - side might end up with anywhere between 2..5 total pieces
+      - the first is always a Priest
+      - the remainder (total_pieces - 1) are random picks from the "extra_classes".
+    """
+    # Always add one Priest
+    color = "#556b2f" if side == "player" else "#dc143c"
+    pieces = [{
+        "class": "Priest",
+        "label": "P",
+        "color": color,
+        "side": side,
+        "q": None,
+        "r": None
+    }]
+
+    # The other classes that either side can have
+    extra_classes = ["Warlock", "Sorcerer", "Guardian", "Hunter", "BloodWarden"]
+
+    # Decide total piece count for this side
+    total_count = random.randint(min_total_pieces, max_total_pieces)
+    # We already have 1 Priest, so we fill the rest with random picks
+    extras_needed = total_count - 1
+
+    for _ in range(extras_needed):
+        chosen_class = random.choice(extra_classes)
+        # We'll label them by their first letter (like 'W', 'S', 'G', 'H') 
+        # except "BloodWarden" => maybe "B" or "BW"? We'll just do "B" for short.
+        if chosen_class == "BloodWarden":
+            label = "B"
+        else:
+            label = chosen_class[0].upper()
+
+        piece_info = {
+            "class": chosen_class,
+            "label": label,
+            "color": color,
+            "side": side,
+            "q": None,
+            "r": None
+        }
+        pieces.append(piece_info)
+
+    return pieces
+
+
+############################################
+# 2. Candidate puzzle generation
+############################################
 
 def generate_candidate_puzzle(
     sub_grid_radius=None,
     num_blocked=None,
-    pieces_config=None,
+    player_min_total=2,
+    player_max_total=5,
+    enemy_min_total=2,
+    enemy_max_total=5
 ):
     """
-    Generate a candidate puzzle scenario as a dictionary.
-
-    - By default, picks a sub-grid radius randomly (3 or 4).
-    - Randomly blocks a few hexes.
-    - Ensures both sides have exactly 2 pieces: 1 Priest + 1 other class.
-    - Positions are randomly assigned to non-blocked hexes.
+    Generate a puzzle scenario:
+      - sub_grid_radius is random [3 or 4] if not specified
+      - block some random hexes
+      - For the player side: exactly 1 Priest, plus random others => total in [player_min_total..player_max_total]
+      - For the enemy side: exactly 1 Priest, plus random others => total in [enemy_min_total..enemy_max_total]
+      - Place them on non-blocked hexes.
     """
-    # Choose random sub-grid radius if not provided
+    # 1) sub-grid radius
     if sub_grid_radius is None:
-        sub_grid_radius = random.choice([3, 4])  # or fix to 3 if you prefer
+        sub_grid_radius = random.choice([3, 4])
 
-    # Build a list of all hex coordinates for the subgrid
+    # gather all hex coords in sub-grid
     all_hexes = []
     for q in range(-sub_grid_radius, sub_grid_radius + 1):
         for r in range(-sub_grid_radius, sub_grid_radius + 1):
             if abs(q + r) <= sub_grid_radius:
-                all_hexes.append({'q': q, 'r': r})
+                all_hexes.append({"q": q, "r": r})
 
-    # Decide how many hexes to block; pick randomly but not too large
+    # 2) random blocked
     if num_blocked is None:
-        # just pick some small random count. Adjust as you wish
-        max_to_block = max(1, sub_grid_radius)  # e.g., up to radius
+        max_to_block = max(1, sub_grid_radius)
         num_blocked = random.randint(1, max_to_block)
     blocked_hexes = random.sample(all_hexes, min(num_blocked, len(all_hexes)))
+    blocked_set = {(h["q"], h["r"]) for h in blocked_hexes}
+    available_hexes = [
+        (h["q"], h["r"]) for h in all_hexes 
+        if (h["q"], h["r"]) not in blocked_set
+    ]
 
-    # Build a set of blocked positions (as tuples)
-    def hex_tuple(h):
-        return (h['q'], h['r'])
-    blocked_set = {hex_tuple(h) for h in blocked_hexes}
+    # 3) build random piece sets
+    player_pieces = build_side_pieces_with_priest(
+        side="player",
+        min_total_pieces=player_min_total,
+        max_total_pieces=player_max_total
+    )
+    enemy_pieces = build_side_pieces_with_priest(
+        side="enemy",
+        min_total_pieces=enemy_min_total,
+        max_total_pieces=enemy_max_total
+    )
 
-    # Build a list of available hex positions (as tuples) excluding blocked ones
-    available_hexes = [hex_tuple(h) for h in all_hexes if hex_tuple(h) not in blocked_set]
+    all_pieces = player_pieces + enemy_pieces
 
-    # If no pieces_config is provided, build one with exactly 2 pieces per side:
-    #   1 Priest + 1 random class
-    if pieces_config is None:
-        # Some possible non-Priest classes:
-        possible_classes = ["Warlock", "Sorcerer", "Guardian", "BloodWarden", "Hunter"]
+    # ensure enough available hexes
+    if len(all_pieces) > len(available_hexes):
+        raise ValueError("Not enough unblocked hexes to place all pieces.")
 
-        # --- Build player pieces ---
-        player_priest = {
-            "class": "Priest",
-            "label": "P",
-            "color": "#556b2f",
-            "side": "player",
-            "q": None,
-            "r": None
-        }
-        player_other_class = random.choice(possible_classes)
-        player_other = {
-            "class": player_other_class,
-            "label": player_other_class[0],  # e.g. 'W', 'S', 'G', 'B', 'H'
-            "color": "#556b2f",
-            "side": "player",
-            "q": None,
-            "r": None
-        }
-        player_pieces = [player_priest, player_other]
+    # 4) assign random unique positions
+    assigned_positions = random.sample(available_hexes, len(all_pieces))
+    for i, (qx, rx) in enumerate(assigned_positions):
+        all_pieces[i]["q"] = qx
+        all_pieces[i]["r"] = rx
 
-        # --- Build enemy pieces ---
-        enemy_priest = {
-            "class": "Priest",
-            "label": "P",
-            "color": "#dc143c",
-            "side": "enemy",
-            "q": None,
-            "r": None
-        }
-        enemy_other_class = random.choice(possible_classes)
-        enemy_other = {
-            "class": enemy_other_class,
-            "label": enemy_other_class[0],  # e.g. 'W', 'S', 'G', 'B', 'H'
-            "color": "#dc143c",
-            "side": "enemy",
-            "q": None,
-            "r": None
-        }
-        enemy_pieces = [enemy_priest, enemy_other]
-
-        pieces_config = player_pieces + enemy_pieces
-
-    # Make sure we have enough hexes to place the 4 pieces
-    total_pieces = len(pieces_config)
-    if total_pieces > len(available_hexes):
-        raise ValueError("Not enough available hexes to place all pieces.")
-
-    # Randomly assign unique positions from available_hexes
-    assigned_positions = random.sample(available_hexes, total_pieces)
-    for i, pos in enumerate(assigned_positions):
-        pieces_config[i]["q"] = pos[0]
-        pieces_config[i]["r"] = pos[1]
-
+    # final scenario
     scenario = {
         "name": "Puzzle Scenario",
         "subGridRadius": sub_grid_radius,
         "blockedHexes": blocked_hexes,
-        "pieces": pieces_config
+        "pieces": all_pieces
     }
     return scenario
 
 
-#########################################
-# 2. Puzzle Evaluation via RL Simulations
-#########################################
+############################################
+# 3. Evaluate puzzle by RL self-play
+############################################
 
-def evaluate_puzzle(scenario, num_simulations=5):
+def evaluate_puzzle(scenario, num_simulations=50):
     """
-    Evaluate the puzzle by self-play using the PPO model.
-    Runs `num_simulations` episodes. Each episode:
-      - Player side moves first (env defaults).
-      - The same PPO model is used for both player & enemy turns.
-      - If final reward >= +30 and final turn_side == 'player', that's a PLAYER WIN.
-      - If final reward >= +30 and final turn_side == 'enemy', that's an ENEMY WIN.
-      - If final reward <= -30, whichever side had the final turn was the winner
-        (meaning the other side got wiped). So if final turn_side='player' and rew <= -30,
-        the enemy actually won, etc.
-      - If final reward == -20 or we hit turn limit => that's a 'draw/timeout'.
-
-    Returns a dict with tallies of wins/losses/draws and a 'puzzle_difficulty' measure
-    you can define as you like. Here, we'll define:
-      puzzle_difficulty = (enemy_wins - player_wins), for example.
+    Let the PPO model self-play `num_simulations` times. 
+    Tally how often the player wins vs. enemy wins vs. draws.
+    Returns a dict with that info and a puzzle_difficulty measure 
+    (which you can define however you like).
     """
     player_wins = 0
     enemy_wins = 0
@@ -167,36 +183,30 @@ def evaluate_puzzle(scenario, num_simulations=5):
         done = False
 
         while not done:
-            # PPO picks an action for the current side (player or enemy)
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done, truncated, _ = env.step(action)
 
-        # Evaluate final outcome
-        final_step = env.current_episode[-1]
-        final_rew = final_step["reward"]
-        final_side = final_step["turn_side"]  # side that took the last turn
+        final_data = env.current_episode[-1]
+        final_side = final_data["turn_side"]
+        final_rew = final_data["reward"]
 
+        # standard "who won" logic:
         if final_rew >= 30:
-            # The side that moved last is the winner
             if final_side == "player":
                 player_wins += 1
             else:
                 enemy_wins += 1
         elif final_rew <= -30:
-            # If final_side = 'player' and reward <= -30 => the *enemy* effectively won
+            # if side=player but rew <= -30 => enemy effectively won
             if final_side == "player":
                 enemy_wins += 1
             else:
                 player_wins += 1
         else:
-            # Usually -20 => timed out => draw
+            # typically -20 => time limit => draw
             draws += 1
 
-    # You can define "puzzle_difficulty" however you like
-    # e.g. a puzzle is "hard" if the player rarely wins
-    # We'll do a simple numeric measure: enemy_wins - player_wins
     puzzle_difficulty = enemy_wins - player_wins
-
     return {
         "player_wins": player_wins,
         "enemy_wins": enemy_wins,
@@ -205,41 +215,68 @@ def evaluate_puzzle(scenario, num_simulations=5):
     }
 
 
-#########################################
-# 3. Putting It Together: Generate & Evaluate
-#########################################
+############################################
+# 4. Putting it all together
+############################################
 
 def main():
-    num_candidates = 10
-    num_simulations_per_puzzle = 1000  # You can configure
+    num_candidates = 10  # how many scenarios to generate
+    num_simulations_per_puzzle = 1000
+
+    # If the puzzle is too easy, skip it if player win rate is above this fraction
+    max_player_win_fraction = 0.01
 
     candidate_puzzles = []
 
     for i in range(num_candidates):
-        candidate = generate_candidate_puzzle()
-        evaluation = evaluate_puzzle(candidate, num_simulations=num_simulations_per_puzzle)
-
-        # Filter out if unwinnable (player_wins == 0)
-        if evaluation["player_wins"] == 0:
-            # skip unwinnable puzzles
-            print(f"Candidate {i+1} is unwinnable (player never wins). Excluding.")
+        try:
+            candidate = generate_candidate_puzzle(
+                sub_grid_radius=None,
+                num_blocked=None,
+                player_min_total=2,
+                player_max_total=5, 
+                enemy_min_total=2,
+                enemy_max_total=5
+            )
+        except ValueError as err:
+            # e.g. "Not enough unblocked hexes"
+            print(f"Candidate {i+1}: Skipping => {err}")
             continue
 
-        # Attach evaluation data
+        # Evaluate
+        evaluation = evaluate_puzzle(candidate, num_simulations=num_simulations_per_puzzle)
+        pw = evaluation["player_wins"]
+        ew = evaluation["enemy_wins"]
+        dr = evaluation["draws"]
+        diff = evaluation["puzzle_difficulty"]
+
+        # Filter 1: If the puzzle is unwinnable (player never wins), skip
+        if pw == 0:
+            print(f"Candidate {i+1}: Player never wins => skipping.")
+            continue
+
+        # Filter 2: If puzzle is "too easy" (win rate above threshold), skip
+        player_win_rate = pw / num_simulations_per_puzzle
+        if player_win_rate > max_player_win_fraction:
+            print(f"Candidate {i+1}: Player wins {player_win_rate:.2%} > {max_player_win_fraction:.2%}, skipping.")
+            continue
+
+        # Accept puzzle
         candidate["evaluation"] = evaluation
         candidate_puzzles.append(candidate)
+        print(
+            f"Candidate {i+1} => P-Wins:{pw}, E-Wins:{ew}, Draws:{dr}, Diff:{diff}, "
+            f"PlayerWinRate:{player_win_rate:.2%}"
+        )
 
-        print(f"Candidate {i+1} => W:{evaluation['player_wins']}  "
-              f"L:{evaluation['enemy_wins']}  D:{evaluation['draws']}  "
-              f"Difficulty:{evaluation['puzzle_difficulty']}")
-
-    # Save the valid puzzles to YAML
+    # Save results
     if candidate_puzzles:
         with open("data/generated_puzzles.yaml", "w") as f:
             yaml.dump(candidate_puzzles, f, sort_keys=False)
         print("Saved candidate puzzles to generated_puzzles.yaml")
     else:
-        print("No valid (winnable) puzzles were generated.")
+        print("No valid puzzles generated under these constraints.")
+
 
 if __name__ == "__main__":
     main()
