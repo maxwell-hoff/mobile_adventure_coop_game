@@ -1,0 +1,32 @@
+- name: MateIn2Puzzle
+  subGridRadius: 2
+  blockedHexes:
+  - q: -2
+    r: 0
+  - q: -1
+    r: -1
+  pieces:
+  - class: Priest
+    label: P
+    color: '#556b2f'
+    side: player
+    q: 1
+    r: -2
+  - class: Warlock
+    label: W
+    color: '#556b2f'
+    side: player
+    q: 1
+    r: 1
+  - class: Priest
+    label: P
+    color: '#dc143c'
+    side: enemy
+    q: -1
+    r: 1
+  - class: Warlock
+    label: W
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: 2
