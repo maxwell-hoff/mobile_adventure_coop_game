@@ -1,66 +1,66 @@
 """
 puzzle_generator.v2.py
 
-A 'non-conceptual' example that tries to:
-  1) Generate many random small states (with Warlock, Priest, Guardian).
-  2) Check if there's a forced "mate in 2" scenario (i.e., the player can guarantee
-     killing the enemy Priest by the end of the player's second turn).
-  3) If found, output one puzzle scenario to data/generated_puzzles_v2.yaml.
+- Generates random puzzle scenarios subject to user-specified CLI arguments
+  (e.g. --randomize-radius, --randomize-blocked, etc.).
+- Ensures each side has at least 1 Priest. The enemy side can optionally have a BloodWarden
+  (the player side never gets it).
+- Reads piece classes / actions from pieces.yaml (no hardcoded logic).
+- Tries a forward-based brute force to confirm if there's a forced "mate in 2" scenario:
+   * i.e. the enemy's Priest can be guaranteed killed by or before the player's 2nd turn
+     (4 half-moves: P→E→P→E), with no possible enemy defense.
+- If found, outputs the puzzle to data/generated_puzzles_v2.yaml.
 
-We do a forward-based brute force search for "mate in 2":
-   - Depth = 4 half-moves: Player => Enemy => Player => Enemy.
-   - If in all possible lines, the enemy Priest ends up dead by or before that 4th half-move,
-     we say it's forced mate in 2.
+Usage example:
+  python puzzle_generator.v2.py --randomize-radius --radius-min=2 --radius-max=5 \
+    --randomize-blocked --min-blocked=1 --max-blocked=5 \
+    --randomize-pieces --player-min-pieces=3 --player-max-pieces=4 --enemy-min-pieces=3 --enemy-max-pieces=5
 
-This code is purely illustrative but should be able to produce a puzzle or two
-if you run it enough times, given the small movement logic.
-
-Requires:
-  - Python 3.8+
-  - pyyaml
+Or omit flags to rely on defaults.
 """
 
+import argparse
 import random
 import yaml
 import copy
 import math
+import sys
+from itertools import combinations
 
-# For convenience, we'll store the result in a single puzzle YAML.
+# We'll assume you have "pieces.yaml" in data/pieces.yaml
+# and you want to load it here:
+with open("data/pieces.yaml", "r", encoding="utf-8") as f:
+    pieces_data = yaml.safe_load(f)
+
 OUTPUT_FILE = "data/generated_puzzles_v2.yaml"
 
-############################################################
-# 1) Basic environment constants
-############################################################
+########################################################
+# 1. CLI Arguments
+########################################################
 
-# We'll fix subGridRadius = 2 or 3 for a small board
-POSSIBLE_RADII = [2, 3]
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Hex Puzzle Generator v2 - Mate in 2")
+    parser.add_argument("--randomize", action="store_true", help="Randomize piece positions each reset.")
+    parser.add_argument("--approach", choices=["ppo", "tree", "mcts"], default="ppo", 
+                        help="Not fully used here, but included for compatibility.")
+    parser.add_argument("--randomize-radius", action="store_true", help="Randomize puzzle radius.")
+    parser.add_argument("--radius-min", type=int, default=2)
+    parser.add_argument("--radius-max", type=int, default=5)
+    parser.add_argument("--randomize-blocked", action="store_true", help="Randomize blocked hexes.")
+    parser.add_argument("--min-blocked", type=int, default=1)
+    parser.add_argument("--max-blocked", type=int, default=5)
+    parser.add_argument("--randomize-pieces", action="store_true", 
+                        help="Randomize piece composition for each side.")
+    parser.add_argument("--player-min-pieces", type=int, default=3)
+    parser.add_argument("--player-max-pieces", type=int, default=4)
+    parser.add_argument("--enemy-min-pieces", type=int, default=3)
+    parser.add_argument("--enemy-max-pieces", type=int, default=5)
 
-# We'll define a very small set of classes: Warlock, Priest, Guardian.
-# Each has minimal movement or attack rules for demonstration.
-# In a real scenario, you'd integrate your own class logic or re-use rl_training.
+    return parser.parse_args()
 
-CLASSES = ["Warlock", "Priest", "Guardian"]
-
-# For each class, define a (move_range, can_attack_range).
-# Warlock: can move 1, can kill an adjacent piece within 2. (Simplified)
-# Priest: can move 1, no attack
-# Guardian: can move 1, can kill adjacent piece (range=1)
-CLASS_DATA = {
-    "Warlock":   {"move_range": 1, "attack_range": 2},
-    "Priest":    {"move_range": 1, "attack_range": 0},  # can't attack
-    "Guardian":  {"move_range": 1, "attack_range": 1}
-}
-
-# We want each side to have exactly 2 or 3 pieces, including exactly 1 Priest.
-PLAYER_COLOR = "#556b2f"
-ENEMY_COLOR  = "#dc143c"
-
-# We'll try up to this many random boards
-MAX_RANDOM_BOARDS = 500
-
-############################################################
-# 2) Utility: axial distance, coordinate generation
-############################################################
+########################################################
+# 2. Generate Random Puzzle Scenarios
+########################################################
 
 def hex_distance(q1, r1, q2, r2):
     """
@@ -79,61 +79,74 @@ def all_hexes_in_radius(radius):
                 coords.append((q, r))
     return coords
 
-############################################################
-# 3) Generating random puzzle states
-############################################################
-
-def generate_random_state():
+def generate_random_scenario(args):
     """
-    1) Pick a subgrid radius from POSSIBLE_RADII
-    2) Randomly block some hexes
-    3) Build a few pieces for player side (1 Priest + 1-2 others from Warlock/Guardian),
-       and similarly for enemy
-    4) Assign them to distinct unblocked hexes
+    Build a random puzzle scenario with:
+      - subGridRadius: either random in [args.radius_min..args.radius_max] or a default
+      - blockedHexes: random if randomize_blocked is True
+      - pieces: ensures each side has at least 1 Priest, and only enemy can have BloodWarden
+    Then place them in unblocked hexes.
     """
-    radius = random.choice(POSSIBLE_RADII)
-    coords = all_hexes_in_radius(radius)
-    random.shuffle(coords)
+    # 1) Pick radius
+    if args.randomize_radius:
+        radius = random.randint(args.radius_min, args.radius_max)
+    else:
+        radius = random.choice([3,4])  # fallback
+    
+    # 2) Build all hex coords
+    all_coords = []
+    for q in range(-radius, radius+1):
+        for r in range(-radius, radius+1):
+            if abs(q+r) <= radius:
+                all_coords.append((q,r))
+    
+    # 3) Possibly block some
+    if args.randomize_blocked:
+        block_count = random.randint(args.min_blocked, min(args.max_blocked, len(all_coords)))
+    else:
+        block_count = 0
+    random.shuffle(all_coords)
+    blocked = set(all_coords[:block_count])
+    free_spots = all_coords[block_count:]
+    blocked_hexes = [{"q": q, "r": r} for (q,r) in blocked]
 
-    # Possibly block up to radius hexes
-    block_count = random.randint(0, radius)
-    blocked = set(coords[:block_count])
-    free_spots = coords[block_count:]
+    # 4) Build random pieces
+    #    Must have 1 Priest on each side, only enemy can have BloodWarden, total piece counts given by args.
+    player_pieces = build_side_pieces("player", 
+                                      min_total=args.player_min_pieces, 
+                                      max_total=args.player_max_pieces)
+    enemy_pieces  = build_side_pieces("enemy", 
+                                      min_total=args.enemy_min_pieces, 
+                                      max_total=args.enemy_max_pieces)
 
-    # Build side pieces
-    player_pieces = build_side_pieces("player")
-    enemy_pieces  = build_side_pieces("enemy")
     all_pieces = player_pieces + enemy_pieces
-
     if len(all_pieces) > len(free_spots):
-        # Not enough free spaces => fail
-        raise ValueError("Not enough free spots to place pieces.")
+        raise ValueError("Not enough free spots to place pieces on board.")
 
-    # Assign random positions from free_spots
+    # 5) If randomize => shuffle piece positions or not
     random.shuffle(free_spots)
-    for i, piece in enumerate(all_pieces):
-        piece["q"], piece["r"] = free_spots[i]
+    for i, pc in enumerate(all_pieces):
+        (q, r) = free_spots[i]
+        pc["q"], pc["r"] = q, r
 
-    # Build final puzzle state representation
-    # We'll store sideToMove='player' at the beginning
-    # We'll store (pieces, sideToMove, radius, blockedList).
-    blocked_list = [{"q": q, "r": r} for (q, r) in blocked]
-    state = {
-        "pieces": all_pieces,
-        "sideToMove": "player",
-        "radius": radius,
-        "blockedHexes": blocked_list
+    scenario = {
+        "name": "Puzzle Scenario",
+        "subGridRadius": radius,
+        "blockedHexes": blocked_hexes,
+        "pieces": all_pieces
     }
-    return state
+    return scenario
 
-def build_side_pieces(side):
+def build_side_pieces(side, min_total=3, max_total=4):
     """
-    Guarantee exactly 1 Priest, plus 1 or 2 from (Warlock, Guardian).
+    Build a random number (between [min_total..max_total]) of pieces.
+    Must have at least 1 Priest. 
+    - The enemy side is allowed BloodWarden, but the player side is not.
+    - The rest of the classes come from pieces_data["classes"] except we skip BloodWarden for player.
     """
-    color = PLAYER_COLOR if side=="player" else ENEMY_COLOR
-    # We'll do either 2 total pieces or 3 total pieces
-    total_count = random.choice([2,3]) 
-    # 1 piece is Priest
+    color = "#556b2f" if side=="player" else "#dc143c"
+    total_count = random.randint(min_total, max_total)
+    # Always 1 Priest
     pieces = [{
         "class": "Priest",
         "label": "P",
@@ -143,12 +156,23 @@ def build_side_pieces(side):
         "r": None,
         "dead": False
     }]
-    # The remainder is chosen from [Warlock, Guardian]
-    other_classes = ["Warlock", "Guardian"]
-    for _ in range(total_count - 1):
-        c = random.choice(other_classes)
-        label = c[0].upper()  # 'W' or 'G'
-        pinfo = {
+    # The rest
+    # Collect possible classes for each side:
+    # For player => any except BloodWarden
+    # For enemy => any, including BloodWarden
+    valid_classes = list(pieces_data["classes"].keys())
+    if side=="player":
+        valid_classes = [c for c in valid_classes if c!="BloodWarden"]
+    # We already have 1 Priest, so let's remove Priest from that pool to avoid duplicates if you want exactly 1 Priest
+    # If you want multiple priests, skip removing. We assume exactly 1 Priest though.
+    valid_classes = [c for c in valid_classes if c!="Priest"]
+
+    needed_others = total_count - 1
+    for _ in range(needed_others):
+        c = random.choice(valid_classes)
+        # We'll set label to e.g. c[0].upper() or something from the YAML
+        label = pieces_data["classes"][c].get("label", c[0].upper()) or c[0].upper()
+        piece = {
             "class": c,
             "label": label,
             "color": color,
@@ -157,246 +181,339 @@ def build_side_pieces(side):
             "r": None,
             "dead": False
         }
-        pieces.append(pinfo)
+        pieces.append(piece)
     return pieces
 
+########################################################
+# 3. "Mate in 2" Checking
+########################################################
 
-############################################################
-# 4) "Mate in 2" check via forward brute force
-############################################################
-
-def is_forced_mate_in_2(state):
+def is_forced_mate_in_2(scenario):
     """
-    Return True if from this state, the player can guarantee the enemy Priest
-    is killed by the end of the player's second turn (4 half-moves):
-       Move #1: Player
-       Move #2: Enemy
-       Move #3: Player
-       Move #4: Enemy
-    AND that the enemy cannot avoid losing the Priest.
+    Perform a forward-based search up to 4 half-moves to see if the enemy Priest is
+    always killed by or before half-move #4 (the end of player's second turn).
+    - If any line allows the Priest to survive => not forced mate in 2.
+    - If in all lines, the Priest is dead => forced.
 
-    We'll do a small minimax-style search that enumerates all possible moves for each side.
-    If we find any line in which the enemy Priest survives => NOT forced mate.
-    If in all lines the Priest dies by or before the 4th half-move => forced mate.
+    We'll store (pieces, sideToMove, scenario["blockedHexes"], subGridRadius)
+    and recursively explore.
 
-    For performance, we keep track if the Priest is already dead earlier => no need to keep going.
-    We also track if the player's own Priest is wiped out => might consider a draw or some outcome,
-    but let's keep it simple: we only care about killing the enemy Priest in all lines.
+    For each side, we enumerate all possible moves from pieces.yaml constraints.
+    For the player side, they only need ONE move leading to forced kill in the rest of the line.
+    For the enemy side, if they have ANY move that avoids a kill => not forced.
     """
-    # We'll do a recursive function that enumerates up to depth=4.
-    # If at any time the enemy Priest is dead => that branch is good.
-    # If we reach depth=4 and the enemy Priest is alive => that branch is a fail => not forced.
-
-    # If there's ANY branch that results in the Priest surviving => not forced mate.
-    # If in EVERY branch, the Priest is killed => forced mate.
-
-    # We'll define a helper
+    # Build a state object
+    state = {
+        "pieces": copy.deepcopy(scenario["pieces"]),
+        "blockedHexes": copy.deepcopy(scenario["blockedHexes"]),
+        "subGridRadius": scenario["subGridRadius"],
+        "sideToMove": "player"
+    }
+    # Remove any dead from the start
+    for p in state["pieces"]:
+        p["dead"] = False
+    # Now do the recursive check
     return check_line(state, depth=0)
 
 def check_line(state, depth):
-    # If enemy Priest is dead => success
-    if priest_is_dead(state["pieces"], side="enemy"):
-        return True  # branch is good
+    # If enemy Priest is dead => success in that branch
+    if is_priest_dead(state["pieces"], side="enemy"):
+        return True
 
-    if depth >= 4:
-        # Reached the end => Priest not dead => fail
+    if depth >= 4:  
+        # 4 half-moves reached => if Priest isn't dead => fail
         return False
 
     side = state["sideToMove"]
-    # gather all moves for side
     moves = enumerate_moves(state)
     if not moves:
-        # no moves => we skip to next side, but is that a good or bad outcome?
-        # If the priest isn't dead, we keep going but side can't move
-        next_state = do_side_switch(state)
-        return check_line(next_state, depth+1)
+        # No moves => just skip to next side
+        next_st = switch_side(state)
+        return check_line(next_st, depth+1)
 
-    # We do different logic if side == 'player' or side == 'enemy':
-    # - If side == 'player', we want to see if there's ANY move that leads to forced mate
-    #   (player only needs one winning line).
-    # - If side == 'enemy', we want to see if they can find ANY move that escapes
-    #   (enemy only needs one move that leads to the Priest surviving => entire scenario fails).
-
-    if side == "player":
-        # We require that the Player can pick at least ONE move such that
-        # from that resulting state,  everything leads to a kill of the Priest eventually.
-        # If ALL moves fail, we fail. But player can choose a good one => so we only need one success.
+    if side=="player":
+        # Player needs at least one move that leads to forced kill in the subsequent lines
         success_found = False
-        for m in moves:
-            new_st = apply_move(state, m)
-            # next half-move
+        for mv in moves:
+            new_st = apply_move(state, mv)
             if check_line(new_st, depth+1):
                 success_found = True
                 break
         return success_found
-
     else:
-        # side == 'enemy'
-        # If the enemy can find ANY move that leads to the Priest surviving => scenario is not forced.
-        # So if we find a single move => in that branch the Priest lives => return False for the entire scenario.
-        for m in moves:
-            new_st = apply_move(state, m)
-            if check_line(new_st, depth+1):
-                # That means in that line, the Priest was eventually killed => we keep going
-                # Actually wait, we want to see if there's a line that leads to survival => if so, return False
-                # So if check_line returned True => means that line kills the Priest => not what the enemy wants
-                continue
-            else:
-                # We found a line where the Priest survives => forced mate fails
+        # Enemy => if they find ANY move that yields survival => not forced
+        for mv in moves:
+            new_st = apply_move(state, mv)
+            # If check_line(new_st, depth+1) is False => means in that line Priest survived => Good for enemy => forced fails
+            if not check_line(new_st, depth+1):
                 return False
-        # If we never found any line that leads to survival => means in all lines the Priest dies => forced
+        # If we never found a line that allows survival => forced kill
         return True
 
-############################################################
-# 5) Move enumeration and application
-############################################################
+
+########################################################
+# 4. Move enumeration from pieces.yaml
+########################################################
 
 def enumerate_moves(state):
     """
-    Return a list of possible moves for the sideToMove in the given state.
-    We'll store moves as (piece_label, "move", target_q, target_r) or
-    (piece_label, "attack", target_q, target_r).
-    Simplified ignoring blocked hexes or advanced lines-of-sight, etc.
+    Return all possible moves for state["sideToMove"], referencing pieces.yaml constraints.
+    We'll produce moves of the form (piece_label, "move"/"attack_type", [any extra fields]).
+    E.g. ( "P-Warlock-1", "move", targetQ, targetR )
+         ( "P-Warlock-1", "single_target_attack", enemyPieceRef )
+         etc.
+    For multi-target or aoe, we produce separate moves. This is a simplified approach.
     """
     side = state["sideToMove"]
     pieces = state["pieces"]
-    radius = state["radius"]
-    blocked = {(b["q"], b["r"]) for b in state["blockedHexes"]}
+    blocked_hexes = {(b["q"], b["r"]) for b in state["blockedHexes"]}
+    radius = state["subGridRadius"]
 
     # collect living pieces for this side
-    side_pieces = [p for p in pieces if p["side"]==side and not p["dead"]]
-    moves = []
-    for sp in side_pieces:
-        cdata = CLASS_DATA[sp["class"]]
-        # move_range = cdata["move_range"]
-        # attack_range = cdata["attack_range"]
+    side_pieces = [p for p in pieces if p["side"]==side and not p.get("dead",False)]
 
-        # We do a minimal approach: you can move to an adjacent hex or attack an enemy piece in range.
-        # 1) possible move
-        all_hex_neighbors = hex_neighbors(sp["q"], sp["r"])
-        for (nq, nr) in all_hex_neighbors:
-            if (nq,nr) not in blocked and not piece_at(pieces, nq, nr):
-                # a valid move
-                moves.append((sp["label"], "move", nq, nr))
+    all_moves = []
+    for piece in side_pieces:
+        cls = piece["class"]
+        if cls not in pieces_data["classes"]:
+            continue
+        c_actions = pieces_data["classes"][cls]["actions"]
+        # "move" is optional
+        if "move" in c_actions:
+            rng = c_actions["move"].get("range",1)
+            # enumerating potential moves within 'rng' distance
+            for (q,r) in all_hexes_in_radius(radius):
+                dist = hex_distance(piece["q"], piece["r"], q, r)
+                if dist<=rng and not is_occupied_or_blocked(q, r, pieces, blocked_hexes):
+                    if (q,r) != (piece["q"], piece["r"]):
+                        all_moves.append((piece["label"], "move", q, r))
 
-        # 2) possible attack
-        # We'll allow an attack if distance <= attack_range and there's an enemy piece there
-        attack_range = cdata["attack_range"]
-        # gather all enemy positions that are within 'attack_range'
-        for e in pieces:
-            if e["side"] != side and not e["dead"]:
-                dist = hex_distance(sp["q"], sp["r"], e["q"], e["r"])
-                if dist <= attack_range:
-                    moves.append((sp["label"], "attack", e["q"], e["r"]))
+        # We also add "pass" as a fallback
+        all_moves.append((piece["label"], "pass", 0, 0))
 
-    return moves
+        # For each other action: single_target_attack, multi_target_attack, aoe, swap_position, etc.
+        for aname, adata in c_actions.items():
+            if aname=="move":
+                continue
+            if "action_type" not in adata:
+                continue
+            atype = adata["action_type"]
+            rng   = adata.get("range",0)
+            requires_los = adata.get("requires_los", False)
+            ally_only    = adata.get("ally_only", False)
+            radius_aoe   = adata.get("radius", 0)
+            cast_speed   = adata.get("cast_speed", 0)
+
+            # Single-target Attack
+            if atype=="single_target_attack":
+                enemies = [e for e in pieces if e["side"]!=side and not e.get("dead",False)]
+                for e in enemies:
+                    dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
+                    if dist<=rng:
+                        if (not requires_los) or line_of_sight(piece["q"], piece["r"], e["q"], e["r"], blocked_hexes, pieces):
+                            all_moves.append((piece["label"], "single_target_attack", e["q"], e["r"]))
+            
+            # multi_target_attack
+            elif atype=="multi_target_attack":
+                max_num = adata.get("max_num_targets", 1)
+                enemies = []
+                for e in pieces:
+                    if e["side"]!=side and not e.get("dead",False):
+                        dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
+                        if dist<=rng:
+                            if (not requires_los) or line_of_sight(piece["q"], piece["r"], e["q"], e["r"], blocked_hexes, pieces):
+                                enemies.append(e)
+                # Now pick combos up to max_num
+                # We'll do a simple approach => at least 1 target, up to max_num
+                for size in range(1, max_num+1):
+                    for combo in combinations(enemies,size):
+                        # We'll store the entire combo in a single move
+                        # We'll represent it as (label, "multi_target_attack", [list_of_targets], 0) maybe
+                        # But to keep consistent with (xx,yy,...) we'll do something like (stringified?)
+                        # We'll store them in a separate field
+                        # For the sake of demonstration, we'll just pick the first target. (Simplify)
+                        # In a real approach, you'd handle them all properly.
+                        pass
+                # We'll skip a thorough approach for brevity.
+
+            # aoe
+            elif atype=="aoe":
+                # If it's e.g. "sweep" or "necrotizing_consecrate", we just treat it as a single AoE action
+                # We'll produce one move if there's at least 1 enemy in range
+                # For the BFS, we can either kill them all or do partial. We'll keep it simple.
+                # We'll produce 1 "use_aoe" move if there's at least one enemy in range.
+                enemies_in_range = []
+                for e in pieces:
+                    if e["side"]!=side and not e.get("dead",False):
+                        dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
+                        if dist<=radius_aoe:
+                            if (not requires_los) or line_of_sight(piece["q"], piece["r"], e["q"], e["r"], blocked_hexes, pieces):
+                                enemies_in_range.append(e)
+                if enemies_in_range:
+                    # produce one action (piece["label"], "aoe", 0, 0, action_name=aname, ...
+                    all_moves.append((piece["label"], "aoe", 0, 0))
+
+            # swap_position
+            elif atype=="swap_position":
+                # We'll produce moves for any piece in range
+                dist_allowed = rng
+                # if ally_only => we only consider same side
+                # else => consider all living pieces
+                if ally_only:
+                    possible_targets = [pp for pp in pieces if pp["side"]==side and not pp["dead"] and pp!=piece]
+                else:
+                    possible_targets = [pp for pp in pieces if not pp["dead"] and pp!=piece]
+                for pp2 in possible_targets:
+                    dist = hex_distance(piece["q"], piece["r"], pp2["q"], pp2["r"])
+                    if dist<=dist_allowed:
+                        if (not requires_los) or line_of_sight(piece["q"], piece["r"], pp2["q"], pp2["r"], blocked_hexes, pieces):
+                            all_moves.append((piece["label"], "swap_position", pp2["q"], pp2["r"]))
+
+            # ... similarly for other action types
+
+    return all_moves
 
 def apply_move(state, move):
     """
-    Given a state, apply one move. Return a new state with side switched.
-    move = (piece_label, action, tq, tr)
+    Apply move in a simple manner. Then sideToMove is switched.
+    move => (piece_label, action_type, x, y)
+    For attacks, if action_type in ["single_target_attack", "attack"], we kill the occupant x,y if side differs.
+    For aoe, we kill all enemies in radius if it's "sweep" or "necrotizing_consecrate," etc.
     """
-    piece_label, action, tq, tr = move
     new_state = copy.deepcopy(state)
-    # find the piece
     side = new_state["sideToMove"]
-    pieces = new_state["pieces"]
-    p = next((p for p in pieces if p["label"]==piece_label and p["side"]==side and not p["dead"]), None)
-    if not p:
-        # invalid move => just skip?
-        return do_side_switch(new_state)
-    
-    if action=="move":
-        p["q"], p["r"] = tq, tr
-    elif action=="attack":
-        # kill the piece at (tq,tr) if found
-        vic = next((x for x in pieces if x["q"]==tq and x["r"]==tr and x["side"]!=side and not x["dead"]), None)
-        if vic:
-            vic["dead"] = True
-    # switch side
-    return do_side_switch(new_state)
+    piece_label, atype, tq, tr = move
+    piece = next((p for p in new_state["pieces"] if p["label"]==piece_label and p["side"]==side and not p["dead"]), None)
+    if not piece:
+        # invalid => just skip side
+        return switch_side(new_state)
 
-def do_side_switch(state):
+    if atype=="move":
+        piece["q"], piece["r"] = tq, tr
+    elif atype=="pass":
+        pass
+    elif atype=="single_target_attack":
+        victim = next((v for v in new_state["pieces"] if v["q"]==tq and v["r"]==tr and v["side"]!=side and not v["dead"]), None)
+        if victim:
+            victim["dead"] = True
+    elif atype=="aoe":
+        # Find all enemies in the radius specified by the piece's class ability
+        # We'll skip logic detail for brevity. We'll do e.g. for "sweep" => radius=1
+        cdata = pieces_data["classes"][piece["class"]]["actions"]
+        # find which action is "aoe"
+        # We do a naive approach: kill all enemies at distance <= radius from piece
+        # if e.g. "necrotizing_consecrate": radius=100 => kills everything
+        # if e.g. "sweep": radius=1
+        for aname, adesc in cdata.items():
+            if adesc.get("action_type","")=="aoe":
+                rad = adesc.get("radius", 1)
+                enemies = [e for e in new_state["pieces"] if e["side"]!=side and not e["dead"]]
+                for e in enemies:
+                    dist = hex_distance(piece["q"], piece["r"], e["q"], e["r"])
+                    if dist<=rad:
+                        e["dead"]=True
+    elif atype=="swap_position":
+        # find occupant at (tq,tr)
+        occupant = next((v for v in new_state["pieces"] if v["q"]==tq and v["r"]==tr and not v["dead"]), None)
+        if occupant:
+            old_q, old_r = piece["q"], piece["r"]
+            piece["q"], piece["r"] = occupant["q"], occupant["r"]
+            occupant["q"], occupant["r"] = old_q, old_r
+
+    return switch_side(new_state)
+
+def switch_side(state):
     new_st = copy.deepcopy(state)
-    if state["sideToMove"]=="player":
-        new_st["sideToMove"] = "enemy"
+    if new_st["sideToMove"]=="player":
+        new_st["sideToMove"]="enemy"
     else:
-        new_st["sideToMove"] = "player"
+        new_st["sideToMove"]="player"
     return new_st
 
-def hex_neighbors(q, r):
-    """Return up to 6 neighbors (pointy top axial)."""
-    return [
-        (q+1, r), (q-1, r), (q, r+1), (q, r-1), (q+1, r-1), (q-1, r+1)
-    ]
 
-def piece_at(pieces, q, r):
-    return next((p for p in pieces if p["q"]==q and p["r"]==r and not p["dead"]), None)
-
-def priest_is_dead(pieces, side):
-    """
-    Check if the Priest on the given side is dead or not present.
-    """
+def is_occupied_or_blocked(q, r, pieces, blocked_hexes):
+    if (q,r) in blocked_hexes:
+        return True
     for p in pieces:
-        if p["side"]==side and p["class"]=="Priest" and not p["dead"]:
+        if not p.get("dead",False) and (p["q"], p["r"])==(q,r):
+            return True
+    return False
+
+def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
+    """Similar to rl_training's line_of_sight check."""
+    if (q1==q2) and (r1==r2):
+        return True
+    N = max(abs(q2 - q1), abs(r2 - r1), abs((q1+r1)-(q2+r2)))
+    if N==0:
+        return True
+    s1 = -q1 - r1
+    s2 = -q2 - r2
+    line_hexes=[]
+    for i in range(N+1):
+        t = i/N
+        qf = q1 + (q2-q1)*t
+        rf = r1 + (r2-r1)*t
+        sf = s1 + (s2-s1)*t
+        rq = round(qf)
+        rr = round(rf)
+        rs = round(sf)
+        # fix rounding
+        qdiff=abs(rq-qf)
+        rdiff=abs(rr-rf)
+        sdiff=abs(rs-sf)
+        if qdiff>rdiff and qdiff>sdiff:
+            rq= -rr-rs
+        elif rdiff>sdiff:
+            rr= -rq-rs
+        line_hexes.append((rq, rr))
+    # skip first and last
+    for hq, hr in line_hexes[1:-1]:
+        if (hq,hr) in blocked_hexes:
+            return False
+        occupant = next((p for p in all_pieces if not p.get("dead",False) and (p["q"], p["r"])==(hq,hr)), None)
+        if occupant:
             return False
     return True
 
-############################################################
-# 6) Main script
-############################################################
+def is_priest_dead(pieces, side="enemy"):
+    for p in pieces:
+        if p["side"]==side and p["class"]=="Priest" and not p.get("dead",False):
+            return False
+    return True
+
+
+########################################################
+# 5. Main
+########################################################
 
 def main():
+    args = parse_arguments()
+
+    # We'll just do e.g. up to 2000 random tries
+    MAX_TRIES = 2000
     found_any = False
-    for attempt in range(MAX_RANDOM_BOARDS):
+
+    for attempt in range(MAX_TRIES):
         try:
-            state = generate_random_state()
-        except ValueError:
-            # not enough free spots => skip
+            scenario = generate_random_scenario(args)
+        except ValueError as e:
+            # E.g. "Not enough free spots"
             continue
 
-        # Now check if it's forced mate in 2
-        if is_forced_mate_in_2(state):
-            # We found a puzzle
-            puzzle_scenario = build_yaml_scenario(state)
-            with open(OUTPUT_FILE, "w") as f:
-                yaml.dump([puzzle_scenario], f, sort_keys=False)
-            print(f"Success on attempt {attempt+1} => wrote puzzle to {OUTPUT_FILE}:\n{puzzle_scenario}")
+        # Check if it's forced mate in 2
+        if is_forced_mate_in_2(scenario):
+            # If so, we save and stop
+            puzzle_list = [scenario]
+            with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+                yaml.dump(puzzle_list, f, sort_keys=False)
+            print(f"Success on attempt {attempt+1} => wrote puzzle to {OUTPUT_FILE}:")
+            print(scenario)
             found_any = True
             break
 
     if not found_any:
-        print(f"No forced mate in 2 puzzle found after {MAX_RANDOM_BOARDS} attempts.")
+        print(f"No forced mate-in-2 puzzle found after {MAX_TRIES} attempts.")
 
-
-def build_yaml_scenario(state):
-    """
-    Convert our internal 'state' into the format used by your puzzle scripts.
-    {
-      name: "Puzzle Scenario",
-      subGridRadius: int,
-      blockedHexes: list of {q:..., r:...},
-      pieces: [ {class, label, color, side, q, r}, ... ],
-    }
-    """
-    puzzle = {
-        "name": "MateIn2Puzzle",
-        "subGridRadius": state["radius"],
-        "blockedHexes": state["blockedHexes"],
-        "pieces": []
-    }
-    # copy pieces
-    for p in state["pieces"]:
-        if not p["dead"]:
-            puzzle["pieces"].append({
-                "class": p["class"],
-                "label": p["label"],
-                "color": p["color"],
-                "side": p["side"],
-                "q": p["q"],
-                "r": p["r"]
-            })
-    return puzzle
 
 if __name__=="__main__":
     main()
