@@ -1,248 +1,402 @@
 """
 puzzle_generator.v2.py
 
-An expanded, backward-based puzzle generator that creates "mate in N" style scenarios.
-1) We define a final 'checkmate' state in which the enemy's Priest is certainly lost.
-2) We do a BFS/DFS backward up to `mate_in_n` full moves (2 * mate_in_n half-moves).
-3) We optionally prune states using the PPO model to see if the enemy can escape.
+A 'non-conceptual' example that tries to:
+  1) Generate many random small states (with Warlock, Priest, Guardian).
+  2) Check if there's a forced "mate in 2" scenario (i.e., the player can guarantee
+     killing the enemy Priest by the end of the player's second turn).
+  3) If found, output one puzzle scenario to data/generated_puzzles_v2.yaml.
 
-We then pick one of these initial states, format it like in the original puzzle scripts,
-and save it to a YAML file (data/generated_puzzles_v2.yaml).
+We do a forward-based brute force search for "mate in 2":
+   - Depth = 4 half-moves: Player => Enemy => Player => Enemy.
+   - If in all possible lines, the enemy Priest ends up dead by or before that 4th half-move,
+     we say it's forced mate in 2.
 
-**Disclaimer**: The code still includes simplified stubs. For real usage, you'd need
-comprehensive logic to enumerate moves, handle special abilities, blocked hexes, etc.
+This code is purely illustrative but should be able to produce a puzzle or two
+if you run it enough times, given the small movement logic.
+
+Requires:
+  - Python 3.8+
+  - pyyaml
 """
 
 import random
-import copy
-from collections import deque
 import yaml
-from sb3_contrib import MaskablePPO
+import copy
+import math
 
-from rl_training import HexPuzzleEnv
+# For convenience, we'll store the result in a single puzzle YAML.
+OUTPUT_FILE = "data/generated_puzzles_v2.yaml"
 
-# Load your PPO model for optional pruning
-model = MaskablePPO.load("ppo_model")
+############################################################
+# 1) Basic environment constants
+############################################################
 
+# We'll fix subGridRadius = 2 or 3 for a small board
+POSSIBLE_RADII = [2, 3]
 
-##########################################################
-# 1. Basic utility for hashing states, checking if Priest is dead
-##########################################################
+# We'll define a very small set of classes: Warlock, Priest, Guardian.
+# Each has minimal movement or attack rules for demonstration.
+# In a real scenario, you'd integrate your own class logic or re-use rl_training.
 
-def state_to_key(pieces, turn_side):
+CLASSES = ["Warlock", "Priest", "Guardian"]
+
+# For each class, define a (move_range, can_attack_range).
+# Warlock: can move 1, can kill an adjacent piece within 2. (Simplified)
+# Priest: can move 1, no attack
+# Guardian: can move 1, can kill adjacent piece (range=1)
+CLASS_DATA = {
+    "Warlock":   {"move_range": 1, "attack_range": 2},
+    "Priest":    {"move_range": 1, "attack_range": 0},  # can't attack
+    "Guardian":  {"move_range": 1, "attack_range": 1}
+}
+
+# We want each side to have exactly 2 or 3 pieces, including exactly 1 Priest.
+PLAYER_COLOR = "#556b2f"
+ENEMY_COLOR  = "#dc143c"
+
+# We'll try up to this many random boards
+MAX_RANDOM_BOARDS = 500
+
+############################################################
+# 2) Utility: axial distance, coordinate generation
+############################################################
+
+def hex_distance(q1, r1, q2, r2):
     """
-    Convert a list of piece dicts + turn_side into a hashable key
-    for BFS/DFS visited sets.
+    Standard axial distance on a hex grid: cube coords but we can do a quick formula
     """
-    # Sort pieces by (side, class, q, r) ignoring any 'dead' pieces
-    living = [p for p in pieces if not p.get("dead", False)]
-    living_sorted = sorted(living, key=lambda p: (p["side"], p["class"], p["q"], p["r"]))
-    piece_tuples = tuple(
-        (p["side"], p["class"], p["q"], p["r"])
-        for p in living_sorted
-    )
-    return (turn_side, piece_tuples)
+    return (abs(q1 - q2) + abs(r1 - r2) + abs((q1 + r1) - (q2 + r2))) // 2
 
-def is_enemy_priest_dead(pieces):
+def all_hexes_in_radius(radius):
     """
-    Return True if there is no living 'Priest' on 'enemy' side.
+    Return a list of all axial (q,r) within subGridRadius
+    """
+    coords = []
+    for q in range(-radius, radius+1):
+        for r in range(-radius, radius+1):
+            if abs(q+r) <= radius:
+                coords.append((q, r))
+    return coords
+
+############################################################
+# 3) Generating random puzzle states
+############################################################
+
+def generate_random_state():
+    """
+    1) Pick a subgrid radius from POSSIBLE_RADII
+    2) Randomly block some hexes
+    3) Build a few pieces for player side (1 Priest + 1-2 others from Warlock/Guardian),
+       and similarly for enemy
+    4) Assign them to distinct unblocked hexes
+    """
+    radius = random.choice(POSSIBLE_RADII)
+    coords = all_hexes_in_radius(radius)
+    random.shuffle(coords)
+
+    # Possibly block up to radius hexes
+    block_count = random.randint(0, radius)
+    blocked = set(coords[:block_count])
+    free_spots = coords[block_count:]
+
+    # Build side pieces
+    player_pieces = build_side_pieces("player")
+    enemy_pieces  = build_side_pieces("enemy")
+    all_pieces = player_pieces + enemy_pieces
+
+    if len(all_pieces) > len(free_spots):
+        # Not enough free spaces => fail
+        raise ValueError("Not enough free spots to place pieces.")
+
+    # Assign random positions from free_spots
+    random.shuffle(free_spots)
+    for i, piece in enumerate(all_pieces):
+        piece["q"], piece["r"] = free_spots[i]
+
+    # Build final puzzle state representation
+    # We'll store sideToMove='player' at the beginning
+    # We'll store (pieces, sideToMove, radius, blockedList).
+    blocked_list = [{"q": q, "r": r} for (q, r) in blocked]
+    state = {
+        "pieces": all_pieces,
+        "sideToMove": "player",
+        "radius": radius,
+        "blockedHexes": blocked_list
+    }
+    return state
+
+def build_side_pieces(side):
+    """
+    Guarantee exactly 1 Priest, plus 1 or 2 from (Warlock, Guardian).
+    """
+    color = PLAYER_COLOR if side=="player" else ENEMY_COLOR
+    # We'll do either 2 total pieces or 3 total pieces
+    total_count = random.choice([2,3]) 
+    # 1 piece is Priest
+    pieces = [{
+        "class": "Priest",
+        "label": "P",
+        "color": color,
+        "side": side,
+        "q": None,
+        "r": None,
+        "dead": False
+    }]
+    # The remainder is chosen from [Warlock, Guardian]
+    other_classes = ["Warlock", "Guardian"]
+    for _ in range(total_count - 1):
+        c = random.choice(other_classes)
+        label = c[0].upper()  # 'W' or 'G'
+        pinfo = {
+            "class": c,
+            "label": label,
+            "color": color,
+            "side": side,
+            "q": None,
+            "r": None,
+            "dead": False
+        }
+        pieces.append(pinfo)
+    return pieces
+
+
+############################################################
+# 4) "Mate in 2" check via forward brute force
+############################################################
+
+def is_forced_mate_in_2(state):
+    """
+    Return True if from this state, the player can guarantee the enemy Priest
+    is killed by the end of the player's second turn (4 half-moves):
+       Move #1: Player
+       Move #2: Enemy
+       Move #3: Player
+       Move #4: Enemy
+    AND that the enemy cannot avoid losing the Priest.
+
+    We'll do a small minimax-style search that enumerates all possible moves for each side.
+    If we find any line in which the enemy Priest survives => NOT forced mate.
+    If in all lines the Priest dies by or before the 4th half-move => forced mate.
+
+    For performance, we keep track if the Priest is already dead earlier => no need to keep going.
+    We also track if the player's own Priest is wiped out => might consider a draw or some outcome,
+    but let's keep it simple: we only care about killing the enemy Priest in all lines.
+    """
+    # We'll do a recursive function that enumerates up to depth=4.
+    # If at any time the enemy Priest is dead => that branch is good.
+    # If we reach depth=4 and the enemy Priest is alive => that branch is a fail => not forced.
+
+    # If there's ANY branch that results in the Priest surviving => not forced mate.
+    # If in EVERY branch, the Priest is killed => forced mate.
+
+    # We'll define a helper
+    return check_line(state, depth=0)
+
+def check_line(state, depth):
+    # If enemy Priest is dead => success
+    if priest_is_dead(state["pieces"], side="enemy"):
+        return True  # branch is good
+
+    if depth >= 4:
+        # Reached the end => Priest not dead => fail
+        return False
+
+    side = state["sideToMove"]
+    # gather all moves for side
+    moves = enumerate_moves(state)
+    if not moves:
+        # no moves => we skip to next side, but is that a good or bad outcome?
+        # If the priest isn't dead, we keep going but side can't move
+        next_state = do_side_switch(state)
+        return check_line(next_state, depth+1)
+
+    # We do different logic if side == 'player' or side == 'enemy':
+    # - If side == 'player', we want to see if there's ANY move that leads to forced mate
+    #   (player only needs one winning line).
+    # - If side == 'enemy', we want to see if they can find ANY move that escapes
+    #   (enemy only needs one move that leads to the Priest surviving => entire scenario fails).
+
+    if side == "player":
+        # We require that the Player can pick at least ONE move such that
+        # from that resulting state,  everything leads to a kill of the Priest eventually.
+        # If ALL moves fail, we fail. But player can choose a good one => so we only need one success.
+        success_found = False
+        for m in moves:
+            new_st = apply_move(state, m)
+            # next half-move
+            if check_line(new_st, depth+1):
+                success_found = True
+                break
+        return success_found
+
+    else:
+        # side == 'enemy'
+        # If the enemy can find ANY move that leads to the Priest surviving => scenario is not forced.
+        # So if we find a single move => in that branch the Priest lives => return False for the entire scenario.
+        for m in moves:
+            new_st = apply_move(state, m)
+            if check_line(new_st, depth+1):
+                # That means in that line, the Priest was eventually killed => we keep going
+                # Actually wait, we want to see if there's a line that leads to survival => if so, return False
+                # So if check_line returned True => means that line kills the Priest => not what the enemy wants
+                continue
+            else:
+                # We found a line where the Priest survives => forced mate fails
+                return False
+        # If we never found any line that leads to survival => means in all lines the Priest dies => forced
+        return True
+
+############################################################
+# 5) Move enumeration and application
+############################################################
+
+def enumerate_moves(state):
+    """
+    Return a list of possible moves for the sideToMove in the given state.
+    We'll store moves as (piece_label, "move", target_q, target_r) or
+    (piece_label, "attack", target_q, target_r).
+    Simplified ignoring blocked hexes or advanced lines-of-sight, etc.
+    """
+    side = state["sideToMove"]
+    pieces = state["pieces"]
+    radius = state["radius"]
+    blocked = {(b["q"], b["r"]) for b in state["blockedHexes"]}
+
+    # collect living pieces for this side
+    side_pieces = [p for p in pieces if p["side"]==side and not p["dead"]]
+    moves = []
+    for sp in side_pieces:
+        cdata = CLASS_DATA[sp["class"]]
+        # move_range = cdata["move_range"]
+        # attack_range = cdata["attack_range"]
+
+        # We do a minimal approach: you can move to an adjacent hex or attack an enemy piece in range.
+        # 1) possible move
+        all_hex_neighbors = hex_neighbors(sp["q"], sp["r"])
+        for (nq, nr) in all_hex_neighbors:
+            if (nq,nr) not in blocked and not piece_at(pieces, nq, nr):
+                # a valid move
+                moves.append((sp["label"], "move", nq, nr))
+
+        # 2) possible attack
+        # We'll allow an attack if distance <= attack_range and there's an enemy piece there
+        attack_range = cdata["attack_range"]
+        # gather all enemy positions that are within 'attack_range'
+        for e in pieces:
+            if e["side"] != side and not e["dead"]:
+                dist = hex_distance(sp["q"], sp["r"], e["q"], e["r"])
+                if dist <= attack_range:
+                    moves.append((sp["label"], "attack", e["q"], e["r"]))
+
+    return moves
+
+def apply_move(state, move):
+    """
+    Given a state, apply one move. Return a new state with side switched.
+    move = (piece_label, action, tq, tr)
+    """
+    piece_label, action, tq, tr = move
+    new_state = copy.deepcopy(state)
+    # find the piece
+    side = new_state["sideToMove"]
+    pieces = new_state["pieces"]
+    p = next((p for p in pieces if p["label"]==piece_label and p["side"]==side and not p["dead"]), None)
+    if not p:
+        # invalid move => just skip?
+        return do_side_switch(new_state)
+    
+    if action=="move":
+        p["q"], p["r"] = tq, tr
+    elif action=="attack":
+        # kill the piece at (tq,tr) if found
+        vic = next((x for x in pieces if x["q"]==tq and x["r"]==tr and x["side"]!=side and not x["dead"]), None)
+        if vic:
+            vic["dead"] = True
+    # switch side
+    return do_side_switch(new_state)
+
+def do_side_switch(state):
+    new_st = copy.deepcopy(state)
+    if state["sideToMove"]=="player":
+        new_st["sideToMove"] = "enemy"
+    else:
+        new_st["sideToMove"] = "player"
+    return new_st
+
+def hex_neighbors(q, r):
+    """Return up to 6 neighbors (pointy top axial)."""
+    return [
+        (q+1, r), (q-1, r), (q, r+1), (q, r-1), (q+1, r-1), (q-1, r+1)
+    ]
+
+def piece_at(pieces, q, r):
+    return next((p for p in pieces if p["q"]==q and p["r"]==r and not p["dead"]), None)
+
+def priest_is_dead(pieces, side):
+    """
+    Check if the Priest on the given side is dead or not present.
     """
     for p in pieces:
-        if p["side"] == "enemy" and p["class"] == "Priest" and not p.get("dead", False):
+        if p["side"]==side and p["class"]=="Priest" and not p["dead"]:
             return False
     return True
 
-
-##########################################################
-# 2. Core backward search
-##########################################################
-
-def backward_generate_mate_in_n(final_state, mate_in_n=2, use_ppo_pruning=False):
-    """
-    Attempt to generate puzzle states leading to `final_state` in `mate_in_n` full moves.
-
-    final_state = (pieces_list, turn_side)
-      - The side to move in final_state is presumably 'player' if the
-        player's move is delivering checkmate, or it might be 'enemy' if
-        you define your final scenario differently.
-
-    We'll do BFS up to 2*mate_in_n half-moves of depth.
-    We'll store each discovered predecessor in a queue along with how many
-    half-moves we've gone so far.
-
-    At each step, we:
-      1) find all possible predecessors
-      2) check the "forced mate" property, optionally using the PPO model if `use_ppo_pruning` is True
-
-    Return a list of possible starting states that guarantee arrival at 'final_state'.
-    """
-
-    # max_depth in half-moves
-    max_depth = 2 * mate_in_n
-
-    visited = set()
-    queue = deque()
-    queue.append((final_state, 0))  # ( (pieces, turn_side), half_move_depth )
-    results = []
-
-    while queue:
-        (current_state, depth) = queue.popleft()
-        (pieces, turn_side) = current_state
-
-        skey = state_to_key(pieces, turn_side)
-        if skey in visited:
-            continue
-        visited.add(skey)
-
-        # If we've reached the BFS frontier => record this as a potential "initial" puzzle
-        if depth >= max_depth:
-            results.append(current_state)
-            continue
-
-        # Attempt to find all possible predecessor states that lead to 'current_state' in one half-move
-        # i.e. invert the environment's step logic. We'll call a stub function below.
-        predecessors = find_predecessor_states(current_state)
-
-        for prev_state in predecessors:
-            # check if from prev_state, the next side can't avoid going into current_state or an equally losing line
-            # if use_ppo_pruning is True, we ask the PPO model to see if there's a possible move that escapes
-            if check_forced_mate_property(prev_state, current_state, use_ppo_pruning):
-                # That means it's forced => we accept
-                prev_depth = depth + 1
-                queue.append((prev_state, prev_depth))
-
-    return results
-
-
-def find_predecessor_states(next_state):
-    """
-    Return a list of states (pieces, side_to_move) that, with one action, become 'next_state'.
-
-    **STUB**: A real implementation enumerates all possible moves for side_to_move,
-    applies them to a hypothetical 'prev_state', and checks if it yields `next_state`.
-    That can be large. We'll just return an empty list here.
-    """
-    return []
-
-
-def check_forced_mate_property(prev_state, next_state, use_ppo_pruning):
-    """
-    Return True if from 'prev_state' the side to move cannot avoid going to 'next_state'
-    or an equally lost scenario. In other words, for every possible move the current side
-    can do, they'd end up eventually forced to 'next_state'.
-
-    If use_ppo_pruning is True, we'll do an approximate check:
-      - We'll step forward from prev_state with the PPO controlling the side to move
-      - If the PPO finds a path that avoids next_state or leads to a non-lost outcome,
-        we consider it "not forced."
-    **STUB** for demonstration only.
-    """
-    if not use_ppo_pruning:
-        return True  # naive approach => always forced
-
-    # approximate approach => do 1-step forward from prev_state with PPO
-    # if the resulting state is not next_state or doesn't quickly lead to a losing line,
-    # we declare it's not forced.
-
-    # This is simplified. In real code you'd:
-    # 1) Create env from prev_state
-    # 2) Step once using PPO
-    # 3) Compare resulting state to next_state
-    # etc.
-    # We'll just randomly return True/False half the time for demonstration
-    return (random.random() < 0.5)
-
-
-##########################################################
-# 3. Building a final scenario & BFS
-##########################################################
-
-def build_final_state_example():
-    """
-    Build a minimal final scenario:
-      - e.g. player's Warlock can kill the enemy Priest immediately, no escape.
-    We'll say it's player's turn, so the final state's sideToMove = 'player'.
-    """
-    warlock = {
-        "class": "Warlock",
-        "label": "W",
-        "color": "#556b2f",
-        "side": "player",
-        "q": 0,
-        "r": 0,
-        "dead": False
-    }
-    epriest = {
-        "class": "Priest",
-        "label": "P",
-        "color": "#dc143c",
-        "side": "enemy",
-        "q": 1,
-        "r": 0,
-        "dead": False
-    }
-    pieces = [warlock, epriest]
-    turn_side = "player"
-
-    return (pieces, turn_side)
-
-
-##########################################################
-# 4. Forward-check / environment integration
-##########################################################
-
-def scenario_dict_from_state(state):
-    """
-    Convert a (pieces, turn_side) into a puzzle scenario dict
-    that your environment can load. We'll do a simple subGridRadius=3
-    with no blocked hexes for demonstration. You can adjust or randomize.
-    """
-    (pieces, turn_side) = state
-    scenario = {
-        "name": "MateInPuzzle",
-        "subGridRadius": 3,
-        "blockedHexes": [],
-        "pieces": copy.deepcopy(pieces)
-    }
-    # We won't store 'turn_side' in the scenario directly. If your env
-    # needs that, consider adding a 'turn_side' field. Or your env might
-    # detect who moves first automatically (the player).
-    return scenario
-
+############################################################
+# 6) Main script
+############################################################
 
 def main():
-    # Let the user specify how many moves to mate
-    mate_in_n = 3  # e.g. mate in 3 full moves
-    use_ppo_pruning = True  # if True, we do approximate checks with PPO
+    found_any = False
+    for attempt in range(MAX_RANDOM_BOARDS):
+        try:
+            state = generate_random_state()
+        except ValueError:
+            # not enough free spots => skip
+            continue
 
-    # 1) Build an example final "checkmate" scenario
-    final_state = build_final_state_example()
+        # Now check if it's forced mate in 2
+        if is_forced_mate_in_2(state):
+            # We found a puzzle
+            puzzle_scenario = build_yaml_scenario(state)
+            with open(OUTPUT_FILE, "w") as f:
+                yaml.dump([puzzle_scenario], f, sort_keys=False)
+            print(f"Success on attempt {attempt+1} => wrote puzzle to {OUTPUT_FILE}:\n{puzzle_scenario}")
+            found_any = True
+            break
 
-    # 2) Do the backward BFS up to 2*mate_in_n half-moves
-    initial_candidates = backward_generate_mate_in_n(
-        final_state,
-        mate_in_n=mate_in_n,
-        use_ppo_pruning=use_ppo_pruning
-    )
-
-    if not initial_candidates:
-        print("No states found that lead to final checkmate under these constraints.")
-        return
-
-    # For demonstration, let's just pick the first candidate
-    chosen_state = initial_candidates[0]
-    scenario = scenario_dict_from_state(chosen_state)
-
-    # Now we can store that scenario to a YAML file,
-    # in the same format you originally used:
-    puzzle_data = [scenario]  # or you might store multiple
-
-    output_file = "data/generated_puzzles_v2.yaml"
-    with open(output_file, "w") as f:
-        yaml.dump(puzzle_data, f, sort_keys=False)
-
-    print(f"Done! Wrote {len(puzzle_data)} puzzle(s) to {output_file}.")
+    if not found_any:
+        print(f"No forced mate in 2 puzzle found after {MAX_RANDOM_BOARDS} attempts.")
 
 
-if __name__ == "__main__":
+def build_yaml_scenario(state):
+    """
+    Convert our internal 'state' into the format used by your puzzle scripts.
+    {
+      name: "Puzzle Scenario",
+      subGridRadius: int,
+      blockedHexes: list of {q:..., r:...},
+      pieces: [ {class, label, color, side, q, r}, ... ],
+    }
+    """
+    puzzle = {
+        "name": "MateIn2Puzzle",
+        "subGridRadius": state["radius"],
+        "blockedHexes": state["blockedHexes"],
+        "pieces": []
+    }
+    # copy pieces
+    for p in state["pieces"]:
+        if not p["dead"]:
+            puzzle["pieces"].append({
+                "class": p["class"],
+                "label": p["label"],
+                "color": p["color"],
+                "side": p["side"],
+                "q": p["q"],
+                "r": p["r"]
+            })
+    return puzzle
+
+if __name__=="__main__":
     main()
