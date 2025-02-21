@@ -1,5 +1,5 @@
 - name: Puzzle Scenario
-  subGridRadius: 3
+  subGridRadius: 4
   blockedHexes: []
   pieces:
   - class: Priest
@@ -7,10 +7,10 @@
     color: '#556b2f'
     side: player
     q: -2
-    r: -1
+    r: 3
     dead: false
-  - class: Hunter
-    label: H
+  - class: Sorcerer
+    label: S
     color: '#556b2f'
     side: player
     q: 0
@@ -20,41 +20,27 @@
     label: G
     color: '#556b2f'
     side: player
-    q: -1
-    r: 0
-    dead: false
-  - class: Sorcerer
-    label: S
-    color: '#556b2f'
-    side: player
-    q: -2
-    r: 0
+    q: 2
+    r: -3
     dead: false
   - class: Priest
     label: P
     color: '#dc143c'
     side: enemy
-    q: -1
-    r: 2
-    dead: false
-  - class: Guardian
-    label: G
-    color: '#dc143c'
-    side: enemy
-    q: 1
+    q: 2
     r: -1
     dead: false
-  - class: Warlock
-    label: W
+  - class: Sorcerer
+    label: S
     color: '#dc143c'
     side: enemy
-    q: 0
-    r: -3
-    dead: false
-  - class: BloodWarden
-    label: BW
-    color: '#dc143c'
-    side: enemy
-    q: 2
+    q: -3
     r: 1
+    dead: false
+  - class: Hunter
+    label: H
+    color: '#dc143c'
+    side: enemy
+    q: -4
+    r: 0
     dead: false
