@@ -35,7 +35,6 @@ def hex_distance(q1, r1, q2, r2):
         abs(q1 - q2)
         + abs(r1 - r2)
         + abs((q1 + r1) - (q2 + r2))
-    ) // 2
 
 def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
     if (q1 == q2) and (r1 == r2):
@@ -288,7 +287,9 @@ class HexPuzzleEnv(gym.Env):
             for step in self.current_episode:
                 step["iteration_number"] = self.iteration_number
             self.all_episodes.append(self.current_episode)
-
+        
+        print(f"\n[RESET] Starting iteration {self.iteration_number + 1}")
+        
         self.current_episode = []
         self.current_step_reward = 0.0
 
@@ -297,17 +298,21 @@ class HexPuzzleEnv(gym.Env):
         
         # First randomize the scenario if needed
         if self.randomize_radius:
+            old_radius = self.scenario.get("subGridRadius", 0)
             self.scenario["subGridRadius"] = random.randint(self.radius_min, self.radius_max)
             self.grid_radius = self.scenario["subGridRadius"]
+            print(f"[RESET] Randomized grid radius: {old_radius} -> {self.grid_radius}")
             self._build_all_hexes()
 
         if self.randomize_blocked:
             count = random.randint(self.min_blocked, self.max_blocked)
             picks = random.sample(self.all_hexes, min(count, len(self.all_hexes)))
             self.scenario["blockedHexes"] = [{"q":q,"r":r} for (q,r) in picks]
+            print(f"[RESET] Created {len(self.scenario['blockedHexes'])} blocked hexes")
 
         # Initialize pieces first
         if self.randomize_pieces:
+            print("[RESET] Creating random pieces")
             self._create_random_pieces()
         
         # Now initialize all pieces properly
@@ -315,6 +320,7 @@ class HexPuzzleEnv(gym.Env):
         
         # Randomize positions if needed
         if self.randomize_positions:
+            print("[RESET] Randomizing piece positions")
             self._randomize_piece_positions()
 
         # Reset game state
@@ -328,6 +334,13 @@ class HexPuzzleEnv(gym.Env):
 
         for p in self.all_pieces:
             p["moved_this_turn"] = False
+            
+        # Display piece information for debugging
+        print("[RESET] Initial piece configuration:")
+        for i, p in enumerate(self.player_pieces):
+            print(f"  Player {i+1}: {p['label']} ({p['class']}) at ({p['q']},{p['r']})")
+        for i, e in enumerate(self.enemy_pieces):
+            print(f"  Enemy {i+1}: {e['label']} ({e['class']}) at ({e['q']},{e['r']})")
 
         init_dict = {
             "turn_number": 0,
@@ -336,10 +349,13 @@ class HexPuzzleEnv(gym.Env):
             "positions": self._log_positions(),
             "grid_radius": self.grid_radius,
             "blocked_hexes": deepcopy(self.scenario["blockedHexes"]),
-            "iteration_number": self.iteration_number
+            "iteration_number": self.iteration_number,
+            "step_number": 0
         }
         self.current_episode.append(init_dict)
-
+        
+        print(f"[RESET] Iteration {self.iteration_number} initialized successfully")
+        
         return self.get_obs(), {}
 
     def _create_random_pieces(self):
@@ -398,17 +414,24 @@ class HexPuzzleEnv(gym.Env):
         # Reset the current step reward at the start of each step
         self.current_step_reward = 0.0
         self.step_number += 1
-
+        
+        print(f"\n[STEP {self.step_number}] Turn {self.turn_number}, {self.turn_side.upper()} side")
+        
         if self.done_forced:
+            print(f"[STEP {self.step_number}] Environment already terminated")
             return self.get_obs(), 0.0, True, False, {}
 
         valid = self.build_action_list()
         if action_idx >= len(valid):
+            print(f"[STEP {self.step_number}] Invalid action index: {action_idx} (valid range: 0-{len(valid)-1})")
             return self.get_obs(), 0.0, True, False, {}
 
         (pidx, sub_action) = valid[action_idx]
         piece = self.all_pieces[pidx]
         piece["moved_this_turn"] = True
+        
+        print(f"[STEP {self.step_number}] Piece {piece['label']} ({piece['class']}) at ({piece['q']},{piece['r']}) selected")
+        print(f"[STEP {self.step_number}] Action: {sub_action['type']}")
 
         # Before we execute the action, check if piece could have attacked but chooses
         # something else => apply small penalty.
@@ -416,41 +439,59 @@ class HexPuzzleEnv(gym.Env):
         is_attack = sub_action["type"] in ["single_target_attack", "multi_target_attack", "aoe"]
         if could_attack and not is_attack:
             self.current_step_reward -= 4.0
+            print(f"[STEP {self.step_number}] Could have attacked but didn't => -4.0 penalty")
 
         atype = sub_action["type"]
         if atype == "move":
             (q, r) = sub_action["dest"]
+            old_q, old_r = piece["q"], piece["r"]
             piece["q"] = q
             piece["r"] = r
+            print(f"[STEP {self.step_number}] Move from ({old_q},{old_r}) to ({q},{r})")
 
         elif atype == "pass":
             self.current_step_reward -= 1.0
+            print(f"[STEP {self.step_number}] Pass action => -1.0 penalty")
 
         elif atype == "aoe":
+            print(f"[STEP {self.step_number}] AOE attack")
             if sub_action.get("name") == "necrotizing_consecrate":
                 if piece["class"] == "BloodWarden":  # Extra validation
                     self._schedule_necro(piece)
+                    print(f"[STEP {self.step_number}] Scheduled delayed AOE: necrotizing_consecrate")
             else:
-                for tgt in sub_action["targets"]:
+                targets = sub_action["targets"]
+                print(f"[STEP {self.step_number}] AOE targeting {len(targets)} enemies")
+                for i, tgt in enumerate(targets):
                     if not tgt.get("dead", False):
+                        print(f"[STEP {self.step_number}] Target {i+1}: {tgt['label']} ({tgt['class']})")
                         self._kill_piece(tgt, killer_side=piece["side"])
                         # If we killed a Priest, stop processing remaining targets and end immediately
                         if self.done_forced:
+                            print(f"[STEP {self.step_number}] Killed a Priest => terminating episode")
                             return self._finish_step(True, False)
 
         elif atype == "single_target_attack":
             tgt = sub_action["target_piece"]
             if tgt and not tgt.get("dead", False):
+                print(f"[STEP {self.step_number}] Single target attack on {tgt['label']} ({tgt['class']})")
                 self._kill_piece(tgt, killer_side=piece["side"])
                 if self.done_forced:  # Will be True if we killed a Priest
+                    print(f"[STEP {self.step_number}] Killed a Priest => terminating episode")
                     return self._finish_step(True, False)
+            else:
+                print(f"[STEP {self.step_number}] Invalid target for single_target_attack: {tgt}")
 
         elif atype == "multi_target_attack":
-            for tgt in sub_action["targets"]:
+            targets = sub_action["targets"]
+            print(f"[STEP {self.step_number}] Multi-target attack on {len(targets)} targets")
+            for i, tgt in enumerate(targets):
                 if not tgt.get("dead", False):
+                    print(f"[STEP {self.step_number}] Target {i+1}: {tgt['label']} ({tgt['class']})")
                     self._kill_piece(tgt, killer_side=piece["side"])
                     # If we killed a Priest, stop processing remaining targets and end immediately
                     if self.done_forced:
+                        print(f"[STEP {self.step_number}] Killed a Priest => terminating episode")
                         return self._finish_step(True, False)
 
         elif atype == "swap_position":
@@ -476,6 +517,10 @@ class HexPuzzleEnv(gym.Env):
         return self._finish_step(False, False)
 
     def _finish_step(self, terminated, truncated):
+        print(f"[FINISH_STEP] Step {self.step_number}, Turn {self.turn_number}, side {self.turn_side}")
+        print(f"[FINISH_STEP] Reward: {self.current_step_reward}")
+        print(f"[FINISH_STEP] Terminated: {terminated}, Truncated: {truncated}")
+        
         step_data = {
             "turn_number": self.turn_number,
             "turn_side": self.turn_side,
@@ -492,18 +537,38 @@ class HexPuzzleEnv(gym.Env):
         if terminated or truncated:
             step_data["non_bloodwarden_kills"] = self.non_bloodwarden_kills
             self.done_forced = True
+            print(f"[FINISH_STEP] Episode ending: terminated={terminated}, truncated={truncated}")
+            if terminated:
+                if self.current_step_reward >= 30:
+                    print(f"[FINISH_STEP] Priest kill detected!")
+                else:
+                    print(f"[FINISH_STEP] Episode terminated for other reason")
+            if truncated:
+                print(f"[FINISH_STEP] Episode truncated due to turn limit")
 
         if not (terminated or truncated):
             # proceed to next side if all moved
             if self._all_side_pieces_have_moved(self.turn_side):
+                old_side = self.turn_side
                 if self.turn_side == "player":
                     self.turn_side = "enemy"
+                    print(f"[FINISH_STEP] Side change: {old_side} → {self.turn_side}")
                 else:
                     self.turn_side = "player"
                     self.turn_number += 1
+                    print(f"[FINISH_STEP] Side change: {old_side} → {self.turn_side}, advancing to turn {self.turn_number}")
+                
                 for pc in self.all_pieces:
                     pc["moved_this_turn"] = False
+                
+                # Show alive pieces for next turn
+                alive_player = [p for p in self.player_pieces if not p.get("dead", False)]
+                alive_enemy = [e for e in self.enemy_pieces if not e.get("dead", False)]
+                print(f"[FINISH_STEP] Alive player pieces: {len(alive_player)}, alive enemy pieces: {len(alive_enemy)}")
+                
                 self._check_delayed_attacks()
+            else:
+                print(f"[FINISH_STEP] Continuing with current side ({self.turn_side}) - not all pieces have moved")
 
         obs = self.get_obs()
         return obs, self.current_step_reward, terminated, truncated, {}
@@ -1160,7 +1225,20 @@ def main():
     parser.add_argument("--player-max-pieces", type=int, default=4)
     parser.add_argument("--enemy-min-pieces", type=int, default=3)
     parser.add_argument("--enemy-max-pieces", type=int, default=5)
+    parser.add_argument("--debug", action="store_true", help="Enable detailed debugging output")
     args = parser.parse_args()
+
+    print("\n" + "="*80)
+    print("TRAINING CONFIGURATION:")
+    print(f"Approach: {args.approach}")
+    print(f"Randomize positions: {args.randomize}")
+    print(f"Randomize radius: {args.randomize_radius} (min={args.radius_min}, max={args.radius_max})")
+    print(f"Randomize blocked: {args.randomize_blocked} (min={args.min_blocked}, max={args.max_blocked})")
+    print(f"Randomize pieces: {args.randomize_pieces}")
+    if args.randomize_pieces:
+        print(f"  Player pieces: min={args.player_min_pieces}, max={args.player_max_pieces}")
+        print(f"  Enemy pieces: min={args.enemy_min_pieces}, max={args.enemy_max_pieces}")
+    print("="*80 + "\n")
 
     scenario = world_data["regions"][0]["puzzleScenarios"][0]
     scenario_copy = deepcopy(scenario)
@@ -1194,34 +1272,70 @@ def main():
             ent_coef=0.1,
             max_grad_norm=0.3
         )
+        print("\n" + "-"*80)
+        print("STARTING PPO TRAINING SESSION")
+        print("-"*80)
         print("Training PPO for ~2 minutes. Adjust as desired.")
         start_time = time.time()
         time_limit = 2 * 60  # seconds
 
         iteration_count_before = 0
+        total_steps = 0
+        training_iterations = 0
+        
         while True:
+            training_iterations += 1
+            print(f"\nTraining iteration {training_iterations}...")
             model.learn(total_timesteps=1000)
+            
+            total_steps += 1000
             elapsed = time.time() - start_time
+            
+            print(f"Total steps: {total_steps} | Elapsed time: {elapsed:.2f}s")
+            
             if elapsed >= time_limit:
-                print("Time limit => stop training.")
+                print("Time limit reached => stopping training.")
                 break
 
             all_eps = vec_env.envs[0].all_episodes
-            for i, ep in enumerate(all_eps[iteration_count_before:], start=iteration_count_before):
-                if len(ep) == 0:
-                    continue
-                final = ep[-1]
-                rew = final["reward"]
-                side = final["turn_side"]
-                # Only print when a priest is killed (reward >= 30)
-                if rew >= 30:
-                    if side == "player":
-                        print(f"Player side killed enemy priest in iteration {i+1}.")
-                    else:
-                        print(f"Enemy side killed player priest in iteration {i+1}.")
+            num_new_episodes = len(all_eps) - iteration_count_before
+            
+            print(f"New episodes completed: {num_new_episodes}")
+            
+            # Detailed episode analysis
+            if num_new_episodes > 0:
+                priest_kills_player = 0
+                priest_kills_enemy = 0
+                timeouts = 0
+                
+                for i, ep in enumerate(all_eps[iteration_count_before:], start=iteration_count_before):
+                    if len(ep) == 0:
+                        continue
+                    final = ep[-1]
+                    rew = final["reward"]
+                    side = final["turn_side"]
+                    
+                    # Only print when a priest is killed (reward >= 30)
+                    if rew >= 30:
+                        if side == "player":
+                            priest_kills_player += 1
+                            print(f"  Player killed enemy priest in iteration {i+1} (reward: +{rew})")
+                        else:
+                            priest_kills_enemy += 1
+                            print(f"  Enemy killed player priest in iteration {i+1} (reward: +{rew})")
+                    elif rew == -20:
+                        timeouts += 1
+                
+                print(f"Episode outcomes: Player priest kills: {priest_kills_player}, Enemy priest kills: {priest_kills_enemy}, Timeouts: {timeouts}")
+            
             iteration_count_before = len(all_eps)
+            print(f"Current total episodes: {iteration_count_before}")
 
         all_episodes = vec_env.envs[0].all_episodes
+        print("\nTRAINING COMPLETED")
+        print(f"Total episodes: {len(all_episodes)}")
+        print(f"Total steps: {total_steps}")
+        print(f"Total time: {time.time() - start_time:.2f}s")
 
         model.save("ppo_model.zip")
         print("PPO model saved to ppo_model.zip")

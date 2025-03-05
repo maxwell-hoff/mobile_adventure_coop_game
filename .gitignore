@@ -5,3 +5,4 @@ data/gen_world.yaml
 dump.rdb
 ppo_model.zip
 .archive/
+puzzle_generator.log
