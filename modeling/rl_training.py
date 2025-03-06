@@ -35,6 +35,7 @@ def hex_distance(q1, r1, q2, r2):
         abs(q1 - q2)
         + abs(r1 - r2)
         + abs((q1 + r1) - (q2 + r2))
+    ) // 2
 
 def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
     if (q1 == q2) and (r1 == r2):

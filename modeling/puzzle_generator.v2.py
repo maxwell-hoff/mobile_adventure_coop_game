@@ -25,6 +25,7 @@ import math
 import sys
 import logging
 import time
+import os
 from itertools import combinations, permutations
 
 # Add TRACE level (even more detailed than DEBUG)
@@ -60,60 +61,66 @@ OUTPUT_FILE = "data/generated_puzzles_v2.yaml"
 ################################################################################
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="Hex puzzle generator v2 with partial-turn BFS.")
-    parser.add_argument("--randomize", action="store_true", help="Randomize piece positions each reset.")
-    parser.add_argument("--approach", choices=["ppo","tree","mcts"], default="ppo",
-                        help="(Included for consistency; not fully used here.)")
-    parser.add_argument("--randomize-radius", action="store_true", help="Randomize puzzle radius.")
-    parser.add_argument("--radius-min", type=int, default=2)
-    parser.add_argument("--radius-max", type=int, default=5)
-    parser.add_argument("--randomize-blocked", action="store_true", help="Randomize blocked hexes.")
-    parser.add_argument("--min-blocked", type=int, default=1)
-    parser.add_argument("--max-blocked", type=int, default=5)
-    parser.add_argument("--randomize-pieces", action="store_true",
-                        help="Randomize piece composition for each side.")
-    parser.add_argument("--player-min-pieces", type=int, default=3)
-    parser.add_argument("--player-max-pieces", type=int, default=4)
-    parser.add_argument("--enemy-min-pieces", type=int, default=3)
-    parser.add_argument("--enemy-max-pieces", type=int, default=5)
-    parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging.")
-    parser.add_argument("--trace", action="store_true", help="Enable extremely verbose trace logging (hex calculations, etc).")
-    parser.add_argument("--max-attempts", type=int, default=2000, 
-                        help="Maximum number of puzzle generation attempts.")
-    parser.add_argument("--min-difficulty", type=int, default=1, choices=[1, 2, 3],
-                        help="Minimum puzzle difficulty (1=Easy, 2=Medium, 3=Hard)")
-    parser.add_argument("--log-file-only", action="store_true", 
-                        help="Write logs only to file, not to console")
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    
+    # Grid size options
+    parser.add_argument("--randomize-radius", action="store_true",
+                      help="Randomize the grid radius")
+    parser.add_argument("--radius-min", type=int, default=3,
+                      help="Minimum grid radius (default: 3)")
+    parser.add_argument("--radius-max", type=int, default=4,
+                      help="Maximum grid radius (default: 4)")
+    
+    # Blocked hex options
+    parser.add_argument("--randomize-blocked", action="store_true",
+                      help="Randomize the number of blocked hexes")
+    parser.add_argument("--min-blocked", type=int, default=1,
+                      help="Minimum number of blocked hexes (default: 1)")
+    parser.add_argument("--max-blocked", type=int, default=3,
+                      help="Maximum number of blocked hexes (default: 3)")
+    
+    # Enemy piece options
+    parser.add_argument("--min-extra-enemies", type=int, default=1,
+                      help="Minimum number of extra enemy pieces (default: 1)")
+    parser.add_argument("--max-extra-enemies", type=int, default=2,
+                      help="Maximum number of extra enemy pieces (default: 2)")
+    parser.add_argument("--allow-bloodwarden", action="store_true",
+                      help="Allow BloodWarden as an enemy piece")
+    
+    # Generation options
+    parser.add_argument("--max-attempts", type=int, default=100,
+                      help="Maximum number of generation attempts (default: 100)")
+    parser.add_argument("--debug", action="store_true",
+                      help="Enable debug logging")
+    parser.add_argument("--output", type=str, default="data/generated_puzzles_v2.yaml",
+                      help="Output file path (default: data/generated_puzzles_v2.yaml)")
+    
     args = parser.parse_args()
     
-    # Set up handlers based on log-file-only flag
-    if args.log_file_only:
-        # Remove existing handlers
-        for handler in logger.handlers[:]:
-            logger.removeHandler(handler)
-        # Add file handler only
-        logger.addHandler(logging.FileHandler('puzzle_generator.log'))
+    # Validate arguments
+    if args.radius_min < 2:
+        parser.error("Minimum radius must be at least 2")
+    if args.radius_max < args.radius_min:
+        parser.error("Maximum radius must be greater than or equal to minimum radius")
+    if args.min_blocked < 0:
+        parser.error("Minimum blocked hexes must be non-negative")
+    if args.max_blocked < args.min_blocked:
+        parser.error("Maximum blocked hexes must be greater than or equal to minimum")
+    if args.min_extra_enemies < 0:
+        parser.error("Minimum extra enemies must be non-negative")
+    if args.max_extra_enemies < args.min_extra_enemies:
+        parser.error("Maximum extra enemies must be greater than or equal to minimum")
     
-    # Set log level based on debug/trace flags
-    if args.trace:
-        logger.setLevel(TRACE_LEVEL)
-        logger.info("Trace logging enabled (very verbose)")
-    elif args.debug:
-        logger.setLevel(logging.DEBUG)
-        logger.info("Debug logging enabled")
-    
-    logger.info(f"Arguments parsed: {vars(args)}")
     return args
 
 ################################################################################
 # 2) Basic helpers: distance, LOS, occupancy
 ################################################################################
 
-def hex_distance(q1,r1,q2,r2):
-    """Calculate hex distance between two points using axial coordinates."""
-    distance = (abs(q1-q2)+abs(r1-r2)+abs((q1+r1)-(q2+r2)))//2
-    logger.trace(f"Hex distance from ({q1},{r1}) to ({q2},{r2}) = {distance}")
-    return distance
+def hex_distance(q1, r1, q2, r2):
+    """Calculate the distance between two hex coordinates."""
+    return (abs(q1 - q2) + abs(r1 - r2) + abs((q1 + r1) - (q2 + r2))) // 2
 
 def all_hexes_in_radius(radius):
     """Generate all valid hex coordinates within given radius."""
@@ -142,59 +149,55 @@ def is_occupied_or_blocked(q,r,pieces, blocked_set):
     logger.trace(f"Hex ({q},{r}) is free")
     return False
 
-def line_of_sight(q1,r1,q2,r2, blocked_set, all_pieces):
-    """Check if there is line of sight between two points."""
-    logger.trace(f"Checking line of sight from ({q1},{r1}) to ({q2},{r2})")
-    
-    # Same point always has LOS
-    if (q1==q2) and (r1==r2):
-        logger.trace("Same point - LOS exists")
+def line_of_sight(q1, r1, q2, r2, blocked_hexes, pieces):
+    """
+    Check if there is line of sight between two hex coordinates.
+    Takes into account blocked hexes and pieces that could block vision.
+    """
+    # Same point always has line of sight
+    if (q1 == q2) and (r1 == r2):
         return True
-    
-    N = max(abs(q2-q1), abs(r2-r1), abs((q1+r1)-(q2+r2)))
-    if N==0:
-        logger.trace("Zero distance - LOS exists")
-        return True
-    
-    s1=-q1-r1
-    s2=-q2-r2
-    line_hexes=[]
     
     # Calculate all hexes along the line
-    for i in range(N+1):
-        t = i/N
-        qf=q1+(q2-q1)*t
-        rf=r1+(r2-r1)*t
-        sf=s1+(s2-s1)*t
-        rq=round(qf)
-        rr=round(rf)
-        rs=round(sf)
+    N = max(abs(q2 - q1), abs(r2 - r1), abs((q1 + r1) - (q2 + r2)))
+    if N == 0:
+        return True
+    
+    s1 = -q1 - r1
+    s2 = -q2 - r2
+    line_hexes = []
+    
+    for i in range(N + 1):
+        t = i / N
+        qf = q1 + (q2 - q1) * t
+        rf = r1 + (r2 - r1) * t
+        sf = s1 + (s2 - s1) * t
+        rq = round(qf)
+        rr = round(rf)
+        rs = round(sf)
         
-        # Fix rounding to maintain q+r+s=0 constraint
-        qdiff=abs(rq-qf)
-        rdiff=abs(rr-rf)
-        sdiff=abs(rs-sf)
-        if qdiff>rdiff and qdiff>sdiff:
-            rq=-rr-rs
-        elif rdiff>sdiff:
-            rr=-rq-rs
+        # Fix rounding to maintain q + r + s = 0 constraint
+        qdiff = abs(rq - qf)
+        rdiff = abs(rr - rf)
+        sdiff = abs(rs - sf)
+        if qdiff > rdiff and qdiff > sdiff:
+            rq = -rr - rs
+        elif rdiff > sdiff:
+            rr = -rq - rs
         
-        line_hexes.append((rq,rr))
+        line_hexes.append((rq, rr))
     
     # Skip first and last hex (source and destination)
-    for idx, (hq,hr) in enumerate(line_hexes[1:-1], 1):
+    for hq, hr in line_hexes[1:-1]:
         # Check if hex is blocked
-        if (hq,hr) in blocked_set:
-            logger.trace(f"LOS blocked by obstacle at ({hq},{hr})")
+        if (hq, hr) in blocked_hexes:
             return False
         
         # Check if hex is occupied by a piece
-        occupant = next((pp for pp in all_pieces if not pp.get("dead",False) and (pp["q"],pp["r"])==(hq,hr)), None)
-        if occupant:
-            logger.trace(f"LOS blocked by {occupant['side']} {occupant['class']} at ({hq},{hr})")
-            return False
+        for p in pieces:
+            if not p.get("dead", False) and p["q"] == hq and p["r"] == hr:
+                return False
     
-    logger.trace("LOS exists - path is clear")
     return True
 
 def is_priest_dead(pieces, side="enemy"):
@@ -213,6 +216,442 @@ def is_priest_dead(pieces, side="enemy"):
 # 3) Scenario generation: at least 1 Priest per side, BloodWarden only for enemy
 ################################################################################
 
+def can_kill_piece(attacker_class, attacker_q, attacker_r, target_piece, blocked_hexes, pieces):
+    """
+    Check if a piece of attacker_class at (attacker_q, attacker_r) can kill the target piece.
+    Takes into account piece abilities, range, and line of sight requirements.
+    """
+    # Get attacker's abilities from pieces.yaml
+    with open("data/pieces.yaml", "r") as f:
+        pieces_data = yaml.safe_load(f)
+    
+    if attacker_class not in pieces_data["classes"]:
+        logger.warning(f"Unknown attacker class: {attacker_class}")
+        return False
+    
+    class_data = pieces_data["classes"][attacker_class]
+    
+    # Check each action for attack capability
+    for action_name, action_data in class_data["actions"].items():
+        action_type = action_data["action_type"]
+        
+        if action_type in ["single_target_attack", "multi_target_attack", "aoe"]:
+            attack_range = action_data.get("range", 0)
+            requires_los = action_data.get("requires_los", False)
+            
+            # Calculate distance to target
+            dist = hex_distance(attacker_q, attacker_r, target_piece["q"], target_piece["r"])
+            
+            # For AOE attacks, use radius instead of range
+            if action_type == "aoe":
+                attack_range = action_data.get("radius", 0)
+            
+            # Check if target is in range
+            if dist <= attack_range:
+                # Check line of sight if required
+                if not requires_los or line_of_sight(
+                    attacker_q, attacker_r,
+                    target_piece["q"], target_piece["r"],
+                    blocked_hexes, pieces
+                ):
+                    return True
+    
+    return False
+
+def is_position_safe(q, r, enemy_pieces, blocked_hexes, pieces):
+    """
+    Check if a position is safe from all enemy pieces.
+    Returns True if no enemy piece can attack the position.
+    """
+    # Create a dummy piece at the target position
+    target = {"q": q, "r": r}
+    
+    # Check if any enemy piece can attack this position
+    for enemy in enemy_pieces:
+        if enemy.get("dead", False):
+            continue
+        if can_kill_piece(enemy["class"], enemy["q"], enemy["r"], target, blocked_hexes, pieces):
+            return False
+    
+    return True
+
+def can_be_killed_by_enemies(piece, enemy_pieces, blocked_hexes, pieces):
+    """
+    Check if a piece can be killed by any enemy piece.
+    Returns True if any enemy piece can kill the target piece.
+    """
+    # Check each enemy piece
+    for enemy in enemy_pieces:
+        if enemy.get("dead", False):
+            continue
+        if can_kill_piece(enemy["class"], enemy["q"], enemy["r"], piece, blocked_hexes, pieces):
+            return True
+    
+    return False
+
+def can_move_to(piece, target_q, target_r, blocked_hexes, pieces):
+    """
+    Check if a piece can move to the target position.
+    Takes into account piece movement abilities and blocked hexes/pieces.
+    """
+    # Get piece's abilities from pieces.yaml
+    with open("data/pieces.yaml", "r") as f:
+        pieces_data = yaml.safe_load(f)
+    
+    if piece["class"] not in pieces_data["classes"]:
+        logger.warning(f"Unknown piece class: {piece['class']}")
+        return False
+    
+    class_data = pieces_data["classes"][piece["class"]]
+    
+    # Check if target hex is blocked or occupied
+    if blocked_hexes and (target_q, target_r) in blocked_hexes:
+        return False
+    for p in pieces:
+        if not p.get("dead", False) and p["q"] == target_q and p["r"] == target_r:
+            return False
+    
+    # Check each action for movement capability
+    for action_name, action_data in class_data["actions"].items():
+        action_type = action_data["action_type"]
+        
+        if action_type == "move":
+            move_range = action_data.get("range", 0)
+            requires_los = action_data.get("requires_los", False)
+            
+            # Calculate distance to target
+            dist = hex_distance(piece["q"], piece["r"], target_q, target_r)
+            
+            # Check if target is in range
+            if dist <= move_range:
+                # Check line of sight if required
+                if not requires_los or line_of_sight(
+                    piece["q"], piece["r"],
+                    target_q, target_r,
+                    blocked_hexes, pieces
+                ):
+                    return True
+    
+    return False
+
+def can_reach_in_moves(piece, target_q, target_r, num_moves, blocked_hexes, pieces):
+    """
+    Check if a piece can reach a target position in a given number of moves.
+    Uses breadth-first search to find all reachable positions.
+    """
+    # Get piece's movement range
+    with open("data/pieces.yaml", "r") as f:
+        pieces_data = yaml.safe_load(f)
+    
+    if piece["class"] not in pieces_data["classes"]:
+        logger.warning(f"Unknown piece class: {piece['class']}")
+        return False
+    
+    class_data = pieces_data["classes"][piece["class"]]
+    move_range = 0
+    requires_los = False
+    
+    # Find movement action
+    for action_name, action_data in class_data["actions"].items():
+        if action_data["action_type"] == "move":
+            move_range = action_data.get("range", 0)
+            requires_los = action_data.get("requires_los", False)
+            break
+    
+    if move_range == 0:
+        return False
+    
+    # BFS to find reachable positions
+    visited = set()
+    current_positions = {(piece["q"], piece["r"])}
+    
+    for _ in range(num_moves):
+        next_positions = set()
+        
+        for q, r in current_positions:
+            # Try all positions within move range
+            for dq in range(-move_range, move_range + 1):
+                for dr in range(-move_range, move_range + 1):
+                    new_q = q + dq
+                    new_r = r + dr
+                    
+                    # Skip if we've already visited this position
+                    if (new_q, new_r) in visited:
+                        continue
+                    
+                    # Skip if position is out of range
+                    dist = hex_distance(q, r, new_q, new_r)
+                    if dist > move_range:
+                        continue
+                    
+                    # Skip if position is blocked or occupied
+                    if (new_q, new_r) in blocked_hexes:
+                        continue
+                    if any(p["q"] == new_q and p["r"] == new_r and not p.get("dead", False) for p in pieces):
+                        continue
+                    
+                    # Check line of sight if required
+                    if not requires_los or line_of_sight(q, r, new_q, new_r, blocked_hexes, pieces):
+                        next_positions.add((new_q, new_r))
+                        visited.add((new_q, new_r))
+        
+        current_positions = next_positions
+        
+        # If we can reach the target, return True
+        if (target_q, target_r) in current_positions:
+            return True
+    
+    return False
+
+def can_be_protected(piece, protectors, enemy_pieces, blocked_hexes, pieces, radius):
+    """
+    Check if a piece can be protected by other pieces.
+    A piece is protected if:
+    1. For each enemy that can attack it
+    2. At least one protector can kill that enemy before it attacks
+    """
+    # Find all enemies that can attack the piece
+    attackers = []
+    for enemy in enemy_pieces:
+        if enemy.get("dead", False):
+            continue
+        if can_kill_piece(enemy["class"], enemy["q"], enemy["r"], piece, blocked_hexes, pieces):
+            attackers.append(enemy)
+    
+    # If no attackers, piece is safe
+    if not attackers:
+        return True
+    
+    # For each attacker
+    for attacker in attackers:
+        # Check if any protector can kill it
+        can_be_killed = False
+        for protector in protectors:
+            # Check if protector can reach a position to kill the attacker
+            for q in range(-radius, radius + 1):
+                for r in range(-radius, radius + 1):
+                    if abs(q + r) <= radius:
+                        # Skip if position is blocked or occupied
+                        if (q, r) in blocked_hexes:
+                            continue
+                        if any(p["q"] == q and p["r"] == r and not p.get("dead", False) for p in pieces):
+                            continue
+                        
+                        # Check if protector can reach this position in 1 move
+                        if can_reach_in_moves(protector, q, r, 1, blocked_hexes, pieces):
+                            # Check if protector can kill the attacker from here
+                            if can_kill_piece(protector["class"], q, r, attacker, blocked_hexes, pieces):
+                                can_be_killed = True
+                                break
+                if can_be_killed:
+                    break
+            if can_be_killed:
+                break
+        
+        # If no protector can kill this attacker, piece is not protected
+        if not can_be_killed:
+            return False
+    
+    return True
+
+def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
+    """
+    Generate a puzzle that guarantees a forced mate in 2 by working backward from the checkmate position.
+    
+    Strategy:
+    1. Start with enemy Priest position
+    2. Place a ranged attacker (Warlock/Sorcerer) at max range
+    3. Add blocked hexes and other pieces to constrain enemy movement
+    4. Ensure player pieces can't be killed during enemy's turn
+    
+    Returns a dictionary with the puzzle scenario if successful, None if failed.
+    """
+    logger.info("Generating forced mate puzzle using backward-working approach")
+    
+    # Initialize pieces list
+    pieces = []
+    blocked_hexes = set(blocked_hexes or set())
+    
+    # 1. Place enemy Priest in center-ish position
+    priest_q = random.randint(-1, 1)
+    priest_r = random.randint(-1, 1)
+    enemy_priest = {
+        "class": "Priest",
+        "label": "P",
+        "color": "#dc143c",
+        "side": "enemy",
+        "q": priest_q,
+        "r": priest_r
+    }
+    pieces.append(enemy_priest)
+    logger.info(f"Placed enemy Priest at ({priest_q},{priest_r})")
+    
+    # Find all possible moves for enemy Priest
+    priest_moves = []
+    for q in range(-radius, radius + 1):
+        for r in range(-radius, radius + 1):
+            if abs(q + r) <= radius:
+                if can_move_to(enemy_priest, q, r, blocked_hexes, pieces):
+                    priest_moves.append((q, r))
+    
+    # We want to limit Priest's movement options to 2-3 hexes
+    target_move_count = random.randint(2, 3)
+    if len(priest_moves) > target_move_count:
+        # Block some hexes around Priest to limit movement
+        moves_to_block = random.sample(priest_moves, len(priest_moves) - target_move_count)
+        for q, r in moves_to_block:
+            blocked_hexes.add((q, r))
+        logger.info(f"Added {len(moves_to_block)} blocked hexes to limit Priest movement")
+    
+    # 2. Place ranged attacker at max range
+    # Choose between Warlock (range 2) and Sorcerer (range 3)
+    attacker_class = random.choice(["Warlock", "Sorcerer"])
+    attack_range = 2 if attacker_class == "Warlock" else 3
+    
+    # Find all positions at max range that have line of sight
+    max_range_positions = []
+    for q in range(-radius, radius + 1):
+        for r in range(-radius, radius + 1):
+            if abs(q + r) <= radius:
+                if (q, r) in blocked_hexes:
+                    continue
+                dist = hex_distance(q, r, priest_q, priest_r)
+                if dist == attack_range:
+                    # Check if this position has line of sight to priest
+                    if line_of_sight(q, r, priest_q, priest_r, blocked_hexes, pieces):
+                        # Check if position is safe from enemy Priest
+                        if not can_be_killed_by_enemies({"q": q, "r": r}, [enemy_priest], blocked_hexes, pieces):
+                            # Check if position has line of sight to all Priest's possible moves
+                            has_los_to_all_moves = True
+                            for move_q, move_r in priest_moves:
+                                if (move_q, move_r) not in blocked_hexes:
+                                    if not line_of_sight(q, r, move_q, move_r, blocked_hexes, pieces):
+                                        has_los_to_all_moves = False
+                                        break
+                            if has_los_to_all_moves:
+                                max_range_positions.append((q, r))
+    
+    if not max_range_positions:
+        logger.warning("Could not find valid position for ranged attacker")
+        return None
+    
+    # Pick random position for attacker
+    attacker_q, attacker_r = random.choice(max_range_positions)
+    attacker = {
+        "class": attacker_class,
+        "label": "W" if attacker_class == "Warlock" else "S",
+        "color": "#556b2f",
+        "side": "player",
+        "q": attacker_q,
+        "r": attacker_r
+    }
+    pieces.append(attacker)
+    logger.info(f"Placed {attacker_class} at ({attacker_q},{attacker_r})")
+    
+    # 3. Add player Priest (required)
+    # Find safe position for player Priest that can't be attacked
+    safe_positions = []
+    for q in range(-radius, radius + 1):
+        for r in range(-radius, radius + 1):
+            if abs(q + r) <= radius:
+                if (q, r) in blocked_hexes:
+                    continue
+                # Skip if position is already taken
+                if any(p["q"] == q and p["r"] == r for p in pieces):
+                    continue
+                # Skip if position can be attacked by enemy Priest from any of its possible moves
+                is_safe = True
+                for move_q, move_r in priest_moves:
+                    if (move_q, move_r) not in blocked_hexes:
+                        if can_kill_piece("Priest", move_q, move_r, {"q": q, "r": r}, blocked_hexes, pieces):
+                            is_safe = False
+                            break
+                if is_safe:
+                    safe_positions.append((q, r))
+    
+    if not safe_positions:
+        logger.warning("Could not find safe position for player Priest")
+        return None
+    
+    player_priest_q, player_priest_r = random.choice(safe_positions)
+    player_priest = {
+        "class": "Priest",
+        "label": "P",
+        "color": "#556b2f",
+        "side": "player",
+        "q": player_priest_q,
+        "r": player_priest_r
+    }
+    pieces.append(player_priest)
+    logger.info(f"Placed player Priest at ({player_priest_q},{player_priest_r})")
+    
+    # 4. Add enemy pieces to make puzzle more interesting
+    # Add extra enemy pieces that can't immediately kill player pieces
+    enemy_classes = ["Guardian", "Hunter"]
+    if args and args.allow_bloodwarden:
+        enemy_classes.append("BloodWarden")
+    
+    num_extra_enemies = random.randint(
+        args.min_extra_enemies if args else 1,
+        args.max_extra_enemies if args else 2
+    )
+    
+    for _ in range(num_extra_enemies):
+        enemy_class = random.choice(enemy_classes)
+        valid_positions = []
+        
+        for q in range(-radius, radius + 1):
+            for r in range(-radius, radius + 1):
+                if abs(q + r) <= radius:
+                    if (q, r) in blocked_hexes:
+                        continue
+                    if any(p["q"] == q and p["r"] == r for p in pieces):
+                        continue
+                    
+                    # Create a temporary enemy piece at this position
+                    temp_enemy = {
+                        "class": enemy_class,
+                        "label": "G" if enemy_class == "Guardian" else ("H" if enemy_class == "Hunter" else "BW"),
+                        "color": "#dc143c",
+                        "side": "enemy",
+                        "q": q,
+                        "r": r
+                    }
+                    
+                    # Check if any player piece would be vulnerable
+                    can_kill = False
+                    for p in pieces:
+                        if p["side"] == "player":
+                            if can_kill_piece(enemy_class, q, r, p, blocked_hexes, pieces):
+                                can_kill = True
+                                break
+                    
+                    if not can_kill:
+                        valid_positions.append((q, r))
+        
+        if valid_positions:
+            pos_q, pos_r = random.choice(valid_positions)
+            enemy = {
+                "class": enemy_class,
+                "label": "G" if enemy_class == "Guardian" else ("H" if enemy_class == "Hunter" else "BW"),
+                "color": "#dc143c",
+                "side": "enemy",
+                "q": pos_q,
+                "r": pos_r
+            }
+            pieces.append(enemy)
+            logger.info(f"Added {enemy_class} at ({pos_q},{pos_r})")
+    
+    # Create final scenario
+    scenario = {
+        "name": "Puzzle Scenario",
+        "subGridRadius": radius,
+        "blockedHexes": [{"q": q, "r": r} for (q, r) in blocked_hexes],
+        "pieces": pieces
+    }
+    
+    return scenario
+
 def generate_random_scenario(args, attempt_number=0):
     """Generate a random puzzle scenario based on provided arguments."""
     logger.info(f"---------- ATTEMPT {attempt_number+1} ----------")
@@ -224,69 +663,49 @@ def generate_random_scenario(args, attempt_number=0):
         radius = random.randint(args.radius_min, args.radius_max)
         logger.info(f"Using randomized grid radius: {radius}")
     else:
-        radius = random.choice([3,4])
-        logger.info(f"Using default grid radius: {radius}")
-
+        radius = args.radius_min
+        logger.info(f"Using fixed grid radius: {radius}")
+    
     # Generate all possible hex coordinates within radius
-    coords = all_hexes_in_radius(radius)
-    random.shuffle(coords)
-    logger.debug(f"Generated and shuffled {len(coords)} potential hex coordinates")
-
+    coords = set()
+    for q in range(-radius, radius + 1):
+        for r in range(-radius, radius + 1):
+            if abs(q + r) <= radius:
+                coords.add((q, r))
+    
     # Generate blocked hexes
-    block_count = 0
+    blocked_hexes = set()
     if args.randomize_blocked:
-        block_count = random.randint(args.min_blocked, min(args.max_blocked, len(coords)))
+        block_count = random.randint(args.min_blocked, args.max_blocked)
         logger.info(f"Using randomized blocked hex count: {block_count}")
+        if block_count > 0:
+            blocked_hexes = set(random.sample(list(coords), block_count))
+            logger.info(f"Created {len(blocked_hexes)} blocked hexes")
+            if blocked_hexes:
+                logger.debug(f"Blocked hex coordinates: {blocked_hexes}")
     
-    blocked = set(coords[:block_count])
-    free_spots = coords[block_count:]
-    blocked_hexes = [{"q":q,"r":r} for (q,r) in blocked]
+    # Generate puzzle using forced mate approach
+    scenario = generate_forced_mate_puzzle(radius, blocked_hexes, args)
+    if scenario is None:
+        logger.warning("Failed to generate forced mate puzzle")
+        return None
     
-    logger.debug(f"Created {len(blocked_hexes)} blocked hexes, {len(free_spots)} free spots remaining")
-    if len(blocked_hexes) > 0:
-        logger.debug(f"Blocked hex coordinates: {blocked_hexes}")
-
-    # Generate pieces for each side
-    logger.info(f"Building player pieces (min: {args.player_min_pieces}, max: {args.player_max_pieces})")
-    player_pieces = build_side_pieces("player", args.player_min_pieces, args.player_max_pieces)
+    # Add attempt number
+    scenario["attempt_number"] = attempt_number + 1
     
-    logger.info(f"Building enemy pieces (min: {args.enemy_min_pieces}, max: {args.enemy_max_pieces})")
-    enemy_pieces = build_side_pieces("enemy", args.enemy_min_pieces, args.enemy_max_pieces)
+    generation_time = time.time() - start_time
+    logger.info(f"Scenario generation completed in {generation_time:.2f} seconds")
     
-    all_pieces = player_pieces + enemy_pieces
-    logger.info(f"Created {len(player_pieces)} player pieces and {len(enemy_pieces)} enemy pieces")
-
-    # Ensure we have enough free spots for all pieces
-    if len(all_pieces) > len(free_spots):
-        logger.error(f"Not enough free spots ({len(free_spots)}) for all pieces ({len(all_pieces)})")
-        raise ValueError("Not enough free spots to place pieces.")
-
-    # Place pieces on the board
-    logger.debug("Placing pieces on the board")
-    random.shuffle(free_spots)
-    for i, pc in enumerate(all_pieces):
-        pc["q"], pc["r"] = free_spots[i]
-        logger.debug(f"Placed {pc['side']} {pc['class']} at ({pc['q']},{pc['r']})")
-
-    # Create the scenario
-    scenario = {
-        "name": f"Puzzle Scenario {attempt_number+1}",
-        "subGridRadius": radius,
-        "blockedHexes": blocked_hexes,
-        "pieces": all_pieces,
-        "difficulty": args.min_difficulty,  # Include difficulty level
-        "attempt_number": attempt_number+1  # Store attempt number for reference
-    }
+    # Log piece positions for reference
+    player_pieces = [p for p in scenario["pieces"] if p["side"] == "player"]
+    enemy_pieces = [p for p in scenario["pieces"] if p["side"] == "enemy"]
     
-    # Log piece positions clearly for reference
     logger.info("Initial piece positions:")
     for p in player_pieces:
         logger.info(f"  PLAYER {p['class']} at ({p['q']},{p['r']})")
     for e in enemy_pieces:
         logger.info(f"  ENEMY {e['class']} at ({e['q']},{e['r']})")
     
-    generation_time = time.time() - start_time
-    logger.info(f"Scenario generation completed in {generation_time:.2f} seconds")
     return scenario
 
 def build_side_pieces(side, min_total, max_total):
@@ -882,63 +1301,74 @@ def move_to_string(piece, atype, tq, tr):
 
 def main():
     args = parse_arguments()
-    MAX_TRIES = args.max_attempts
-    min_difficulty = args.min_difficulty
     
-    logger.info(f"Starting puzzle generation with {MAX_TRIES} max attempts")
-    logger.info(f"Minimum difficulty level: {min_difficulty}")
+    # Configure logging
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
     
-    # Progress tracking
+    # Track statistics
     start_time = time.time()
     found_any = False
+    attempt = 0
     valid_scenarios = []
-    total_states_explored = 0
-    total_lines_analyzed = 0
-    last_progress_time = time.time()
-    progress_interval = 10  # Print progress every 10 seconds
-    
-    # Summary stats for terminal display
-    attempts_tried = 0
     failed_reasons = {
-        "not_forced": 0,        # No guaranteed win
-        "multiple_solutions": 0, # More than one solution
-        "no_valid_lines": 0,    # No valid play lines
-        "error": 0              # Other errors
+        "not_forced": 0,
+        "multiple_solutions": 0,
+        "no_valid_lines": 0,
+        "error": 0,
+        "not_solvable": 0
     }
     
-    for attempt in range(MAX_TRIES):
-        attempt_start = time.time()
-        current_time = time.time()
-        
-        # Print periodic progress update
-        if current_time - last_progress_time > progress_interval:
-            elapsed = current_time - start_time
-            logger.info(f"Progress: {attempt}/{MAX_TRIES} attempts ({(attempt/MAX_TRIES)*100:.1f}%), "
-                        f"Time elapsed: {elapsed:.1f}s, Avg time per attempt: {elapsed/(attempt+1):.2f}s")
-            last_progress_time = current_time
-            
-            # Also print failure statistics
-            if attempt > 0:
-                logger.info(f"Failure stats: not forced={failed_reasons['not_forced']}, "
-                           f"multiple solutions={failed_reasons['multiple_solutions']}, "
-                           f"no valid lines={failed_reasons['no_valid_lines']}, errors={failed_reasons['error']}")
+    while attempt < args.max_attempts:
+        logger.info(f"\n=== Starting attempt {attempt + 1}/{args.max_attempts} ===")
         
         try:
             # Generate a random scenario with attempt number
             scenario = generate_random_scenario(args, attempt)
+            if scenario is None:
+                logger.warning("Failed to generate scenario")
+                failed_reasons["error"] += 1
+                attempt += 1
+                continue
+            
+            # Check if it's solvable in exactly 2 turns
+            if not is_solvable_in_two_turns(scenario):
+                logger.info("Scenario is not solvable in exactly 2 turns")
+                failed_reasons["not_solvable"] += 1
+                attempt += 1
+                continue
             
             # Check if it's a valid "forced mate in 2" puzzle
             if is_forced_mate_in_2(scenario):
                 valid_scenarios.append(scenario)
                 logger.info(f"Found valid puzzle on attempt {attempt+1}!")
                 
-                # Set difficulty based on configuration
-                scenario["difficulty"] = min_difficulty
-                
                 # Save to output file
-                with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-                    yaml.dump([scenario], f, sort_keys=False)
-                logger.info(f"Puzzle saved to {OUTPUT_FILE}")
+                try:
+                    # Create directory if it doesn't exist
+                    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+                    
+                    # Load existing scenarios if file exists
+                    existing_scenarios = []
+                    if os.path.exists(args.output):
+                        with open(args.output, "r", encoding="utf-8") as f:
+                            existing_scenarios = yaml.safe_load(f) or []
+                    
+                    # Add new scenario
+                    existing_scenarios.append(scenario)
+                    
+                    # Save all scenarios
+                    with open(args.output, "w", encoding="utf-8") as f:
+                        yaml.dump(existing_scenarios, f, sort_keys=False)
+                    logger.info(f"Puzzle saved to {args.output}")
+                except Exception as e:
+                    logger.error(f"Failed to save puzzle: {str(e)}")
+                    failed_reasons["error"] += 1
+                    attempt += 1
+                    continue
                 
                 # Print detailed scenario summary
                 player_pieces = [p for p in scenario["pieces"] if p["side"] == "player"]
@@ -956,72 +1386,144 @@ def main():
                 logger.info("======================================")
                 
                 print(f"\nSuccess! Valid puzzle found on attempt {attempt+1}")
-                print(f"Puzzle saved to {OUTPUT_FILE}")
+                print(f"Puzzle saved to {args.output}")
                 
                 found_any = True
                 break
             else:
-                # Detect failure reason from log messages (simplistic approach)
-                for handler in logger.handlers:
-                    if isinstance(handler, logging.FileHandler):
-                        with open(handler.baseFilename, 'r') as f:
-                            last_lines = f.readlines()[-10:]  # Last 10 lines
-                            
-                            # Try to infer failure reason from logs
-                            if any("multiple winning" in line.lower() for line in last_lines):
-                                failed_reasons["multiple_solutions"] += 1
-                            elif any("no valid play lines" in line.lower() for line in last_lines):
-                                failed_reasons["no_valid_lines"] += 1
-                            elif any("not all lines" in line.lower() for line in last_lines):
-                                failed_reasons["not_forced"] += 1
-                            else:
-                                # Default if we can't determine the exact reason
-                                failed_reasons["not_forced"] += 1
-        
-        except ValueError as e:
-            logger.warning(f"Attempt {attempt+1} failed: {str(e)}")
-            failed_reasons["error"] += 1
-            continue
+                logger.info("Scenario is not a valid forced mate puzzle")
+                failed_reasons["not_forced"] += 1
         
         except Exception as e:
-            logger.error(f"Unexpected error in attempt {attempt+1}: {str(e)}", exc_info=True)
+            logger.error(f"Error during attempt {attempt+1}: {str(e)}")
             failed_reasons["error"] += 1
-            continue
         
-        finally:
-            attempts_tried += 1
-            attempt_time = time.time() - attempt_start
-            logger.debug(f"Attempt {attempt+1} took {attempt_time:.2f} seconds")
+        attempt += 1
     
-    # Final summary
     total_time = time.time() - start_time
+    
     if found_any:
         logger.info(f"SUCCESS: Generated a valid puzzle in {total_time:.2f} seconds after {attempt+1} attempts")
         logger.info(f"Failure stats: not forced={failed_reasons['not_forced']}, "
                    f"multiple solutions={failed_reasons['multiple_solutions']}, "
-                   f"no valid lines={failed_reasons['no_valid_lines']}, errors={failed_reasons['error']}")
+                   f"no valid lines={failed_reasons['no_valid_lines']}, "
+                   f"not solvable={failed_reasons['not_solvable']}, "
+                   f"errors={failed_reasons['error']}")
         
         print(f"\nSuccess! Puzzle generation completed in {total_time:.2f} seconds after {attempt+1} attempts")
     else:
-        logger.warning(f"FAILED: Could not generate a valid puzzle after {MAX_TRIES} attempts ({total_time:.2f} seconds)")
+        logger.warning(f"FAILED: Could not generate a valid puzzle after {args.max_attempts} attempts ({total_time:.2f} seconds)")
         logger.warning(f"Failure stats: not forced={failed_reasons['not_forced']}, "
                       f"multiple solutions={failed_reasons['multiple_solutions']}, "
-                      f"no valid lines={failed_reasons['no_valid_lines']}, errors={failed_reasons['error']}")
+                      f"no valid lines={failed_reasons['no_valid_lines']}, "
+                      f"not solvable={failed_reasons['not_solvable']}, "
+                      f"errors={failed_reasons['error']}")
         
-        print(f"\nNo forced mate-in-2 puzzle (with unique solution) found after {MAX_TRIES} attempts.")
+        print(f"\nNo valid puzzle found after {args.max_attempts} attempts.")
         print(f"Time elapsed: {total_time:.2f} seconds")
         print(f"Failure statistics:")
-        print(f"  - No guaranteed win: {failed_reasons['not_forced']}")
+        print(f"  - Not forced mate: {failed_reasons['not_forced']}")
         print(f"  - Multiple solutions: {failed_reasons['multiple_solutions']}")
-        print(f"  - No valid play lines: {failed_reasons['no_valid_lines']}")
+        print(f"  - No valid lines: {failed_reasons['no_valid_lines']}")
+        print(f"  - Not solvable in 2 turns: {failed_reasons['not_solvable']}")
         print(f"  - Errors: {failed_reasons['error']}")
 
+def is_solvable_in_two_turns(scenario):
+    """
+    Check if a puzzle is solvable in exactly 2 turns.
+    Returns True if:
+    1. Player can force a win in 2 turns
+    2. Enemy cannot prevent the win
+    3. Player cannot win in 1 turn
+    """
+    # Get pieces data
+    with open("data/pieces.yaml", "r") as f:
+        pieces_data = yaml.safe_load(f)
+    
+    # Convert blocked hexes to set for faster lookup
+    blocked_hexes = {(bh["q"], bh["r"]) for bh in scenario["blockedHexes"]}
+    
+    # Get player and enemy pieces
+    pieces = scenario["pieces"]
+    player_pieces = [p for p in pieces if p["side"] == "player"]
+    enemy_pieces = [p for p in pieces if p["side"] == "enemy"]
+    
+    # Find enemy Priest
+    enemy_priest = next(p for p in enemy_pieces if p["class"] == "Priest")
+    
+    # Check if player can win in 1 turn
+    for piece in player_pieces:
+        if can_kill_piece(piece["class"], piece["q"], piece["r"], enemy_priest, blocked_hexes, pieces):
+            logger.info("Puzzle is too easy - can win in 1 turn")
+            return False
+    
+    # Find all possible moves for enemy Priest
+    priest_moves = []
+    for q in range(-scenario["subGridRadius"], scenario["subGridRadius"] + 1):
+        for r in range(-scenario["subGridRadius"], scenario["subGridRadius"] + 1):
+            if abs(q + r) <= scenario["subGridRadius"]:
+                if can_reach_in_moves(enemy_priest, q, r, 1, blocked_hexes, pieces):
+                    priest_moves.append((q, r))
+    
+    # For each player piece with ranged attack
+    ranged_attackers = []
+    for piece in player_pieces:
+        class_data = pieces_data["classes"][piece["class"]]
+        for action_name, action_data in class_data["actions"].items():
+            if action_data["action_type"] in ["single_target_attack", "multi_target_attack"]:
+                attack_range = action_data.get("range", 0)
+                if attack_range > 1:
+                    ranged_attackers.append(piece)
+                    break
+    
+    if not ranged_attackers:
+        logger.info("No ranged attackers found")
+        return False
+    
+    # For each ranged attacker
+    for attacker in ranged_attackers:
+        # Check if attacker can hit all possible Priest positions
+        can_hit_all = True
+        for move_q, move_r in priest_moves:
+            # Check if attacker can reach a position to hit the Priest
+            can_reach_and_hit = False
+            for q in range(-scenario["subGridRadius"], scenario["subGridRadius"] + 1):
+                for r in range(-scenario["subGridRadius"], scenario["subGridRadius"] + 1):
+                    if abs(q + r) <= scenario["subGridRadius"]:
+                        # Skip if position is blocked or occupied
+                        if (q, r) in blocked_hexes:
+                            continue
+                        if any(p["q"] == q and p["r"] == q and not p.get("dead", False) for p in pieces):
+                            continue
+                        
+                        # Check if we can reach this position in 1 move
+                        if can_reach_in_moves(attacker, q, r, 1, blocked_hexes, pieces):
+                            # Create a temporary piece at this position
+                            temp_piece = {
+                                "class": attacker["class"],
+                                "q": q,
+                                "r": r
+                            }
+                            # Check if we can hit the Priest from here
+                            if can_kill_piece(
+                                attacker["class"], q, r,
+                                {"q": move_q, "r": move_r}, blocked_hexes, pieces
+                            ):
+                                can_reach_and_hit = True
+                                break
+                if can_reach_and_hit:
+                    break
+            
+            if not can_reach_and_hit:
+                can_hit_all = False
+                break
+        
+        if can_hit_all:
+            logger.info(f"Found winning strategy with {attacker['class']}")
+            return True
+    
+    logger.info("No winning strategy found")
+    return False
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        logger.info("Process interrupted by user")
-    except Exception as e:
-        logger.critical("Unhandled exception", exc_info=True)
-        raise
+    main()
