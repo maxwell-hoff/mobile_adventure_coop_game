@@ -42,10 +42,10 @@ logging.Logger.trace = trace
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('puzzle_generator.log')
-    ]
+    # handlers=[
+    #     logging.StreamHandler(),
+    #     # logging.FileHandler('puzzle_generator.log')
+    # ]
 )
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ def parse_arguments():
                       help="Allow BloodWarden as an enemy piece")
     
     # Generation options
-    parser.add_argument("--max-attempts", type=int, default=100,
+    parser.add_argument("--max-attempts", type=int, default=10000,
                       help="Maximum number of generation attempts (default: 100)")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug logging")
@@ -459,33 +459,87 @@ def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
     Generate a puzzle that guarantees a forced mate in 2 by working backward from the checkmate position.
     
     Strategy:
-    1. Start with enemy Priest position
-    2. Place a ranged attacker (Warlock/Sorcerer) at max range
-    3. Add blocked hexes and other pieces to constrain enemy movement
-    4. Ensure player pieces can't be killed during enemy's turn
+    1. Place enemy Priest in a position that allows for a good attack setup
+    2. Place a ranged attacker at max range with clear line of sight
+    3. Add blocked hexes strategically to limit enemy Priest movement
+    4. Place player Priest in a safe position
+    5. Add other enemy pieces that create interesting choices but don't interfere with the solution
     
     Returns a dictionary with the puzzle scenario if successful, None if failed.
     """
-    logger.info("Generating forced mate puzzle using backward-working approach")
+    logger.info("Generating forced mate puzzle using deterministic backward-working approach")
     
-    # Initialize pieces list
+    # Initialize pieces list and blocked hexes
     pieces = []
     blocked_hexes = set(blocked_hexes or set())
     
-    # 1. Place enemy Priest in center-ish position
-    priest_q = random.randint(-1, 1)
-    priest_r = random.randint(-1, 1)
-    enemy_priest = {
-        "class": "Priest",
-        "label": "P",
-        "color": "#dc143c",
-        "side": "enemy",
-        "q": priest_q,
-        "r": priest_r
-    }
-    pieces.append(enemy_priest)
-    logger.info(f"Placed enemy Priest at ({priest_q},{priest_r})")
+    # 1. Place enemy Priest in a position that allows good attack angles
+    # Try positions in a spiral pattern from center outward
+    possible_priest_positions = [(0,0), (1,0), (0,1), (-1,1), (-1,0), (0,-1), (1,-1)]
+    enemy_priest = None
     
+    for priest_q, priest_r in possible_priest_positions:
+        if abs(priest_q + priest_r) <= radius and (priest_q, priest_r) not in blocked_hexes:
+            enemy_priest = {
+                "class": "Priest",
+                "label": "P",
+                "color": "#dc143c",
+                "side": "enemy",
+                "q": priest_q,
+                "r": priest_r
+            }
+            pieces.append(enemy_priest)
+            logger.info(f"Placed enemy Priest at ({priest_q},{priest_r})")
+            break
+    
+    if not enemy_priest:
+        logger.warning("Could not place enemy Priest in a good position")
+        return None
+    
+    # 2. Place ranged attacker at max range
+    # Try Sorcerer first (range 3), fall back to Warlock (range 2) if needed
+    attacker = None
+    for attacker_class in ["Sorcerer", "Warlock"]:
+        attack_range = 3 if attacker_class == "Sorcerer" else 2
+        
+        # Try specific angles first that tend to work well
+        angles = [0, 60, 120, 180, 240, 300]  # Angles in degrees
+        for angle in angles:
+            # Convert angle to q,r coordinates at max range
+            rad = math.radians(angle)
+            q = round(attack_range * math.cos(rad))
+            r = round(attack_range * math.sin(rad) * 2/math.sqrt(3))
+            
+            # Adjust coordinates to be relative to enemy Priest
+            q += enemy_priest["q"]
+            r += enemy_priest["r"]
+            
+            if abs(q + r) > radius or (q, r) in blocked_hexes:
+                continue
+                
+            # Verify this position works
+            if line_of_sight(q, r, enemy_priest["q"], enemy_priest["r"], blocked_hexes, pieces):
+                if not can_be_killed_by_enemies({"q": q, "r": r}, [enemy_priest], blocked_hexes, pieces):
+                    attacker = {
+                        "class": attacker_class,
+                        "label": "S" if attacker_class == "Sorcerer" else "W",
+                        "color": "#556b2f",
+                        "side": "player",
+                        "q": q,
+                        "r": r
+                    }
+                    pieces.append(attacker)
+                    logger.info(f"Placed {attacker_class} at ({q},{r})")
+                    break
+        
+        if attacker:
+            break
+    
+    if not attacker:
+        logger.warning("Could not place ranged attacker in a good position")
+        return None
+    
+    # 3. Add blocked hexes strategically to limit Priest movement
     # Find all possible moves for enemy Priest
     priest_moves = []
     for q in range(-radius, radius + 1):
@@ -494,99 +548,86 @@ def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
                 if can_move_to(enemy_priest, q, r, blocked_hexes, pieces):
                     priest_moves.append((q, r))
     
-    # We want to limit Priest's movement options to 2-3 hexes
-    target_move_count = random.randint(2, 3)
-    if len(priest_moves) > target_move_count:
-        # Block some hexes around Priest to limit movement
-        moves_to_block = random.sample(priest_moves, len(priest_moves) - target_move_count)
+    # We want exactly 2 escape routes for the Priest
+    target_moves = 2
+    if len(priest_moves) > target_moves:
+        # Sort moves by how good they are for the Priest
+        # Prioritize blocking moves that would let the Priest escape or counter-attack
+        moves_to_block = []
+        for q, r in priest_moves:
+            if can_kill_piece("Priest", q, r, attacker, blocked_hexes, pieces):
+                moves_to_block.append((q, r))
+            elif hex_distance(q, r, attacker["q"], attacker["r"]) > attack_range:
+                moves_to_block.append((q, r))
+        
+        # If we still need more moves to block, add the rest randomly
+        remaining = len(priest_moves) - target_moves - len(moves_to_block)
+        if remaining > 0:
+            remaining_moves = [m for m in priest_moves if m not in moves_to_block]
+            moves_to_block.extend(random.sample(remaining_moves, min(remaining, len(remaining_moves))))
+        
+        # Add the blocks
         for q, r in moves_to_block:
             blocked_hexes.add((q, r))
-        logger.info(f"Added {len(moves_to_block)} blocked hexes to limit Priest movement")
+        logger.info(f"Added {len(moves_to_block)} strategic blocked hexes to limit Priest movement")
     
-    # 2. Place ranged attacker at max range
-    # Choose between Warlock (range 2) and Sorcerer (range 3)
-    attacker_class = random.choice(["Warlock", "Sorcerer"])
-    attack_range = 2 if attacker_class == "Warlock" else 3
-    
-    # Find all positions at max range that have line of sight
-    max_range_positions = []
-    for q in range(-radius, radius + 1):
-        for r in range(-radius, radius + 1):
-            if abs(q + r) <= radius:
-                if (q, r) in blocked_hexes:
-                    continue
-                dist = hex_distance(q, r, priest_q, priest_r)
-                if dist == attack_range:
-                    # Check if this position has line of sight to priest
-                    if line_of_sight(q, r, priest_q, priest_r, blocked_hexes, pieces):
-                        # Check if position is safe from enemy Priest
-                        if not can_be_killed_by_enemies({"q": q, "r": r}, [enemy_priest], blocked_hexes, pieces):
-                            # Check if position has line of sight to all Priest's possible moves
-                            has_los_to_all_moves = True
-                            for move_q, move_r in priest_moves:
-                                if (move_q, move_r) not in blocked_hexes:
-                                    if not line_of_sight(q, r, move_q, move_r, blocked_hexes, pieces):
-                                        has_los_to_all_moves = False
-                                        break
-                            if has_los_to_all_moves:
-                                max_range_positions.append((q, r))
-    
-    if not max_range_positions:
-        logger.warning("Could not find valid position for ranged attacker")
-        return None
-    
-    # Pick random position for attacker
-    attacker_q, attacker_r = random.choice(max_range_positions)
-    attacker = {
-        "class": attacker_class,
-        "label": "W" if attacker_class == "Warlock" else "S",
-        "color": "#556b2f",
-        "side": "player",
-        "q": attacker_q,
-        "r": attacker_r
-    }
-    pieces.append(attacker)
-    logger.info(f"Placed {attacker_class} at ({attacker_q},{attacker_r})")
-    
-    # 3. Add player Priest (required)
-    # Find safe position for player Priest that can't be attacked
+    # 4. Place player Priest in a safe position
+    # Try positions that are both safe and don't interfere with the solution
+    player_priest = None
     safe_positions = []
-    for q in range(-radius, radius + 1):
-        for r in range(-radius, radius + 1):
-            if abs(q + r) <= radius:
-                if (q, r) in blocked_hexes:
-                    continue
-                # Skip if position is already taken
-                if any(p["q"] == q and p["r"] == r for p in pieces):
-                    continue
-                # Skip if position can be attacked by enemy Priest from any of its possible moves
-                is_safe = True
-                for move_q, move_r in priest_moves:
-                    if (move_q, move_r) not in blocked_hexes:
-                        if can_kill_piece("Priest", move_q, move_r, {"q": q, "r": r}, blocked_hexes, pieces):
-                            is_safe = False
-                            break
-                if is_safe:
-                    safe_positions.append((q, r))
     
-    if not safe_positions:
+    # Try positions at increasing distances from the enemy Priest
+    for dist in range(2, radius + 1):
+        for angle in range(0, 360, 60):
+            rad = math.radians(angle)
+            q = round(dist * math.cos(rad))
+            r = round(dist * math.sin(rad) * 2/math.sqrt(3))
+            
+            # Adjust coordinates to be relative to enemy Priest
+            q += enemy_priest["q"]
+            r += enemy_priest["r"]
+            
+            if abs(q + r) > radius or (q, r) in blocked_hexes:
+                continue
+            
+            # Skip if position is already taken
+            if any(p["q"] == q and p["r"] == r for p in pieces):
+                continue
+            
+            # Check if position is safe from enemy Priest's moves
+            is_safe = True
+            for move_q, move_r in priest_moves:
+                if (move_q, move_r) not in blocked_hexes:
+                    if can_kill_piece("Priest", move_q, move_r, {"q": q, "r": r}, blocked_hexes, pieces):
+                        is_safe = False
+                        break
+            
+            if is_safe:
+                safe_positions.append((q, r))
+    
+    if safe_positions:
+        # Pick the position that's furthest from both the enemy Priest and our attacker
+        best_pos = max(safe_positions, key=lambda pos: (
+            hex_distance(pos[0], pos[1], enemy_priest["q"], enemy_priest["r"]) +
+            hex_distance(pos[0], pos[1], attacker["q"], attacker["r"])
+        ))
+        player_priest = {
+            "class": "Priest",
+            "label": "P",
+            "color": "#556b2f",
+            "side": "player",
+            "q": best_pos[0],
+            "r": best_pos[1]
+        }
+        pieces.append(player_priest)
+        logger.info(f"Placed player Priest at ({best_pos[0]},{best_pos[1]})")
+    
+    if not player_priest:
         logger.warning("Could not find safe position for player Priest")
         return None
     
-    player_priest_q, player_priest_r = random.choice(safe_positions)
-    player_priest = {
-        "class": "Priest",
-        "label": "P",
-        "color": "#556b2f",
-        "side": "player",
-        "q": player_priest_q,
-        "r": player_priest_r
-    }
-    pieces.append(player_priest)
-    logger.info(f"Placed player Priest at ({player_priest_q},{player_priest_r})")
-    
-    # 4. Add enemy pieces to make puzzle more interesting
-    # Add extra enemy pieces that can't immediately kill player pieces
+    # 5. Add enemy pieces to make puzzle more interesting
+    # Add pieces that create interesting choices but don't interfere with the solution
     enemy_classes = ["Guardian", "Hunter"]
     if args and args.allow_bloodwarden:
         enemy_classes.append("BloodWarden")
@@ -596,9 +637,10 @@ def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
         args.max_extra_enemies if args else 2
     )
     
+    # Try to place enemies in positions that create interesting choices
     for _ in range(num_extra_enemies):
         enemy_class = random.choice(enemy_classes)
-        valid_positions = []
+        best_positions = []
         
         for q in range(-radius, radius + 1):
             for r in range(-radius, radius + 1):
@@ -618,19 +660,27 @@ def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
                         "r": r
                     }
                     
-                    # Check if any player piece would be vulnerable
-                    can_kill = False
+                    # Check if this position would make the puzzle too easy or impossible
+                    can_kill_player = False
                     for p in pieces:
                         if p["side"] == "player":
                             if can_kill_piece(enemy_class, q, r, p, blocked_hexes, pieces):
-                                can_kill = True
+                                can_kill_player = True
                                 break
                     
-                    if not can_kill:
-                        valid_positions.append((q, r))
+                    if not can_kill_player:
+                        # Score this position based on how it affects the puzzle
+                        score = 0
+                        # Prefer positions that are closer to the action
+                        score += 5 - min(5, hex_distance(q, r, enemy_priest["q"], enemy_priest["r"]))
+                        # Prefer positions that could threaten the attacker's path
+                        score += 3 if hex_distance(q, r, attacker["q"], attacker["r"]) <= 2 else 0
+                        best_positions.append(((q, r), score))
         
-        if valid_positions:
-            pos_q, pos_r = random.choice(valid_positions)
+        if best_positions:
+            # Sort by score and pick one of the top positions
+            best_positions.sort(key=lambda x: x[1], reverse=True)
+            pos_q, pos_r = random.choice(best_positions[:3])[0]  # Pick randomly from top 3
             enemy = {
                 "class": enemy_class,
                 "label": "G" if enemy_class == "Guardian" else ("H" if enemy_class == "Hunter" else "BW"),
@@ -795,23 +845,44 @@ def is_forced_mate_in_2(scenario):
         "sideToMove": "player"
     }
     
+    # Log initial piece configuration
+    player_pieces = [p for p in state["pieces"] if p["side"] == "player"]
+    enemy_pieces = [p for p in state["pieces"] if p["side"] == "enemy"]
+    logger.info("Initial piece configuration:")
+    for p in player_pieces:
+        logger.info(f"  PLAYER {p['class']} at ({p['q']},{p['r']})")
+    for e in enemy_pieces:
+        logger.info(f"  ENEMY {e['class']} at ({e['q']},{e['r']})")
+    
     # Ensure all pieces start alive
     for p in state["pieces"]:
         p["dead"] = False
     
-    logger.debug(f"Starting analysis with {len(state['pieces'])} pieces and {len(state['blockedHexes'])} blocked hexes")
+    logger.info(f"Starting analysis with {len(state['pieces'])} pieces and {len(state['blockedHexes'])} blocked hexes")
     
     # Track all possible game lines
     lines = []
     
     # Recursively enumerate all possible play lines
-    logger.debug("Starting line enumeration")
+    logger.info("Starting line enumeration")
     enumerate_lines(state, depth=0, partialPlayerCombos=[], lines=lines)
     logger.info(f"Found {len(lines)} distinct play lines")
     
+    # Log summary of each line
+    for i, line in enumerate(lines):
+        logger.info(f"Line {i+1}:")
+        logger.info(f"  Depth reached: {line.get('depth', 'unknown')}")
+        logger.info(f"  Enemy priest dead: {line.get('priestDead', False)}")
+        # Log player moves if available
+        player_moves = [x for x in line.get('partialPlayerCombos', []) if x.get('turn') in [0, 2]]
+        if player_moves:
+            for move in player_moves:
+                logger.info(f"  Turn {move.get('turn')} moves: {move.get('comboStr', 'unknown')}")
+    
     # If any line doesn't result in enemy priest death, not a forced mate
-    if any(l["priestDead"] == False for l in lines):
-        logger.info(f"ATTEMPT {attempt_num} FAILED: Not all lines result in enemy priest death")
+    non_winning_lines = [i for i, l in enumerate(lines) if l["priestDead"] == False]
+    if non_winning_lines:
+        logger.info(f"ATTEMPT {attempt_num} FAILED: Lines {non_winning_lines} do not result in enemy priest death")
         return False
     
     # If no valid lines found, not a valid puzzle
@@ -820,12 +891,11 @@ def is_forced_mate_in_2(scenario):
         return False
     
     # Check if there is exactly one winning strategy (uniqueness)
-    logger.debug("Checking uniqueness of winning strategies")
+    logger.info("Checking uniqueness of winning strategies")
     winning_combos = set()
     
     for l in lines:
         # Extract player moves on turn 0 and turn 2
-        # Format: [ { "turn":0, "comboStr":"(moves)"}, { "turn":2, "comboStr":"(moves)"} ]
         c0 = next((x for x in l["partialPlayerCombos"] if x["turn"] == 0), None)
         c2 = next((x for x in l["partialPlayerCombos"] if x["turn"] == 2), None)
         
@@ -835,6 +905,7 @@ def is_forced_mate_in_2(scenario):
             c2["comboStr"] if c2 else ""
         )
         winning_combos.add(pair)
+        logger.info(f"Found winning combo: Turn 0: {pair[0]}, Turn 2: {pair[1]}")
     
     logger.info(f"Found {len(winning_combos)} distinct winning strategies")
     
@@ -848,10 +919,9 @@ def is_forced_mate_in_2(scenario):
     logger.info(f"ATTEMPT {attempt_num} SUCCESS: Valid forced mate in 2 puzzle with unique solution")
     
     # Log remaining living pieces in final positions
-    winning_line = lines[0]  # Just take the first line since all are valid and lead to the same outcome
+    winning_line = lines[0]
     
     if 'finalState' not in winning_line:
-        # If not already stored, reconstruct a basic final state display
         logger.info("Final piece positions would vary based on player & enemy choices")
     else:
         final_state = winning_line['finalState']
