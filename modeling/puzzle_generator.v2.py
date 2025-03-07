@@ -88,6 +88,10 @@ def parse_arguments():
     parser.add_argument("--allow-bloodwarden", action="store_true",
                       help="Allow BloodWarden as an enemy piece")
     
+    # Puzzle complexity options
+    parser.add_argument("--num-turns", type=int, default=2,
+                      help="Number of turns required for checkmate (default: 2)")
+    
     # Generation options
     parser.add_argument("--max-attempts", type=int, default=10000,
                       help="Maximum number of generation attempts (default: 100)")
@@ -111,6 +115,8 @@ def parse_arguments():
         parser.error("Minimum extra enemies must be non-negative")
     if args.max_extra_enemies < args.min_extra_enemies:
         parser.error("Maximum extra enemies must be greater than or equal to minimum")
+    if args.num_turns < 1:
+        parser.error("Number of turns must be at least 1")
     
     return args
 
@@ -454,6 +460,19 @@ def can_be_protected(piece, protectors, enemy_pieces, blocked_hexes, pieces, rad
     
     return True
 
+def get_priest_positions(radius, blocked_hexes):
+    positions = []
+    # Try all positions within radius/2 of center
+    for q in range(-radius//2, radius//2 + 1):
+        for r in range(-radius//2, radius//2 + 1):
+            if abs(q + r) <= radius//2 and (q,r) not in blocked_hexes:
+                # Score position based on:
+                # - Distance from edges (prefer central positions)
+                # - Number of escape routes
+                # - Line of sight opportunities
+                positions.append((q, r))
+    return sorted(positions, key=lambda pos: score_priest_position(pos))
+
 def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
     """
     Generate a puzzle that guarantees a forced mate in 2 by working backward from the checkmate position.
@@ -740,8 +759,9 @@ def generate_random_scenario(args, attempt_number=0):
         logger.warning("Failed to generate forced mate puzzle")
         return None
     
-    # Add attempt number
+    # Add attempt number and number of turns
     scenario["attempt_number"] = attempt_number + 1
+    scenario["num_turns"] = args.num_turns
     
     generation_time = time.time() - start_time
     logger.info(f"Scenario generation completed in {generation_time:.2f} seconds")
@@ -824,9 +844,9 @@ def build_side_pieces(side, min_total, max_total):
 
 def is_forced_mate_in_2(scenario):
     """
-    Determine if the scenario is a "forced mate in 2" puzzle.
+    Determine if the scenario is a forced mate puzzle.
     
-    We do 4 half-turns: depth=0..3. 
+    We do N half-turns based on scenario["num_turns"]. 
     Each half-turn => BFS over partial moves for each living piece in all permutations 
     (piece A moves, then piece B moves, etc.). This addresses partial-turn synergy.
 
@@ -834,7 +854,10 @@ def is_forced_mate_in_2(scenario):
     Then we check how many distinct winning combos the player has => if >1 => discard puzzle => return False
     """
     attempt_num = scenario.get("attempt_number", 1)
-    logger.info(f"Analyzing scenario {attempt_num} for forced mate in 2")
+    num_turns = scenario.get("num_turns", 2)  # Default to 2 if not specified
+    max_depth = num_turns * 2  # Convert turns to half-turns
+    
+    logger.info(f"Analyzing scenario {attempt_num} for forced mate in {num_turns} turns")
     start_time = time.time()
     
     # Initialize the game state from the scenario
@@ -874,7 +897,7 @@ def is_forced_mate_in_2(scenario):
         logger.info(f"  Depth reached: {line.get('depth', 'unknown')}")
         logger.info(f"  Enemy priest dead: {line.get('priestDead', False)}")
         # Log player moves if available
-        player_moves = [x for x in line.get('partialPlayerCombos', []) if x.get('turn') in [0, 2]]
+        player_moves = [x for x in line.get('partialPlayerCombos', []) if x.get('turn') in range(0, max_depth, 2)]
         if player_moves:
             for move in player_moves:
                 logger.info(f"  Turn {move.get('turn')} moves: {move.get('comboStr', 'unknown')}")
@@ -895,17 +918,16 @@ def is_forced_mate_in_2(scenario):
     winning_combos = set()
     
     for l in lines:
-        # Extract player moves on turn 0 and turn 2
-        c0 = next((x for x in l["partialPlayerCombos"] if x["turn"] == 0), None)
-        c2 = next((x for x in l["partialPlayerCombos"] if x["turn"] == 2), None)
+        # Extract player moves for all turns
+        moves = []
+        for turn in range(0, max_depth, 2):  # Only player turns
+            move = next((x for x in l["partialPlayerCombos"] if x["turn"] == turn), None)
+            moves.append(move["comboStr"] if move else "")
         
-        # Create a pair representing this winning strategy
-        pair = (
-            c0["comboStr"] if c0 else "", 
-            c2["comboStr"] if c2 else ""
-        )
-        winning_combos.add(pair)
-        logger.info(f"Found winning combo: Turn 0: {pair[0]}, Turn 2: {pair[1]}")
+        # Create a tuple representing this winning strategy
+        combo = tuple(moves)
+        winning_combos.add(combo)
+        logger.info(f"Found winning combo: {' -> '.join(moves)}")
     
     logger.info(f"Found {len(winning_combos)} distinct winning strategies")
     
@@ -916,7 +938,7 @@ def is_forced_mate_in_2(scenario):
     
     analysis_time = time.time() - start_time
     logger.info(f"Success! Forced mate analysis completed in {analysis_time:.2f} seconds")
-    logger.info(f"ATTEMPT {attempt_num} SUCCESS: Valid forced mate in 2 puzzle with unique solution")
+    logger.info(f"ATTEMPT {attempt_num} SUCCESS: Valid forced mate in {num_turns} turns puzzle with unique solution")
     
     # Log remaining living pieces in final positions
     winning_line = lines[0]
