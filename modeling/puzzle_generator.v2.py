@@ -945,6 +945,20 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
 
     partialPlayerCombos => track which combos the player used at turn=0 or 2 for uniqueness checking.
     """
+    # Global counters for tracking progress
+    global _total_states_explored, _last_progress_time
+    if not '_total_states_explored' in globals():
+        _total_states_explored = 0
+        _last_progress_time = time.time()
+
+    _total_states_explored += 1
+    
+    # Print progress every 30 seconds
+    current_time = time.time()
+    if current_time - _last_progress_time >= 30:
+        logger.info(f"Progress update: Explored {_total_states_explored} states so far. Current depth: {depth}")
+        _last_progress_time = current_time
+
     # Use a global counter to track and limit enumeration logs
     global _enum_log_count
     if not '_enum_log_count' in globals():
@@ -963,7 +977,7 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
     
     # Check win condition - enemy Priest is dead
     if is_priest_dead(state["pieces"], "enemy"):
-        logger.debug(f"Depth {depth}: Enemy priest is dead - winning line found")
+        logger.info(f"Depth {depth}: Enemy priest is dead - winning line found after exploring {_total_states_explored} states")
         
         # Store winning line with final state for analysis
         line_data = {
@@ -1015,16 +1029,17 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
     # For example: with pieces A, B, C -> (A,B,C), (A,C,B), (B,A,C), etc.
     all_perms = permutations(living, r=len(living))
     perm_count = math.factorial(len(living))
-    logger.debug(f"Analyzing {perm_count} permutations of piece movement order")
+    logger.info(f"Depth {depth}: Analyzing {perm_count} permutations of piece movement order")
     
     # Track permutation progress
     perm_index = 0
+    total_states_this_depth = 0
     
     # For each possible ordering of pieces
     for perm in all_perms:
         perm_index += 1
         piece_labels = [p["label"] for p in perm]
-        logger.debug(f"Analyzing permutation {perm_index}/{perm_count}: {piece_labels}")
+        logger.info(f"Depth {depth}: Analyzing permutation {perm_index}/{perm_count}: {piece_labels}")
         
         # For each permutation, do a BFS over piece actions
         # Each state represents the game after applying some sequence of moves
@@ -1036,12 +1051,13 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
         
         # For each piece in this permutation order
         for piece_index, piece in enumerate(perm):
-            logger.trace(f"Processing piece {piece_index+1}/{len(perm)}: {piece['side']} {piece['class']} ({piece['label']})")
+            logger.debug(f"Depth {depth}, Perm {perm_index}/{perm_count}: Processing piece {piece_index+1}/{len(perm)}: {piece['side']} {piece['class']} ({piece['label']})")
             
             # Will hold the new states after this piece acts
             new_partial = []
             state_count = len(partial_BFS_states)
-            logger.trace(f"Expanding {state_count} partial states")
+            total_states_this_depth += state_count
+            logger.debug(f"Expanding {state_count} partial states (total at this depth: {total_states_this_depth})")
             
             # For each partial game state so far
             for state_index, (stSoFar, movesUsedSoFar) in enumerate(partial_BFS_states):
@@ -1076,10 +1092,10 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
             
             # Update states for next piece
             partial_BFS_states = new_partial
-            logger.debug(f"After piece {piece['label']}: {len(partial_BFS_states)} partial states")
+            logger.info(f"Depth {depth}, Perm {perm_index}/{perm_count}: After piece {piece['label']}: {len(partial_BFS_states)} partial states")
         
         # After processing all pieces in this permutation
-        logger.debug(f"Completed permutation {perm_index}/{perm_count} with {len(partial_BFS_states)} final states")
+        logger.info(f"Depth {depth}: Completed permutation {perm_index}/{perm_count} with {len(partial_BFS_states)} final states")
         
         # Now process each final state
         for state_index, (finalTurnState, moveList) in enumerate(partial_BFS_states):
@@ -1115,6 +1131,8 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
             
             # Continue with next depth
             enumerate_lines(st2, depth+1, newPartialPC, lines)
+    
+    logger.info(f"Depth {depth}: Completed all {perm_count} permutations. Total states explored at this depth: {total_states_this_depth}")
 
 def gather_single_piece_actions(state, piece):
     """
