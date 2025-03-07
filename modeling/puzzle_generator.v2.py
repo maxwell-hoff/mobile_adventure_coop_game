@@ -943,7 +943,7 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
     Each piece acts one at a time, in any order.
     Then apply the resulting final board => next depth => recursive.
 
-    partialPlayerCombos => track which combos the player used at turn=0 or 2 for uniqueness checking.
+    Optimized version with pruning and heuristics to reduce search space.
     """
     # Global counters for tracking progress
     global _total_states_explored, _last_progress_time
@@ -959,53 +959,24 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
         logger.info(f"Progress update: Explored {_total_states_explored} states so far. Current depth: {depth}")
         _last_progress_time = current_time
 
-    # Use a global counter to track and limit enumeration logs
-    global _enum_log_count
-    if not '_enum_log_count' in globals():
-        _enum_log_count = {}
-        
-    # Store attempt number to reset logs between attempts
-    attempt_key = f"depth_{depth}"
-    if attempt_key not in _enum_log_count:
-        _enum_log_count[attempt_key] = 0
-    
-    # Only log a few instances of enumeration for each depth
-    # Completely suppress logs for depth 4
-    if depth < 4 and _enum_log_count[attempt_key] < 5:
-        logger.debug(f"Enumerating lines at depth {depth}, side: {state['sideToMove']} (sample {_enum_log_count[attempt_key]+1}/5)")
-        _enum_log_count[attempt_key] += 1
-    
     # Check win condition - enemy Priest is dead
     if is_priest_dead(state["pieces"], "enemy"):
         logger.info(f"Depth {depth}: Enemy priest is dead - winning line found after exploring {_total_states_explored} states")
-        
-        # Store winning line with final state for analysis
         line_data = {
             "partialPlayerCombos": copy.deepcopy(partialPlayerCombos),
             "priestDead": True,
-            "finalState": copy.deepcopy(state),  # Store the final state for analysis
-            "depth": depth  # Store the depth at which the win occurred
+            "finalState": copy.deepcopy(state),
+            "depth": depth
         }
         lines.append(line_data)
         return
 
-    # Use a global counter to only log the first few depth 4 instances
-    global _depth4_log_count
-    if not '_depth4_log_count' in globals():
-        _depth4_log_count = 0
-        
     # Check termination condition - reached maximum depth
     if depth >= 4:
-        # Only log a limited number of depth 4 messages
-        if _depth4_log_count < 5:
-            logger.debug(f"Depth {depth}: Maximum depth reached without priest death (showing 5/{_depth4_log_count+1})")
-            _depth4_log_count += 1
-        
-        # Store non-winning line
         line_data = {
             "partialPlayerCombos": copy.deepcopy(partialPlayerCombos),
             "priestDead": False,
-            "finalState": copy.deepcopy(state),  # Store the final state for analysis
+            "finalState": copy.deepcopy(state),
             "depth": depth
         }
         lines.append(line_data)
@@ -1025,114 +996,128 @@ def enumerate_lines(state, depth, partialPlayerCombos, lines):
         enumerate_lines(st2, depth+1, partialPlayerCombos, lines)
         return
 
-    # Generate all permutations of piece movement order
-    # For example: with pieces A, B, C -> (A,B,C), (A,C,B), (B,A,C), etc.
-    all_perms = permutations(living, r=len(living))
-    perm_count = math.factorial(len(living))
-    logger.info(f"Depth {depth}: Analyzing {perm_count} permutations of piece movement order")
+    # OPTIMIZATION 1: Prioritize pieces that can make impactful moves
+    # For player's turn, prioritize pieces that can attack or move closer to enemy Priest
+    # For enemy's turn, prioritize the Priest's survival and pieces that can attack player pieces
+    enemy_priest = None
+    if side == "player":
+        enemy_priest = next((p for p in state["pieces"] if p["side"] == "enemy" and p["class"] == "Priest" and not p.get("dead", False)), None)
     
-    # Track permutation progress
-    perm_index = 0
+    def score_piece(p):
+        score = 0
+        if side == "player" and enemy_priest:
+            # Prioritize pieces that can attack the enemy Priest
+            if can_kill_piece(p["class"], p["q"], p["r"], enemy_priest, state["blockedHexes"], state["pieces"]):
+                score += 100
+            # Prioritize pieces closer to enemy Priest
+            dist_to_priest = hex_distance(p["q"], p["r"], enemy_priest["q"], enemy_priest["r"])
+            score -= dist_to_priest
+        elif side == "enemy" and p["class"] == "Priest":
+            # Enemy Priest gets highest priority
+            score += 200
+            # Prioritize moves that keep the Priest alive
+            if any(can_kill_piece(ep["class"], ep["q"], ep["r"], p, state["blockedHexes"], state["pieces"]) 
+                   for ep in state["pieces"] if ep["side"] == "player" and not ep.get("dead", False)):
+                score += 100
+        return score
+
+    # Sort pieces by their potential impact
+    living.sort(key=score_piece, reverse=True)
+    
+    # OPTIMIZATION 2: For each piece, generate and prioritize moves
+    def score_action(piece, action_tuple):
+        score = 0
+        atype = action_tuple[0]
+        
+        if atype == "single_target_attack" or atype == "multi_target_attack":
+            score += 50  # Prioritize attacks
+            if side == "player":
+                # Check if this attacks the enemy Priest
+                tq, tr = action_tuple[1], action_tuple[2]
+                if enemy_priest and enemy_priest["q"] == tq and enemy_priest["r"] == tr:
+                    score += 100
+        elif atype == "move":
+            if side == "player" and enemy_priest:
+                # Score moves that get closer to enemy Priest
+                tq, tr = action_tuple[1], action_tuple[2]
+                current_dist = hex_distance(piece["q"], piece["r"], enemy_priest["q"], enemy_priest["r"])
+                new_dist = hex_distance(tq, tr, enemy_priest["q"], enemy_priest["r"])
+                if new_dist < current_dist:
+                    score += 30
+            elif side == "enemy" and piece["class"] == "Priest":
+                # Score moves that keep Priest safe
+                tq, tr = action_tuple[1], action_tuple[2]
+                is_safe = True
+                for p in state["pieces"]:
+                    if p["side"] == "player" and not p.get("dead", False):
+                        if can_kill_piece(p["class"], p["q"], p["r"], {"q": tq, "r": tr}, state["blockedHexes"], state["pieces"]):
+                            is_safe = False
+                            break
+                if is_safe:
+                    score += 80
+        return score
+
+    # Track states to explore
+    states_to_explore = [(state, [])]
     total_states_this_depth = 0
     
-    # For each possible ordering of pieces
-    for perm in all_perms:
-        perm_index += 1
-        piece_labels = [p["label"] for p in perm]
-        logger.info(f"Depth {depth}: Analyzing permutation {perm_index}/{perm_count}: {piece_labels}")
+    # For each piece in prioritized order
+    for piece_index, piece in enumerate(living):
+        logger.debug(f"Processing piece {piece_index+1}/{len(living)}: {piece['side']} {piece['class']}")
         
-        # For each permutation, do a BFS over piece actions
-        # Each state represents the game after applying some sequence of moves
-        partial_results = []
-        initial_state = copy.deepcopy(state)
-        
-        # List of (currentState, listOfMovesUsed)
-        partial_BFS_states = [(initial_state, [])]
-        
-        # For each piece in this permutation order
-        for piece_index, piece in enumerate(perm):
-            logger.debug(f"Depth {depth}, Perm {perm_index}/{perm_count}: Processing piece {piece_index+1}/{len(perm)}: {piece['side']} {piece['class']} ({piece['label']})")
-            
-            # Will hold the new states after this piece acts
-            new_partial = []
-            state_count = len(partial_BFS_states)
-            total_states_this_depth += state_count
-            logger.debug(f"Expanding {state_count} partial states (total at this depth: {total_states_this_depth})")
-            
-            # For each partial game state so far
-            for state_index, (stSoFar, movesUsedSoFar) in enumerate(partial_BFS_states):
-                # Get all possible actions for this piece in this state
-                piece_actions = gather_single_piece_actions(stSoFar, piece)
-                logger.trace(f"State {state_index+1}/{state_count}: Found {len(piece_actions) if piece_actions else 0} possible actions")
+        new_states = []
+        for current_state, moves_so_far in states_to_explore:
+            # Get and score all possible actions
+            piece_actions = gather_single_piece_actions(current_state, piece)
+            if piece_actions:
+                # Sort actions by score
+                piece_actions.sort(key=lambda a: score_action(piece, a), reverse=True)
                 
-                # If no valid actions, add a pass
-                if not piece_actions:
-                    logger.trace(f"No valid actions for {piece['label']} - adding PASS")
-                    newState = apply_single_action(stSoFar, piece, ("pass", 0, 0))
-                    newMoves = movesUsedSoFar + [f"{piece['label']}=pass"]
-                    new_partial.append((newState, newMoves))
-                else:
-                    # For each possible action
-                    for action_index, action_tuple in enumerate(piece_actions):
-                        atype = action_tuple[0]
-                        logger.trace(f"Applying action {action_index+1}/{len(piece_actions)}: {atype}")
-                        
-                        # Apply the action
-                        st3 = apply_single_action(stSoFar, piece, action_tuple)
-                        
-                        # Format action for move string
-                        if len(action_tuple) >= 3:
-                            tq, tr = action_tuple[1], action_tuple[2]
-                        else:
-                            tq, tr = 0, 0  # Default values
-                            
-                        moveStr = move_to_string(piece, atype, tq, tr)
-                        newMoves = movesUsedSoFar + [moveStr]
-                        new_partial.append((st3, newMoves))
-            
-            # Update states for next piece
-            partial_BFS_states = new_partial
-            logger.info(f"Depth {depth}, Perm {perm_index}/{perm_count}: After piece {piece['label']}: {len(partial_BFS_states)} partial states")
-        
-        # After processing all pieces in this permutation
-        logger.info(f"Depth {depth}: Completed permutation {perm_index}/{perm_count} with {len(partial_BFS_states)} final states")
-        
-        # Now process each final state
-        for state_index, (finalTurnState, moveList) in enumerate(partial_BFS_states):
-            logger.trace(f"Processing final state {state_index+1}/{len(partial_BFS_states)}")
-            
-            # Describe the current board state for better debugging
-            if depth <= 1 and state_index == 0:  # Only for first depth and first state to avoid spam
-                living_player = [p for p in finalTurnState["pieces"] if p["side"] == "player" and not p.get("dead", False)]
-                living_enemy = [p for p in finalTurnState["pieces"] if p["side"] == "enemy" and not p.get("dead", False)]
+                # OPTIMIZATION 3: Limit number of actions to explore based on depth
+                max_actions = 10 if depth <= 1 else 5  # Explore more options early in the tree
+                piece_actions = piece_actions[:max_actions]
                 
-                logger.debug(f"Board state after turn {depth}:")
-                for p in living_player:
-                    logger.debug(f"  PLAYER {p['class']} at ({p['q']},{p['r']})")
-                for e in living_enemy:
-                    logger.debug(f"  ENEMY {e['class']} at ({e['q']},{e['r']})")
-            
-            # Switch to other side for next turn
-            st2 = switch_side(finalTurnState)
-            
-            # Build move sequence string
-            comboStr = ";".join(moveList)
-            
-            # If player's turn, store the move combination
-            newPartialPC = partialPlayerCombos
-            if side == "player":
-                logger.trace(f"Storing player move combination for turn {depth}")
-                newPartialPC = copy.deepcopy(partialPlayerCombos)
-                newPartialPC.append({
-                    "turn": depth,
-                    "comboStr": comboStr,
-                    "moves": moveList  # Store individual moves for easier debugging
-                })
-            
-            # Continue with next depth
-            enumerate_lines(st2, depth+1, newPartialPC, lines)
-    
-    logger.info(f"Depth {depth}: Completed all {perm_count} permutations. Total states explored at this depth: {total_states_this_depth}")
+                for action in piece_actions:
+                    # Apply action
+                    new_state = apply_single_action(current_state, piece, action)
+                    # Format move string
+                    if len(action) >= 3:
+                        tq, tr = action[1], action[2]
+                    else:
+                        tq, tr = 0, 0
+                    move_str = move_to_string(piece, action[0], tq, tr)
+                    new_moves = moves_so_far + [move_str]
+                    new_states.append((new_state, new_moves))
+            else:
+                # No valid actions, add pass
+                new_state = apply_single_action(current_state, piece, ("pass", 0, 0))
+                new_moves = moves_so_far + [f"{piece['label']}=pass"]
+                new_states.append((new_state, new_moves))
+        
+        states_to_explore = new_states
+        total_states_this_depth += len(states_to_explore)
+        logger.info(f"After piece {piece['label']}: {len(states_to_explore)} states to explore")
+
+    # Process final states
+    logger.info(f"Processing {len(states_to_explore)} final states at depth {depth}")
+    for final_state, move_list in states_to_explore:
+        # Build move sequence string
+        combo_str = ";".join(move_list)
+        
+        # If player's turn, store the move combination
+        new_partial_pc = partialPlayerCombos
+        if side == "player":
+            new_partial_pc = copy.deepcopy(partialPlayerCombos)
+            new_partial_pc.append({
+                "turn": depth,
+                "comboStr": combo_str,
+                "moves": move_list
+            })
+        
+        # Continue with next depth
+        enumerate_lines(switch_side(final_state), depth+1, new_partial_pc, lines)
+
+    logger.info(f"Depth {depth}: Completed exploration. Total states at this depth: {total_states_this_depth}")
 
 def gather_single_piece_actions(state, piece):
     """
