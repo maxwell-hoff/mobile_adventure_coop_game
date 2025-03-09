@@ -460,142 +460,208 @@ def can_be_protected(piece, protectors, enemy_pieces, blocked_hexes, pieces, rad
     
     return True
 
-def get_priest_positions(radius, blocked_hexes):
+def score_priest_position(q, r, radius, blocked_hexes, pieces):
+    """Score a position for the enemy Priest based on tactical considerations."""
+    score = 0
+    
+    # Prefer central positions (better mobility)
+    dist_from_center = hex_distance(q, r, 0, 0)
+    score -= dist_from_center * 2  # Central positions get higher scores
+    
+    # Count escape routes
+    escape_routes = 0
+    for dq, dr in [(1,0), (1,-1), (0,-1), (-1,0), (-1,1), (0,1)]:
+        new_q, new_r = q + dq, r + dr
+        if abs(new_q + new_r) <= radius and (new_q, new_r) not in blocked_hexes:
+            if not any(p["q"] == new_q and p["r"] == new_r and not p.get("dead", False) for p in pieces):
+                escape_routes += 1
+    score += escape_routes * 3  # More escape routes is better
+    
+    # Prefer positions that have good line of sight
+    los_count = 0
+    for test_q in range(-radius, radius + 1):
+        for test_r in range(-radius, radius + 1):
+            if abs(test_q + test_r) <= radius:
+                if line_of_sight(q, r, test_q, test_r, blocked_hexes, pieces):
+                    los_count += 1
+    score += los_count  # Better line of sight is good
+    
+    return score
+
+def get_priest_positions(radius, blocked_hexes, pieces):
+    """Get scored positions for enemy Priest placement."""
     positions = []
-    # Try all positions within radius/2 of center
-    for q in range(-radius//2, radius//2 + 1):
-        for r in range(-radius//2, radius//2 + 1):
-            if abs(q + r) <= radius//2 and (q,r) not in blocked_hexes:
-                # Score position based on:
-                # - Distance from edges (prefer central positions)
-                # - Number of escape routes
-                # - Line of sight opportunities
-                positions.append((q, r))
-    return sorted(positions, key=lambda pos: score_priest_position(pos))
+    # Try positions within radius/2 of center for better control
+    search_radius = max(2, radius // 2)
+    for q in range(-search_radius, search_radius + 1):
+        for r in range(-search_radius, search_radius + 1):
+            if abs(q + r) <= radius and (q,r) not in blocked_hexes:
+                if not any(p["q"] == q and p["r"] == r and not p.get("dead", False) for p in pieces):
+                    score = score_priest_position(q, r, radius, blocked_hexes, pieces)
+                    positions.append((q, r, score))
+    return sorted(positions, key=lambda x: x[2], reverse=True)
+
+def score_attacker_position(q, r, enemy_priest, radius, blocked_hexes, pieces):
+    """Score a position for the ranged attacker based on tactical considerations."""
+    score = 0
+    
+    # Calculate distance to enemy Priest
+    dist = hex_distance(q, r, enemy_priest["q"], enemy_priest["r"])
+    optimal_range = 3  # Sorcerer's range
+    
+    # Strongly prefer optimal attack range
+    if dist == optimal_range:
+        score += 10
+    elif dist == optimal_range - 1:
+        score += 5  # Being slightly closer is okay
+    
+    # Check line of sight to enemy Priest
+    if line_of_sight(q, r, enemy_priest["q"], enemy_priest["r"], blocked_hexes, pieces):
+        score += 15  # Clear line of sight is very important
+    
+    # Prefer positions that are harder for the enemy Priest to reach
+    priest_moves = []
+    for dq in range(-1, 2):
+        for dr in range(-1, 2):
+            new_q = enemy_priest["q"] + dq
+            new_r = enemy_priest["r"] + dr
+            if abs(new_q + new_r) <= radius and (new_q, new_r) not in blocked_hexes:
+                priest_moves.append((new_q, new_r))
+    
+    safe_from_priest = True
+    for pq, pr in priest_moves:
+        if hex_distance(q, r, pq, pr) <= 1:  # Priest's attack range
+            safe_from_priest = False
+            break
+    if safe_from_priest:
+        score += 10  # Big bonus for being safe from Priest
+    
+    return score
+
+def get_attacker_positions(radius, enemy_priest, blocked_hexes, pieces):
+    """Get scored positions for ranged attacker placement."""
+    positions = []
+    attack_range = 3  # Sorcerer's range
+    
+    # Try all positions that could be at optimal range
+    for q in range(-radius, radius + 1):
+        for r in range(-radius, radius + 1):
+            if abs(q + r) <= radius and (q,r) not in blocked_hexes:
+                if not any(p["q"] == q and p["r"] == r and not p.get("dead", False) for p in pieces):
+                    score = score_attacker_position(q, r, enemy_priest, radius, blocked_hexes, pieces)
+                    positions.append((q, r, score))
+    
+    return sorted(positions, key=lambda x: x[2], reverse=True)
+
+def place_strategic_blocks(radius, enemy_priest, attacker, pieces):
+    """Place blocked hexes to create interesting tactical situations."""
+    blocked = set()
+    
+    # Get all possible moves for the enemy Priest
+    priest_moves = []
+    for dq in range(-1, 2):
+        for dr in range(-1, 2):
+            new_q = enemy_priest["q"] + dq
+            new_r = enemy_priest["r"] + dr
+            if abs(new_q + new_r) <= radius:
+                if not any(p["q"] == new_q and p["r"] == new_r and not p.get("dead", False) for p in pieces):
+                    priest_moves.append((new_q, new_r))
+    
+    # Score each potential blocked hex
+    scored_blocks = []
+    for q in range(-radius, radius + 1):
+        for r in range(-radius, radius + 1):
+            if abs(q + r) <= radius:
+                if (q,r) in {(p["q"], p["r"]) for p in pieces}:
+                    continue
+                    
+                score = 0
+                
+                # Check if this blocks a Priest escape route
+                if (q,r) in priest_moves:
+                    score += 5
+                
+                # Check if this maintains line of sight for attacker
+                if not (q,r) == (attacker["q"], attacker["r"]):
+                    test_blocks = {(q,r)}
+                    if line_of_sight(attacker["q"], attacker["r"], 
+                                   enemy_priest["q"], enemy_priest["r"], 
+                                   test_blocks, pieces):
+                        score += 3
+                
+                # Prefer blocks near the Priest
+                dist_to_priest = hex_distance(q, r, enemy_priest["q"], enemy_priest["r"])
+                if dist_to_priest <= 2:
+                    score += 2
+                
+                scored_blocks.append((q, r, score))
+    
+    # Sort blocks by score and add them until we have a good tactical setup
+    scored_blocks.sort(key=lambda x: x[2], reverse=True)
+    target_blocks = min(3, len(scored_blocks))
+    
+    for i in range(target_blocks):
+        q, r, _ = scored_blocks[i]
+        blocked.add((q,r))
+    
+    return blocked
 
 def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
     """
-    Generate a puzzle that guarantees a forced mate in 2 by working backward from the checkmate position.
-    
-    Strategy:
-    1. Place enemy Priest in a position that allows for a good attack setup
-    2. Place a ranged attacker at max range with clear line of sight
-    3. Add blocked hexes strategically to limit enemy Priest movement
-    4. Place player Priest in a safe position
-    5. Add other enemy pieces that create interesting choices but don't interfere with the solution
-    
-    Returns a dictionary with the puzzle scenario if successful, None if failed.
+    Generate a puzzle that guarantees a forced mate by working backward from the checkmate position.
+    Uses intelligent piece placement and strategic blocking.
     """
-    logger.info("Generating forced mate puzzle using deterministic backward-working approach")
+    logger.info("Generating forced mate puzzle using intelligent piece placement")
     
     # Initialize pieces list and blocked hexes
     pieces = []
     blocked_hexes = set(blocked_hexes or set())
     
-    # 1. Place enemy Priest in a position that allows good attack angles
-    # Try positions in a spiral pattern from center outward
-    possible_priest_positions = [(0,0), (1,0), (0,1), (-1,1), (-1,0), (0,-1), (1,-1)]
-    enemy_priest = None
-    
-    for priest_q, priest_r in possible_priest_positions:
-        if abs(priest_q + priest_r) <= radius and (priest_q, priest_r) not in blocked_hexes:
-            enemy_priest = {
-                "class": "Priest",
-                "label": "P",
-                "color": "#dc143c",
-                "side": "enemy",
-                "q": priest_q,
-                "r": priest_r
-            }
-            pieces.append(enemy_priest)
-            logger.info(f"Placed enemy Priest at ({priest_q},{priest_r})")
-            break
-    
-    if not enemy_priest:
-        logger.warning("Could not place enemy Priest in a good position")
+    # 1. Place enemy Priest in a tactically interesting position
+    priest_positions = get_priest_positions(radius, blocked_hexes, pieces)
+    if not priest_positions:
+        logger.warning("Could not find good position for enemy Priest")
         return None
     
-    # 2. Place ranged attacker at max range
-    # Try Sorcerer first (range 3), fall back to Warlock (range 2) if needed
-    attacker = None
-    for attacker_class in ["Sorcerer", "Warlock"]:
-        attack_range = 3 if attacker_class == "Sorcerer" else 2
-        
-        # Try specific angles first that tend to work well
-        angles = [0, 60, 120, 180, 240, 300]  # Angles in degrees
-        for angle in angles:
-            # Convert angle to q,r coordinates at max range
-            rad = math.radians(angle)
-            q = round(attack_range * math.cos(rad))
-            r = round(attack_range * math.sin(rad) * 2/math.sqrt(3))
-            
-            # Adjust coordinates to be relative to enemy Priest
-            q += enemy_priest["q"]
-            r += enemy_priest["r"]
-            
-            if abs(q + r) > radius or (q, r) in blocked_hexes:
-                continue
-                
-            # Verify this position works
-            if line_of_sight(q, r, enemy_priest["q"], enemy_priest["r"], blocked_hexes, pieces):
-                if not can_be_killed_by_enemies({"q": q, "r": r}, [enemy_priest], blocked_hexes, pieces):
-                    attacker = {
-                        "class": attacker_class,
-                        "label": "S" if attacker_class == "Sorcerer" else "W",
-                        "color": "#556b2f",
-                        "side": "player",
-                        "q": q,
-                        "r": r
-                    }
-                    pieces.append(attacker)
-                    logger.info(f"Placed {attacker_class} at ({q},{r})")
-                    break
-        
-        if attacker:
-            break
+    # Take one of the top 3 positions randomly to add variety
+    priest_q, priest_r, _ = random.choice(priest_positions[:3])
+    enemy_priest = {
+        "class": "Priest",
+        "label": "P",
+        "color": "#dc143c",
+        "side": "enemy",
+        "q": priest_q,
+        "r": priest_r
+    }
+    pieces.append(enemy_priest)
+    logger.info(f"Placed enemy Priest at ({priest_q},{priest_r})")
     
-    if not attacker:
-        logger.warning("Could not place ranged attacker in a good position")
+    # 2. Place ranged attacker in a strong position
+    attacker_positions = get_attacker_positions(radius, enemy_priest, blocked_hexes, pieces)
+    if not attacker_positions:
+        logger.warning("Could not find good position for ranged attacker")
         return None
     
-    # 3. Add blocked hexes strategically to limit Priest movement
-    # Find all possible moves for enemy Priest
-    priest_moves = []
-    for q in range(-radius, radius + 1):
-        for r in range(-radius, radius + 1):
-            if abs(q + r) <= radius:
-                if can_move_to(enemy_priest, q, r, blocked_hexes, pieces):
-                    priest_moves.append((q, r))
+    # Take one of the top 3 positions randomly
+    attacker_q, attacker_r, _ = random.choice(attacker_positions[:3])
+    attacker = {
+        "class": "Sorcerer",
+        "label": "S",
+        "color": "#556b2f",
+        "side": "player",
+        "q": attacker_q,
+        "r": attacker_r
+    }
+    pieces.append(attacker)
+    logger.info(f"Placed Sorcerer at ({attacker_q},{attacker_r})")
     
-    # We want exactly 2 escape routes for the Priest
-    target_moves = 2
-    if len(priest_moves) > target_moves:
-        # Sort moves by how good they are for the Priest
-        # Prioritize blocking moves that would let the Priest escape or counter-attack
-        moves_to_block = []
-        for q, r in priest_moves:
-            if can_kill_piece("Priest", q, r, attacker, blocked_hexes, pieces):
-                moves_to_block.append((q, r))
-            elif hex_distance(q, r, attacker["q"], attacker["r"]) > attack_range:
-                moves_to_block.append((q, r))
-        
-        # If we still need more moves to block, add the rest randomly
-        remaining = len(priest_moves) - target_moves - len(moves_to_block)
-        if remaining > 0:
-            remaining_moves = [m for m in priest_moves if m not in moves_to_block]
-            moves_to_block.extend(random.sample(remaining_moves, min(remaining, len(remaining_moves))))
-        
-        # Add the blocks
-        for q, r in moves_to_block:
-            blocked_hexes.add((q, r))
-        logger.info(f"Added {len(moves_to_block)} strategic blocked hexes to limit Priest movement")
+    # 3. Add strategic blocked hexes
+    strategic_blocks = place_strategic_blocks(radius, enemy_priest, attacker, pieces)
+    blocked_hexes.update(strategic_blocks)
+    logger.info(f"Added {len(strategic_blocks)} strategic blocked hexes")
     
     # 4. Place player Priest in a safe position
-    # Try positions that are both safe and don't interfere with the solution
     player_priest = None
-    safe_positions = []
-    
-    # Try positions at increasing distances from the enemy Priest
     for dist in range(2, radius + 1):
         for angle in range(0, 360, 60):
             rad = math.radians(angle)
@@ -613,40 +679,27 @@ def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
             if any(p["q"] == q and p["r"] == r for p in pieces):
                 continue
             
-            # Check if position is safe from enemy Priest's moves
-            is_safe = True
-            for move_q, move_r in priest_moves:
-                if (move_q, move_r) not in blocked_hexes:
-                    if can_kill_piece("Priest", move_q, move_r, {"q": q, "r": r}, blocked_hexes, pieces):
-                        is_safe = False
-                        break
-            
-            if is_safe:
-                safe_positions.append((q, r))
-    
-    if safe_positions:
-        # Pick the position that's furthest from both the enemy Priest and our attacker
-        best_pos = max(safe_positions, key=lambda pos: (
-            hex_distance(pos[0], pos[1], enemy_priest["q"], enemy_priest["r"]) +
-            hex_distance(pos[0], pos[1], attacker["q"], attacker["r"])
-        ))
-        player_priest = {
-            "class": "Priest",
-            "label": "P",
-            "color": "#556b2f",
-            "side": "player",
-            "q": best_pos[0],
-            "r": best_pos[1]
-        }
-        pieces.append(player_priest)
-        logger.info(f"Placed player Priest at ({best_pos[0]},{best_pos[1]})")
+            # Check if position is safe
+            if is_position_safe(q, r, [enemy_priest], blocked_hexes, pieces):
+                player_priest = {
+                    "class": "Priest",
+                    "label": "P",
+                    "color": "#556b2f",
+                    "side": "player",
+                    "q": q,
+                    "r": r
+                }
+                pieces.append(player_priest)
+                logger.info(f"Placed player Priest at ({q},{r})")
+                break
+        if player_priest:
+            break
     
     if not player_priest:
         logger.warning("Could not find safe position for player Priest")
         return None
     
-    # 5. Add enemy pieces to make puzzle more interesting
-    # Add pieces that create interesting choices but don't interfere with the solution
+    # 5. Add additional enemy pieces to make puzzle interesting
     enemy_classes = ["Guardian", "Hunter"]
     if args and args.allow_bloodwarden:
         enemy_classes.append("BloodWarden")
@@ -656,11 +709,11 @@ def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
         args.max_extra_enemies if args else 2
     )
     
-    # Try to place enemies in positions that create interesting choices
     for _ in range(num_extra_enemies):
         enemy_class = random.choice(enemy_classes)
         best_positions = []
         
+        # Try all valid positions
         for q in range(-radius, radius + 1):
             for r in range(-radius, radius + 1):
                 if abs(q + r) <= radius:
@@ -669,37 +722,33 @@ def generate_forced_mate_puzzle(radius, blocked_hexes=None, args=None):
                     if any(p["q"] == q and p["r"] == r for p in pieces):
                         continue
                     
-                    # Create a temporary enemy piece at this position
+                    # Score this position
+                    score = 0
+                    
+                    # Prefer positions closer to the action
+                    dist_to_priest = hex_distance(q, r, enemy_priest["q"], enemy_priest["r"])
+                    score += 5 - min(5, dist_to_priest)
+                    
+                    # Prefer positions that could threaten the attacker's path
+                    dist_to_attacker = hex_distance(q, r, attacker["q"], attacker["r"])
+                    if dist_to_attacker <= 2:
+                        score += 3
+                    
+                    # Avoid positions that make the puzzle too easy
                     temp_enemy = {
                         "class": enemy_class,
-                        "label": "G" if enemy_class == "Guardian" else ("H" if enemy_class == "Hunter" else "BW"),
-                        "color": "#dc143c",
-                        "side": "enemy",
                         "q": q,
                         "r": r
                     }
+                    if can_kill_piece(enemy_class, q, r, attacker, blocked_hexes, pieces):
+                        score -= 10
                     
-                    # Check if this position would make the puzzle too easy or impossible
-                    can_kill_player = False
-                    for p in pieces:
-                        if p["side"] == "player":
-                            if can_kill_piece(enemy_class, q, r, p, blocked_hexes, pieces):
-                                can_kill_player = True
-                                break
-                    
-                    if not can_kill_player:
-                        # Score this position based on how it affects the puzzle
-                        score = 0
-                        # Prefer positions that are closer to the action
-                        score += 5 - min(5, hex_distance(q, r, enemy_priest["q"], enemy_priest["r"]))
-                        # Prefer positions that could threaten the attacker's path
-                        score += 3 if hex_distance(q, r, attacker["q"], attacker["r"]) <= 2 else 0
-                        best_positions.append(((q, r), score))
+                    best_positions.append((q, r, score))
         
         if best_positions:
             # Sort by score and pick one of the top positions
-            best_positions.sort(key=lambda x: x[1], reverse=True)
-            pos_q, pos_r = random.choice(best_positions[:3])[0]  # Pick randomly from top 3
+            best_positions.sort(key=lambda x: x[2], reverse=True)
+            pos_q, pos_r, _ = random.choice(best_positions[:3])
             enemy = {
                 "class": enemy_class,
                 "label": "G" if enemy_class == "Guardian" else ("H" if enemy_class == "Hunter" else "BW"),
