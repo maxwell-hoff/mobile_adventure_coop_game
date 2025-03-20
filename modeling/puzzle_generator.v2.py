@@ -67,18 +67,18 @@ def parse_arguments():
     # Grid size options
     parser.add_argument("--randomize-radius", action="store_true",
                       help="Randomize the grid radius")
-    parser.add_argument("--radius-min", type=int, default=3,
-                      help="Minimum grid radius (default: 3)")
-    parser.add_argument("--radius-max", type=int, default=4,
-                      help="Maximum grid radius (default: 4)")
+    parser.add_argument("--radius-min", type=int, default=10,
+                      help="Minimum grid radius (default: 10)")
+    parser.add_argument("--radius-max", type=int, default=12,
+                      help="Maximum grid radius (default: 12)")
     
     # Blocked hex options
     parser.add_argument("--randomize-blocked", action="store_true",
                       help="Randomize the number of blocked hexes")
-    parser.add_argument("--min-blocked", type=int, default=1,
-                      help="Minimum number of blocked hexes (default: 1)")
-    parser.add_argument("--max-blocked", type=int, default=3,
-                      help="Maximum number of blocked hexes (default: 3)")
+    parser.add_argument("--blocked-percent-min", type=float, default=20.0,
+                      help="Minimum percentage of hexes to block (default: 20.0)")
+    parser.add_argument("--blocked-percent-max", type=float, default=60.0,
+                      help="Maximum percentage of hexes to block (default: 60.0)")
     
     # Enemy piece options
     parser.add_argument("--min-extra-enemies", type=int, default=1,
@@ -107,10 +107,10 @@ def parse_arguments():
         parser.error("Minimum radius must be at least 2")
     if args.radius_max < args.radius_min:
         parser.error("Maximum radius must be greater than or equal to minimum radius")
-    if args.min_blocked < 0:
-        parser.error("Minimum blocked hexes must be non-negative")
-    if args.max_blocked < args.min_blocked:
-        parser.error("Maximum blocked hexes must be greater than or equal to minimum")
+    if args.blocked_percent_min < 0 or args.blocked_percent_min > 100:
+        parser.error("Minimum blocked percentage must be between 0 and 100")
+    if args.blocked_percent_max < args.blocked_percent_min or args.blocked_percent_max > 100:
+        parser.error("Maximum blocked percentage must be between minimum and 100")
     if args.min_extra_enemies < 0:
         parser.error("Minimum extra enemies must be non-negative")
     if args.max_extra_enemies < args.min_extra_enemies:
@@ -791,11 +791,16 @@ def generate_random_scenario(args, attempt_number=0):
             if abs(q + r) <= radius:
                 coords.add((q, r))
     
-    # Generate blocked hexes
+    # Calculate total number of hexes and blocked hex count
+    total_hexes = len(coords)
+    logger.info(f"Total hexes in grid: {total_hexes}")
+    
+    # Generate blocked hexes based on percentage
     blocked_hexes = set()
     if args.randomize_blocked:
-        block_count = random.randint(args.min_blocked, args.max_blocked)
-        logger.info(f"Using randomized blocked hex count: {block_count}")
+        block_percent = random.uniform(args.blocked_percent_min, args.blocked_percent_max)
+        block_count = int(total_hexes * block_percent / 100)
+        logger.info(f"Using randomized blocked hex percentage: {block_percent:.1f}% ({block_count} hexes)")
         if block_count > 0:
             blocked_hexes = set(random.sample(list(coords), block_count))
             logger.info(f"Created {len(blocked_hexes)} blocked hexes")
@@ -818,12 +823,8 @@ def generate_random_scenario(args, attempt_number=0):
     # Log piece positions for reference
     player_pieces = [p for p in scenario["pieces"] if p["side"] == "player"]
     enemy_pieces = [p for p in scenario["pieces"] if p["side"] == "enemy"]
-    
-    logger.info("Initial piece positions:")
-    for p in player_pieces:
-        logger.info(f"  PLAYER {p['class']} at ({p['q']},{p['r']})")
-    for e in enemy_pieces:
-        logger.info(f"  ENEMY {e['class']} at ({e['q']},{e['r']})")
+    logger.info(f"Player pieces: {[(p['class'], p['q'], p['r']) for p in player_pieces]}")
+    logger.info(f"Enemy pieces: {[(p['class'], p['q'], p['r']) for p in enemy_pieces]}")
     
     return scenario
 
