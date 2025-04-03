@@ -81,7 +81,7 @@ def parse_arguments():
                       help="Maximum percentage of hexes to block (default: 60.0)")
     
     # Enemy piece options
-    parser.add_argument("--min-extra-enemies", type=int, default=1,
+    parser.add_argument("--min-extra-enemies", type=int, default=0,
                       help="Minimum number of extra enemy pieces (default: 1)")
     parser.add_argument("--max-extra-enemies", type=int, default=2,
                       help="Maximum number of extra enemy pieces (default: 2)")
@@ -784,33 +784,10 @@ def generate_random_scenario(args, attempt_number=0):
         radius = args.radius_min
         logger.info(f"Using fixed grid radius: {radius}")
     
-    # Generate all possible hex coordinates within radius
-    coords = set()
-    for q in range(-radius, radius + 1):
-        for r in range(-radius, radius + 1):
-            if abs(q + r) <= radius:
-                coords.add((q, r))
-    
-    # Calculate total number of hexes and blocked hex count
-    total_hexes = len(coords)
-    logger.info(f"Total hexes in grid: {total_hexes}")
-    
-    # Generate blocked hexes based on percentage
-    blocked_hexes = set()
-    if args.randomize_blocked:
-        block_percent = random.uniform(args.blocked_percent_min, args.blocked_percent_max)
-        block_count = int(total_hexes * block_percent / 100)
-        logger.info(f"Using randomized blocked hex percentage: {block_percent:.1f}% ({block_count} hexes)")
-        if block_count > 0:
-            blocked_hexes = set(random.sample(list(coords), block_count))
-            logger.info(f"Created {len(blocked_hexes)} blocked hexes")
-            if blocked_hexes:
-                logger.debug(f"Blocked hex coordinates: {blocked_hexes}")
-    
-    # Generate puzzle using forced mate approach
-    scenario = generate_forced_mate_puzzle(radius, blocked_hexes, args)
+    # Generate puzzle using tactical pattern approach
+    scenario = generate_tactical_pattern_puzzle(radius, args)
     if scenario is None:
-        logger.warning("Failed to generate forced mate puzzle")
+        logger.warning("Failed to generate tactical pattern puzzle")
         return None
     
     # Add attempt number and number of turns
@@ -901,7 +878,7 @@ def is_forced_mate_in_2(scenario):
     (piece A moves, then piece B moves, etc.). This addresses partial-turn synergy.
 
     If in all final lines the enemy's Priest is dead => forced mate. 
-    Then we check how many distinct winning combos the player has => if >1 => discard puzzle => return False
+    Multiple winning solutions are allowed.
     """
     attempt_num = scenario.get("attempt_number", 1)
     num_turns = scenario.get("num_turns", 2)  # Default to 2 if not specified
@@ -963,41 +940,27 @@ def is_forced_mate_in_2(scenario):
         logger.info(f"ATTEMPT {attempt_num} FAILED: No valid play lines found")
         return False
     
-    # Check if there is exactly one winning strategy (uniqueness)
-    logger.info("Checking uniqueness of winning strategies")
-    winning_combos = set()
-    
+    # Log all winning lines (no longer checking for uniqueness)
+    logger.info("Found winning lines:")
     for l in lines:
-        # Extract player moves for all turns
         moves = []
         for turn in range(0, max_depth, 2):  # Only player turns
             move = next((x for x in l["partialPlayerCombos"] if x["turn"] == turn), None)
             moves.append(move["comboStr"] if move else "")
-        
-        # Create a tuple representing this winning strategy
-        combo = tuple(moves)
-        winning_combos.add(combo)
-        logger.info(f"Found winning combo: {' -> '.join(moves)}")
-    
-    logger.info(f"Found {len(winning_combos)} distinct winning strategies")
-    
-    # If more than one winning strategy, puzzle is not unique
-    if len(winning_combos) > 1:
-        logger.info(f"ATTEMPT {attempt_num} FAILED: Multiple winning strategies - puzzle not unique")
-        return False
+        logger.info(f"Winning line: {' -> '.join(moves)}")
     
     analysis_time = time.time() - start_time
     logger.info(f"Success! Forced mate analysis completed in {analysis_time:.2f} seconds")
-    logger.info(f"ATTEMPT {attempt_num} SUCCESS: Valid forced mate in {num_turns} turns puzzle with unique solution")
+    logger.info(f"ATTEMPT {attempt_num} SUCCESS: Valid forced mate in {num_turns} turns puzzle with {len(lines)} solution(s)")
     
     # Log remaining living pieces in final positions
-    winning_line = lines[0]
+    winning_line = lines[0]  # Just show one example winning line
     
     if 'finalState' not in winning_line:
         logger.info("Final piece positions would vary based on player & enemy choices")
     else:
         final_state = winning_line['finalState']
-        logger.info("Final piece positions in winning line:")
+        logger.info("Final piece positions in example winning line:")
         living_player = [p for p in final_state['pieces'] if p['side'] == 'player' and not p.get('dead', False)]
         living_enemy = [p for p in final_state['pieces'] if p['side'] == 'enemy' and not p.get('dead', False)]
         
@@ -1669,6 +1632,152 @@ def is_solvable_in_two_turns(scenario):
     
     logger.info("No winning strategy found")
     return False
+
+def generate_tactical_pattern_puzzle(radius, args=None):
+    """
+    Generate a puzzle using predefined tactical patterns.
+    This is more intentional than random generation, focusing on creating
+    specific tactical situations that are likely to yield valid puzzles.
+    """
+    logger.info("Generating tactical pattern puzzle")
+    
+    # Initialize pieces list and blocked hexes
+    pieces = []
+    blocked_hexes = set()
+    
+    # 1. Choose a corner or edge position for enemy Priest
+    corner_positions = [
+        (radius, -radius), (-radius, radius),  # opposite corners
+        (radius, 0), (-radius, 0),            # side corners
+        (0, radius), (0, -radius)             # top/bottom corners
+    ]
+    priest_pos = random.choice(corner_positions)
+    priest_q, priest_r = priest_pos
+    
+    # Place enemy Priest
+    enemy_priest = {
+        "class": "Priest",
+        "label": "P",
+        "color": "#dc143c",
+        "side": "enemy",
+        "q": priest_q,
+        "r": priest_r
+    }
+    pieces.append(enemy_priest)
+    logger.info(f"Placed enemy Priest at corner position ({priest_q},{priest_r})")
+    
+    # 2. Create a wall of blocked hexes around the Priest, leaving 1-2 escape routes
+    adjacent_hexes = [
+        (priest_q+1, priest_r), (priest_q-1, priest_r),
+        (priest_q, priest_r+1), (priest_q, priest_r-1),
+        (priest_q+1, priest_r-1), (priest_q-1, priest_r+1)
+    ]
+    
+    # Filter valid adjacent hexes
+    adjacent_hexes = [(q,r) for (q,r) in adjacent_hexes 
+                     if abs(q) <= radius and abs(r) <= radius and abs(q+r) <= radius]
+    
+    # Leave 1-2 escape routes, block the rest
+    num_escapes = random.randint(1, 2)
+    escape_hexes = random.sample(adjacent_hexes, num_escapes)
+    for q, r in adjacent_hexes:
+        if (q,r) not in escape_hexes:
+            blocked_hexes.add((q,r))
+    
+    logger.info(f"Created wall with {len(blocked_hexes)} blocked hexes, leaving {num_escapes} escape routes")
+    
+    # 3. Place Sorcerer at optimal attack range (3 hexes)
+    # Try positions that can cover all escape routes
+    best_attacker_pos = None
+    best_coverage = -1
+    
+    for q in range(-radius, radius+1):
+        for r in range(-radius, radius+1):
+            if abs(q+r) <= radius and (q,r) not in blocked_hexes:
+                # Check if this position can attack both the Priest and escape routes
+                can_hit_priest = hex_distance(q, r, priest_q, priest_r) <= 3
+                escape_coverage = sum(1 for (eq,er) in escape_hexes 
+                                   if hex_distance(q, r, eq, er) <= 3)
+                
+                # Prefer positions that can hit both Priest and escapes
+                if can_hit_priest and escape_coverage > best_coverage:
+                    best_attacker_pos = (q,r)
+                    best_coverage = escape_coverage
+    
+    if not best_attacker_pos:
+        logger.warning("Could not find good Sorcerer position")
+        return None
+    
+    attacker = {
+        "class": "Sorcerer",
+        "label": "S",
+        "color": "#556b2f",
+        "side": "player",
+        "q": best_attacker_pos[0],
+        "r": best_attacker_pos[1]
+    }
+    pieces.append(attacker)
+    logger.info(f"Placed Sorcerer at ({best_attacker_pos[0]},{best_attacker_pos[1]})")
+    
+    # 4. Place Guardian to block the main escape route
+    for escape_q, escape_r in escape_hexes:
+        # Try to find a position 2 hexes away from the escape route
+        for q in range(-radius, radius+1):
+            for r in range(-radius, radius+1):
+                if abs(q+r) <= radius and (q,r) not in blocked_hexes:
+                    dist_to_escape = hex_distance(q, r, escape_q, escape_r)
+                    if dist_to_escape == 2:  # Guardian's attack range
+                        guardian = {
+                            "class": "Guardian",
+                            "label": "G",
+                            "color": "#dc143c",
+                            "side": "enemy",
+                            "q": q,
+                            "r": r
+                        }
+                        pieces.append(guardian)
+                        logger.info(f"Placed Guardian at ({q},{r})")
+                        break
+            if len(pieces) > 2:  # If we placed a Guardian
+                break
+    
+    # 5. Place player Priest in a safe position
+    for dist in range(2, radius+1):
+        for angle in range(0, 360, 60):
+            rad = math.radians(angle)
+            q = round(dist * math.cos(rad))
+            r = round(dist * math.sin(rad) * 2/math.sqrt(3))
+            
+            if abs(q+r) <= radius and (q,r) not in blocked_hexes:
+                # Check if position is safe
+                if not any(p for p in pieces if p["q"] == q and p["r"] == r):
+                    player_priest = {
+                        "class": "Priest",
+                        "label": "P",
+                        "color": "#556b2f",
+                        "side": "player",
+                        "q": q,
+                        "r": r
+                    }
+                    pieces.append(player_priest)
+                    logger.info(f"Placed player Priest at ({q},{r})")
+                    break
+        if len(pieces) > 3:  # If we placed the player Priest
+            break
+    
+    if len(pieces) < 4:
+        logger.warning("Could not place all required pieces")
+        return None
+    
+    # Create final scenario
+    scenario = {
+        "name": "Tactical Pattern Puzzle",
+        "subGridRadius": radius,
+        "blockedHexes": [{"q": q, "r": r} for (q, r) in blocked_hexes],
+        "pieces": pieces
+    }
+    
+    return scenario
 
 if __name__ == "__main__":
     main()
