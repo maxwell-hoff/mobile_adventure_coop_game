@@ -1,0 +1,247 @@
+- name: Puzzle Scenario
+  subGridRadius: 10
+  blockedHexes:
+  - q: -10
+    r: 10
+  - q: 10
+    r: -3
+  - q: 2
+    r: -7
+  - q: -3
+    r: 6
+  - q: 0
+    r: 5
+  - q: 2
+    r: 2
+  - q: 8
+    r: -7
+  - q: 3
+    r: 6
+  - q: 9
+    r: 1
+  - q: 0
+    r: -2
+  - q: 0
+    r: 7
+  - q: -9
+    r: 4
+  - q: 7
+    r: 3
+  - q: 8
+    r: -5
+  - q: 0
+    r: -9
+  - q: 0
+    r: 0
+  - q: 2
+    r: -3
+  - q: 0
+    r: 9
+  - q: 6
+    r: -3
+  - q: 7
+    r: -4
+  - q: -1
+    r: 2
+  - q: -6
+    r: -1
+  - q: 8
+    r: -3
+  - q: 10
+    r: -6
+  - q: 5
+    r: -2
+  - q: -3
+    r: 3
+  - q: 0
+    r: 2
+  - q: -8
+    r: -2
+  - q: 7
+    r: -2
+  - q: -1
+    r: -5
+  - q: 7
+    r: -1
+  - q: 4
+    r: -10
+  - q: -2
+    r: 4
+  - q: -1
+    r: 4
+  - q: -10
+    r: 9
+  - q: -6
+    r: 0
+  - q: 9
+    r: -2
+  - q: 9
+    r: -1
+  - q: 1
+    r: -4
+  - q: 7
+    r: -9
+  - q: 6
+    r: 1
+  - q: -4
+    r: 0
+  - q: -7
+    r: 10
+  - q: -4
+    r: 9
+  - q: -3
+    r: -1
+  - q: 0
+    r: -3
+  - q: 1
+    r: -2
+  - q: 1
+    r: 7
+  - q: 0
+    r: -10
+  - q: -3
+    r: 0
+  - q: -3
+    r: 9
+  - q: -4
+    r: -5
+  - q: -2
+    r: -8
+  - q: -9
+    r: 8
+  - q: -7
+    r: 5
+  - q: -6
+    r: -3
+  - q: -5
+    r: -4
+  - q: -3
+    r: -7
+  - q: -6
+    r: 6
+  - q: 1
+    r: 2
+  - q: 0
+    r: 4
+  - q: -9
+    r: 1
+  - q: -7
+    r: 7
+  - q: -2
+    r: 6
+  - q: 3
+    r: 2
+  - q: 4
+    r: 1
+  - q: -5
+    r: -1
+  - q: -5
+    r: -2
+  - q: 10
+    r: -1
+  - q: -9
+    r: 3
+  - q: -7
+    r: 0
+  - q: 3
+    r: -5
+  - q: 5
+    r: -8
+  - q: 4
+    r: -6
+  - q: 3
+    r: 4
+  - q: -5
+    r: 9
+  - q: 1
+    r: -3
+  - q: 2
+    r: -4
+  - q: -7
+    r: 2
+  - q: -1
+    r: 1
+  - q: 8
+    r: -4
+  - q: 0
+    r: -8
+  - q: -9
+    r: -1
+  - q: -8
+    r: 6
+  - q: 6
+    r: -2
+  - q: -1
+    r: -6
+  - q: 3
+    r: -10
+  - q: -2
+    r: 3
+  - q: 4
+    r: -2
+  - q: -10
+    r: 8
+  - q: 10
+    r: -5
+  - q: -6
+    r: 8
+  - q: 1
+    r: 1
+  - q: 4
+    r: -9
+  pieces:
+  - class: Priest
+    label: P
+    color: '#dc143c'
+    side: enemy
+    q: 0
+    r: -1
+  - class: Sorcerer
+    label: S
+    color: '#556b2f'
+    side: player
+    q: 3
+    r: -2
+  - class: Sorcerer
+    label: S
+    color: '#556b2f'
+    side: player
+    q: -3
+    r: 1
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: 3
+    r: -1
+  - class: BloodWarden
+    label: B
+    color: '#dc143c'
+    side: enemy
+    q: -1
+    r: 0
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: -4
+    r: 3
+  - class: Guardian
+    label: G
+    color: '#dc143c'
+    side: enemy
+    q: -4
+    r: 1
+  - class: Priest
+    label: P
+    color: '#556b2f'
+    side: player
+    q: 2
+    r: -1
+  evaluation:
+    player_wins: 0
+    enemy_wins: 0
+    draws: 100
+    total_games: 100
+    player_win_rate: 0.0
+    difficulty_score: 1.0

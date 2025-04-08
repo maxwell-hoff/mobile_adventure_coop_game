@@ -1,0 +1,87 @@
+# Puzzle Generator v3 Requirements
+
+## 1. Core Puzzle Structure
+- Grid should be hexagonal with configurable radius (minimum 10)
+- Blocked hexes should comprise 20-60% of total hexes
+- Each puzzle must have at least one player Priest and one enemy Priest
+- Puzzles must be solvable in exactly 2 turns
+- Multiple valid solutions are allowed and expected
+- Solution difficulty should be maximized through intelligent piece placement
+
+## 2. Object-Oriented Design Requirements
+### 2.1 Core Classes
+- Piece class to represent individual game pieces
+- Board class to manage the game state and piece placement
+- PuzzleGenerator class to orchestrate puzzle creation
+- PuzzleValidator class to verify puzzle properties
+- DifficultyEvaluator class to assess puzzle complexity
+
+### 2.2 Extensibility
+- Easy addition of new piece types
+- Flexible ability system for pieces
+- Configurable placement strategies
+- Adaptable victory conditions
+- Modular difficulty evaluation methods
+
+## 3. Piece Placement Strategy
+### 3.1 Sequential Placement
+- Pieces should be placed one at a time in order of tactical impact
+- Each placement should consider its effect on future placements
+- Placement order should be flexible and determined by tactical analysis
+- Should avoid over-constraining or under-constraining the puzzle
+
+### 3.2 Position Optimization
+- Should iteratively refine piece positions to increase difficulty
+- Should maintain at least one valid solution
+- Should use intelligent search to avoid unnecessary position testing
+- Should consider tactical synergies between pieces
+
+## 4. Difficulty Evaluation
+### 4.1 Simulation-Based Assessment
+- Run multiple simulations using PPO model
+- Track win rates and solution paths
+- Identify tactical complexity of solutions
+- Consider number of viable solution paths
+
+### 4.2 Difficulty Maximization
+- Iteratively adjust piece positions to increase difficulty
+- Back off from changes that make puzzle unsolvable
+- Use intelligent search to explore position modifications
+- Consider multiple difficulty metrics (win rate, solution count, etc.)
+
+## 5. Technical Requirements
+### 5.1 Performance
+- Efficient position search algorithms
+- Smart pruning of invalid configurations
+- Parallel simulation support where applicable
+- Reasonable time limits for generation
+
+### 5.2 Validation
+- Must verify puzzle is solvable
+- Must validate all piece movements and attacks
+- Must check line of sight requirements
+- Must verify turn count constraints
+- Must assess difficulty through simulation
+
+## 6. Command Line Interface
+- Support for all v2 arguments
+- Additional arguments for difficulty optimization
+- Configuration of simulation parameters
+- Output format specification
+
+## 7. Optional Features
+- Support for multiple difficulty levels
+- Variable grid sizes beyond minimum radius of 10
+- Support for different victory conditions
+- Custom piece configurations
+- Difficulty scoring system
+- Parallel processing for faster generation
+- Caching of evaluated positions
+
+## 8. Constraints
+- Grid radius must be at least 10
+- Blocked hex percentage must be between 20% and 60%
+- Must have exactly one enemy Priest
+- Must have at least one player Priest
+- Must be solvable in exactly 2 turns
+- Generation time should be reasonable (under 5 minutes per puzzle) 
