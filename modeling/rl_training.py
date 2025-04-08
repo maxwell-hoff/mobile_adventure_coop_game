@@ -35,6 +35,7 @@ def hex_distance(q1, r1, q2, r2):
         abs(q1 - q2)
         + abs(r1 - r2)
         + abs((q1 + r1) - (q2 + r2))
+    ) // 2
 
 def line_of_sight(q1, r1, q2, r2, blocked_hexes, all_pieces):
     if (q1 == q2) and (r1 == r2):
@@ -93,11 +94,13 @@ class HexPuzzleEnv(gym.Env):
         player_min_pieces=3,
         player_max_pieces=4,
         enemy_min_pieces=3,
-        enemy_max_pieces=5
+        enemy_max_pieces=5,
+        observation_dim=16  # Add observation_dim parameter
     ):
         super().__init__()
         self.original_scenario = deepcopy(puzzle_scenario)
         self.scenario = deepcopy(puzzle_scenario)
+        self.observation_dim = observation_dim  # Store observation dimension
 
         self.max_turns = max_turns
         self.render_mode = render_mode
@@ -127,15 +130,11 @@ class HexPuzzleEnv(gym.Env):
         self.max_actions_for_side = 500
         self.action_space = gym.spaces.Discrete(self.max_actions_for_side)
 
-        if self.randomize_pieces:
-            max_pieces = self.player_max_pieces + self.enemy_max_pieces
-        else:
-            max_pieces = len(self.player_pieces) + len(self.enemy_pieces)
-        self.obs_size = 2 * max_pieces
+        # Use fixed observation dimension
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius,
             high=self.grid_radius,
-            shape=(self.obs_size,),
+            shape=(self.observation_dim,),
             dtype=np.float32
         )
 
@@ -882,8 +881,9 @@ class HexPuzzleEnv(gym.Env):
 
     def get_obs(self):
         """
-        Return an 18-length observation vector by padding with zeros
-        if we have fewer than 9 total pieces.
+        Return an observation vector with fixed dimensions.
+        Pads with zeros if we have fewer coordinates than needed,
+        truncates if we have more.
         """
         # Build coords for each piece, [p1_q, p1_r, p2_q, p2_r, ...]
         coords = []
@@ -894,23 +894,16 @@ class HexPuzzleEnv(gym.Env):
             coords.append(e["q"])
             coords.append(e["r"])
         
-        # The model expects 18 floats (for 9 pieces).
-        # If we have fewer than 9 pieces total, pad with zeros.
-        # If we have exactly 9 or more, you might want to either slice or keep them
-        # (depending on how you trained).
+        # Convert to numpy array
+        coords = np.array(coords, dtype=np.float32)
         
-        desired_size = 18  # 9 pieces * 2 coords
-        current_size = len(coords)
+        # Create zero-filled array of correct size
+        result = np.zeros(self.observation_dim, dtype=np.float32)
         
-        if current_size < desired_size:
-            # zero-pad at the end
-            coords += [0] * (desired_size - current_size)
-        elif current_size > desired_size:
-            # or if we have more pieces than expected, either slice them
-            # or raise an error. The line below just slices to 18:
-            coords = coords[:desired_size]
+        # Copy as many coordinates as we can
+        result[:min(len(coords), self.observation_dim)] = coords[:min(len(coords), self.observation_dim)]
         
-        return np.array(coords, dtype=np.float32)
+        return result
 
     def _log_positions(self):
         # Add debug info about piece order

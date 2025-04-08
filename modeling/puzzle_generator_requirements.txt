@@ -1,0 +1,78 @@
+# Puzzle Generator Requirements
+
+## 1. Core Puzzle Structure
+- Grid should be hexagonal with configurable radius (minimum 10)
+- Blocked hexes should comprise 20-60% of total hexes
+- Each puzzle must have at least one player Priest and one enemy Priest
+- Puzzles must be solvable in exactly 2 turns
+- Solution must be a forced mate (enemy cannot prevent the win)
+- Multiple valid solutions are allowed
+
+## 2. Piece Placement Requirements
+### 2.1 Enemy Priest Placement
+- Should be placed in tactically interesting positions (corners/edges preferred)
+- Should have limited but viable escape routes
+- Position should consider line of sight to potential attacker positions
+
+### 2.2 Ranged Attacker Placement
+- Should be placed at optimal attack range from enemy Priest
+- Must maintain clear line of sight to enemy Priest
+- Should be positioned safely away from enemy Priest's movement range
+
+### 2.3 Guardian Placement
+- Should be positioned to block key escape routes
+- Should not interfere with ranged attacker's line of sight
+- Should create tactical choices for the enemy
+
+### 2.4 Player Priest Placement
+- Must be placed in a position safe from immediate enemy attacks
+- Should be within reasonable distance of the action
+- Should not interfere with the main tactical setup
+
+## 3. Blocked Hex Requirements
+- Should be used to create natural barriers and corridors
+- Must not completely trap any piece
+- Should help create tactical situations
+- Must maintain necessary lines of sight for ranged attacks
+- Should be placed before other pieces for better tactical control
+
+## 4. Gameplay Requirements
+- Player must not be able to win in 1 turn
+- Enemy must have at least one possible move each turn
+- All pieces must have valid moves available
+- Line of sight must be properly maintained for ranged attacks
+- Puzzle should encourage piece synergy and tactical thinking
+
+## 5. Technical Requirements
+### 5.1 Performance
+- Generation should complete within reasonable time
+- Should implement efficient search algorithms
+- Should use intelligent piece placement to reduce failed attempts
+
+### 5.2 Validation
+- Must verify puzzle is solvable
+- Must validate all piece movements and attacks
+- Must check line of sight requirements
+- Must verify turn count constraints
+
+## 6. Assumptions
+- Pieces follow standard movement and attack rules from pieces.yaml
+- Line of sight is blocked by both pieces and blocked hexes
+- Diagonal movement is allowed in hex grid
+- Pieces cannot move through blocked hexes or other pieces
+- Enemy AI will make optimal defensive moves
+- All pieces have standard attack ranges as defined in pieces.yaml
+
+## 7. Optional Features
+- Support for multiple difficulty levels
+- Variable grid sizes beyond minimum radius of 10
+- Support for different victory conditions
+- Custom piece configurations
+- Difficulty scoring system
+
+## 8. Constraints
+- Grid radius must be at least 10
+- Blocked hex percentage must be between 20% and 60%
+- Must have exactly one enemy Priest
+- Must have at least one player Priest
+- Must be solvable in exactly 2 turns
