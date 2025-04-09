@@ -7613,19 +7613,19 @@ regions:
       color: '#556b2f'
       side: player
       q: -1
-      r: 0
+      r: -1
     - class: Sorcerer
       label: S
       color: '#556b2f'
       side: player
       q: -1
-      r: 0
+      r: 1
     - class: Priest
       label: P
       color: '#dc143c'
       side: enemy
       q: 1
-      r: 0
+      r: -1
     - class: BloodWarden
       label: BW
       color: '#dc143c'
