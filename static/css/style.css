@@ -29,9 +29,27 @@ body {
   }
   
   .hex-region.in-range {
-    fill: rgba(144, 238, 144, 0.4);  /* light green */
-    stroke: #228B22;  /* forest green */
+    fill: rgba(0, 255, 0, 0.3);
+    stroke: #00ff00;
     stroke-width: 2;
+  }
+  
+  .hex-region.in-range.attack {
+    fill: rgba(255, 0, 0, 0.3);
+    stroke: #ff0000;
+    stroke-width: 2;
+  }
+  
+  .hex-region.in-range.destination {
+    fill: rgba(0, 0, 255, 0.3);
+    stroke: #0000ff;
+    stroke-width: 2;
+  }
+  
+  .hex-region.in-range.destination:hover {
+    fill: rgba(0, 0, 255, 0.5);
+    stroke: #0000ff;
+    stroke-width: 3;
   }
   
   .hex-region.aoe-preview {
@@ -366,7 +384,7 @@ body {
     fill: red;
     stroke: yellow;
     stroke-width: 1px;
-    pointer-events: none; /* so they don’t interfere with mouse events */
+    pointer-events: none; /* so they don't interfere with mouse events */
   }
   #story-overlay {
     font-family: Arial, sans-serif;
