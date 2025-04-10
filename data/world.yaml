@@ -2679,7 +2679,7 @@ regions:
       color: '#556b2f'
       side: player
       q: -3
-      r: 1
+      r: 2
     - class: Guardian
       label: G
       color: '#dc143c'

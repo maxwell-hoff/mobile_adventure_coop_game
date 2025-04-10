@@ -471,62 +471,24 @@ function drawRegionView(region) {
               updateActionDescriptions();
               validateTurnCompletion();
             }
-          } else if (actionData.action_type === 'pull') {
-            // First step: select the piece to pull
-            if (!selection.pullTarget) {
-              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
-              if (targetPiece && poly.classList.contains("in-range")) {
-                selection.pullTarget = { q: sh.q, r: sh.r };
-                currentHexSelector.textContent = "Select destination";
-                
-                // Clear existing highlights
-                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
-                  hex.classList.remove("in-range");
-                  hex.classList.remove("attack");
-                });
-                
-                // Show possible destination hexes around the target piece
-                const distance = actionData.distance;
-                for (let q = -distance; q <= distance; q++) {
-                  for (let r = -distance; r <= distance; r++) {
-                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
-                      const destQ = targetPiece.q + q;
-                      const destR = targetPiece.r + r;
-                      const destKey = `${destQ},${destR}`;
-                      
-                      // Only show unoccupied hexes that are closer to the pulling piece
-                      const isUnoccupied = !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR);
-                      const isCloser = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) < 
-                                     Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
-                      
-                      if (isUnoccupied && isCloser && !blockedHexes.has(destKey)) {
-                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
-                        if (destHex) {
-                          destHex.classList.add("in-range");
-                          destHex.classList.add("destination"); // Add a new class for destination hexes
-                        }
-                      }
-                    }
-                  }
-                }
-                updateActionDescriptions();
-              }
-            } else {
-              // Second step: select the destination
-              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
-              if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
-                selection.targetHex = { q: sh.q, r: sh.r };
-                currentHexSelector.textContent = `Pull to (${sh.q}, ${sh.r})`;
-                currentHexSelector.classList.remove("selecting");
-                isSelectingHex = false;
-                currentHexSelector = null;
-                document.querySelectorAll(".hex-region.in-range, .hex-region.destination").forEach(hex => {
-                  hex.classList.remove("in-range");
-                  hex.classList.remove("destination");
-                });
-                updateActionDescriptions();
-                validateTurnCompletion();
-              }
+          } else if (actionData.action_type === 'single_target_attack') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && 
+              p.r === sh.r && 
+              p.side !== 'player'
+            );
+            if (targetPiece && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("attack");
+              });
+              updateActionDescriptions();
+              validateTurnCompletion();
             }
           } else if (actionData.action_type === 'push') {
             // First step: select the piece to push
@@ -574,6 +536,63 @@ function drawRegionView(region) {
               if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
                 selection.targetHex = { q: sh.q, r: sh.r };
                 currentHexSelector.textContent = `Push to (${sh.q}, ${sh.r})`;
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.destination").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("destination");
+                });
+                updateActionDescriptions();
+                validateTurnCompletion();
+              }
+            }
+          } else if (actionData.action_type === 'pull') {
+            // First step: select the piece to pull
+            if (!selection.pullTarget) {
+              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
+              if (targetPiece && poly.classList.contains("in-range")) {
+                selection.pullTarget = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = "Select destination";
+                
+                // Clear existing highlights
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("attack");
+                });
+                
+                // Show possible destination hexes around the target piece
+                const distance = actionData.distance;
+                for (let q = -distance; q <= distance; q++) {
+                  for (let r = -distance; r <= distance; r++) {
+                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                      const destQ = targetPiece.q + q;
+                      const destR = targetPiece.r + r;
+                      const destKey = `${destQ},${destR}`;
+                      
+                      // Only show unoccupied hexes that are closer to the pulling piece
+                      const isUnoccupied = !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR);
+                      const isCloser = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) < 
+                                     Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
+                      
+                      if (isUnoccupied && isCloser && !blockedHexes.has(destKey)) {
+                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                        if (destHex) {
+                          destHex.classList.add("in-range");
+                          destHex.classList.add("destination"); // Add a new class for destination hexes
+                        }
+                      }
+                    }
+                  }
+                }
+                updateActionDescriptions();
+              }
+            } else {
+              // Second step: select the destination
+              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+              if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
+                selection.targetHex = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = `Pull to (${sh.q}, ${sh.r})`;
                 currentHexSelector.classList.remove("selecting");
                 isSelectingHex = false;
                 currentHexSelector = null;
@@ -906,62 +925,24 @@ function drawHexDetailView(region, clickedHex) {
               updateActionDescriptions();
               validateTurnCompletion();
             }
-          } else if (actionData.action_type === 'pull') {
-            // First step: select the piece to pull
-            if (!selection.pullTarget) {
-              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
-              if (targetPiece && poly.classList.contains("in-range")) {
-                selection.pullTarget = { q: sh.q, r: sh.r };
-                currentHexSelector.textContent = "Select destination";
-                
-                // Clear existing highlights
-                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
-                  hex.classList.remove("in-range");
-                  hex.classList.remove("attack");
-                });
-                
-                // Show possible destination hexes around the target piece
-                const distance = actionData.distance;
-                for (let q = -distance; q <= distance; q++) {
-                  for (let r = -distance; r <= distance; r++) {
-                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
-                      const destQ = targetPiece.q + q;
-                      const destR = targetPiece.r + r;
-                      const destKey = `${destQ},${destR}`;
-                      
-                      // Only show unoccupied hexes that are closer to the pulling piece
-                      const isUnoccupied = !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR);
-                      const isCloser = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) < 
-                                     Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
-                      
-                      if (isUnoccupied && isCloser && !blockedHexes.has(destKey)) {
-                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
-                        if (destHex) {
-                          destHex.classList.add("in-range");
-                          destHex.classList.add("destination"); // Add a new class for destination hexes
-                        }
-                      }
-                    }
-                  }
-                }
-                updateActionDescriptions();
-              }
-            } else {
-              // Second step: select the destination
-              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
-              if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
-                selection.targetHex = { q: sh.q, r: sh.r };
-                currentHexSelector.textContent = `Pull to (${sh.q}, ${sh.r})`;
-                currentHexSelector.classList.remove("selecting");
-                isSelectingHex = false;
-                currentHexSelector = null;
-                document.querySelectorAll(".hex-region.in-range, .hex-region.destination").forEach(hex => {
-                  hex.classList.remove("in-range");
-                  hex.classList.remove("destination");
-                });
-                updateActionDescriptions();
-                validateTurnCompletion();
-              }
+          } else if (actionData.action_type === 'single_target_attack') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && 
+              p.r === sh.r && 
+              p.side !== 'player'
+            );
+            if (targetPiece && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("attack");
+              });
+              updateActionDescriptions();
+              validateTurnCompletion();
             }
           } else if (actionData.action_type === 'push') {
             // First step: select the piece to push
@@ -1009,6 +990,63 @@ function drawHexDetailView(region, clickedHex) {
               if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
                 selection.targetHex = { q: sh.q, r: sh.r };
                 currentHexSelector.textContent = `Push to (${sh.q}, ${sh.r})`;
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.destination").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("destination");
+                });
+                updateActionDescriptions();
+                validateTurnCompletion();
+              }
+            }
+          } else if (actionData.action_type === 'pull') {
+            // First step: select the piece to pull
+            if (!selection.pullTarget) {
+              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
+              if (targetPiece && poly.classList.contains("in-range")) {
+                selection.pullTarget = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = "Select destination";
+                
+                // Clear existing highlights
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("attack");
+                });
+                
+                // Show possible destination hexes around the target piece
+                const distance = actionData.distance;
+                for (let q = -distance; q <= distance; q++) {
+                  for (let r = -distance; r <= distance; r++) {
+                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                      const destQ = targetPiece.q + q;
+                      const destR = targetPiece.r + r;
+                      const destKey = `${destQ},${destR}`;
+                      
+                      // Only show unoccupied hexes that are closer to the pulling piece
+                      const isUnoccupied = !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR);
+                      const isCloser = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) < 
+                                     Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
+                      
+                      if (isUnoccupied && isCloser && !blockedHexes.has(destKey)) {
+                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                        if (destHex) {
+                          destHex.classList.add("in-range");
+                          destHex.classList.add("destination"); // Add a new class for destination hexes
+                        }
+                      }
+                    }
+                  }
+                }
+                updateActionDescriptions();
+              }
+            } else {
+              // Second step: select the destination
+              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+              if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
+                selection.targetHex = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = `Pull to (${sh.q}, ${sh.r})`;
                 currentHexSelector.classList.remove("selecting");
                 isSelectingHex = false;
                 currentHexSelector = null;
