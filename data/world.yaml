@@ -2652,9 +2652,9 @@ regions:
     pieces:
     - class: Priest
       label: P
-      color: '#dc143c'
-      side: enemy
-      q: 0
+      color: '#556b2f'
+      side: player
+      q: 2
       r: -1
     - class: Sorcerer
       label: S
@@ -2667,6 +2667,12 @@ regions:
       color: '#556b2f'
       side: player
       q: -3
+      r: 1
+    - class: Hunter
+      label: H
+      color: '#556b2f'
+      side: player
+      q: -2
       r: 1
     - class: Guardian
       label: G
@@ -2694,9 +2700,9 @@ regions:
       r: 1
     - class: Priest
       label: P
-      color: '#556b2f'
-      side: player
-      q: 2
+      color: '#dc143c'
+      side: enemy
+      q: 0
       r: -1
     difficulty: 4
     evaluation:

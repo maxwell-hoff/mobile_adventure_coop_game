@@ -752,6 +752,7 @@ function drawHexDetailView(region, clickedHex) {
         if (selection) {
           const pieceClass = piecesData.classes[selection.class];
           const actionData = pieceClass.actions[selection.action];
+          
           if (actionData.action_type === 'move') {
             const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
             if (!isOccupied && poly.classList.contains("in-range")) {
@@ -765,6 +766,53 @@ function drawHexDetailView(region, clickedHex) {
               });
               updateActionDescriptions();
               validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'pull') {
+            // First step: select the piece to pull
+            if (!selection.pullTarget) {
+              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
+              if (targetPiece && poly.classList.contains("in-range")) {
+                selection.pullTarget = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = "Select destination";
+                // Show possible destination hexes
+                document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+                  hex.classList.remove("in-range");
+                });
+                // Show hexes within pull distance that are unoccupied
+                const distance = actionData.distance;
+                for (let q = -distance; q <= distance; q++) {
+                  for (let r = -distance; r <= distance; r++) {
+                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                      const destQ = piece.q + q;
+                      const destR = piece.r + r;
+                      const destKey = `${destQ},${destR}`;
+                      if (!blockedHexes.has(destKey) && !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR)) {
+                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                        if (destHex) {
+                          destHex.classList.add("in-range");
+                        }
+                      }
+                    }
+                  }
+                }
+                // Update action description to show selected target
+                updateActionDescriptions();
+              }
+            } else {
+              // Second step: select the destination
+              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+              if (!isOccupied && poly.classList.contains("in-range")) {
+                selection.targetHex = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = `Pull to (${sh.q}, ${sh.r})`;
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+                  hex.classList.remove("in-range");
+                });
+                updateActionDescriptions();
+                validateTurnCompletion();
+              }
             }
           }
         }
@@ -1074,6 +1122,47 @@ function validateTurnCompletion() {
                 
                 if (aoeDistance > actionData.range) {
                     console.log(`${uniqueLabel} target center is out of range`);
+                    isValid = false;
+                }
+                break;
+
+            case 'pull':
+                if (!selection.pullTarget || !selection.targetHex) {
+                    console.log(`${uniqueLabel} has no pull target or destination`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if pull target is in range
+                const pullDx = Math.abs(selection.pullTarget.q - piece.q);
+                const pullDy = Math.abs(selection.pullTarget.r - piece.r);
+                const pullDz = Math.abs(-selection.pullTarget.q - selection.pullTarget.r + piece.q + piece.r);
+                const pullDistance = Math.max(pullDx, pullDy, pullDz);
+                
+                if (pullDistance > actionData.range) {
+                    console.log(`${uniqueLabel} pull target is out of range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if destination is within pull distance
+                const destDx = Math.abs(selection.targetHex.q - piece.q);
+                const destDy = Math.abs(selection.targetHex.r - piece.r);
+                const destDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
+                const destDistance = Math.max(destDx, destDy, destDz);
+                
+                if (destDistance > actionData.distance) {
+                    console.log(`${uniqueLabel} destination is out of pull range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if destination is occupied
+                const isDestOccupied = puzzleScenario.pieces.some(p => 
+                    p.q === selection.targetHex.q && p.r === selection.targetHex.r
+                );
+                if (isDestOccupied) {
+                    console.log(`${uniqueLabel} destination is occupied`);
                     isValid = false;
                 }
                 break;
@@ -1413,6 +1502,22 @@ function showPieceActionRange(piece, pieceClass, actionName) {
                 if (targetPiece.side !== piece.side) {
                   hex.classList.add("attack");
                 }
+              }
+            }
+          }
+        } else if (actionData.action_type === 'pull') {
+          // For pull, highlight hexes that have pieces (allies or enemies) within range
+          const targetPiece = puzzleScenario.pieces.find(p => 
+            p.q === targetQ && p.r === targetR && p !== piece
+          );
+          
+          if (targetPiece) {
+            const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+            if (hex) {
+              hex.classList.add("in-range");
+              // Add attack class for enemy pulls to make them visually distinct
+              if (targetPiece.side !== piece.side) {
+                hex.classList.add("attack");
               }
             }
           }
@@ -1771,9 +1876,14 @@ function setupPlayerControls(scenario) {
         selection.affectedHexes = null; // Reset AOE affected hexes
 
         // Show hex selector for any action that needs target selection
-        const needsTargetSelection = ['move', 'swap_position', 'single_target_attack', 'multi_target_attack', 'aoe'].includes(actionData.action_type);
+        const needsTargetSelection = ['move', 'swap_position', 'single_target_attack', 'multi_target_attack', 'aoe', 'pull'].includes(actionData.action_type);
         hexSelect.style.display = needsTargetSelection ? "block" : "none";
         hexSelect.textContent = "Click to select hex";
+        
+        // Reset pull-specific state
+        if (actionData.action_type === 'pull') {
+          selection.pullTarget = null;
+        }
       }
       
       // Clear any existing range indicators
@@ -2078,6 +2188,23 @@ function setupPlayerControls(scenario) {
                                 }
                             });
                         }
+                    }
+                }
+                break;
+
+            case 'pull':
+                if (selection.pullTarget && selection.targetHex) {
+                    const targetPiece = scenario.pieces.find(p => 
+                        p.q === selection.pullTarget.q && 
+                        p.r === selection.pullTarget.r
+                    );
+                    
+                    if (targetPiece) {
+                        const originalQ = targetPiece.q;
+                        const originalR = targetPiece.r;
+                        targetPiece.q = selection.targetHex.q;
+                        targetPiece.r = selection.targetHex.r;
+                        addBattleLog(`${piece.class} (${uniqueLabel}) pulled ${targetPiece.class} (${targetPiece.label}) from (${originalQ},${originalR}) to (${targetPiece.q},${targetPiece.r})`);
                     }
                 }
                 break;

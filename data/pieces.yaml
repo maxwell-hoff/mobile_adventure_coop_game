@@ -98,8 +98,7 @@ classes:
         attack_type: "magic"
         duration: 2
         requires_los: True
-        description: "Steal an enemy's ability for 2 turns"
-
+        description: "Steal an enemy's ability for 2 turns" 
 
   Priest:
     description: "A holy guardian with healing and protective abilities"
@@ -156,7 +155,7 @@ classes:
         requires_los: false
         description: "Block all physical attacks but cannot move for 1 turn"
       push_back:
-        action_type: "push_pull"
+        action_type: "push"
         range: 1
         attack_type: "physical"
         distance: 2
@@ -221,7 +220,7 @@ classes:
         requires_los: True
         description: "Set a snare trap that immobilizes enemies for 2 turns"
       pull_shot:
-        action_type: "push_pull"
+        action_type: "pull"
         range: 3
         attack_type: "physical"
         distance: 2
@@ -320,7 +319,7 @@ classes:
         requires_los: True
         description: "Create a shield of nature that blocks all attacks for 2 turns"
       vine_whip:
-        action_type: "push_pull"
+        action_type: "pull"
         range: 3
         attack_type: "magic"
         distance: 2
