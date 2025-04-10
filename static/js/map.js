@@ -490,6 +490,50 @@ function drawRegionView(region) {
               updateActionDescriptions();
               validateTurnCompletion();
             }
+          } else if (actionData.action_type === 'multi_target_attack') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && 
+              p.r === sh.r && 
+              p.side !== 'player'
+            );
+            if (targetPiece && poly.classList.contains("in-range")) {
+              // Initialize targetHexes array if it doesn't exist
+              if (!selection.targetHexes) {
+                selection.targetHexes = [];
+              }
+              
+              // Check if this hex is already selected
+              const isAlreadySelected = selection.targetHexes.some(h => h.q === sh.q && h.r === sh.r);
+              
+              if (isAlreadySelected) {
+                // Remove this hex from selection
+                selection.targetHexes = selection.targetHexes.filter(h => !(h.q === sh.q && h.r === sh.r));
+                poly.classList.remove("selected");
+              } else if (selection.targetHexes.length < actionData.max_num_targets) {
+                // Add this hex to selection
+                selection.targetHexes.push({ q: sh.q, r: sh.r });
+                poly.classList.add("selected");
+              }
+              
+              // Update UI text to show number of targets selected
+              currentHexSelector.textContent = `Selected ${selection.targetHexes.length}/${actionData.max_num_targets} targets`;
+              
+              // If we've reached max targets, clear selection mode
+              if (selection.targetHexes.length === actionData.max_num_targets) {
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  if (!hex.classList.contains("selected")) {
+                    hex.classList.remove("in-range");
+                    hex.classList.remove("attack");
+                  }
+                });
+              }
+              
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
           } else if (actionData.action_type === 'push') {
             // First step: select the piece to push
             if (!selection.pushTarget) {
@@ -941,6 +985,50 @@ function drawHexDetailView(region, clickedHex) {
                 hex.classList.remove("in-range");
                 hex.classList.remove("attack");
               });
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'multi_target_attack') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && 
+              p.r === sh.r && 
+              p.side !== 'player'
+            );
+            if (targetPiece && poly.classList.contains("in-range")) {
+              // Initialize targetHexes array if it doesn't exist
+              if (!selection.targetHexes) {
+                selection.targetHexes = [];
+              }
+              
+              // Check if this hex is already selected
+              const isAlreadySelected = selection.targetHexes.some(h => h.q === sh.q && h.r === sh.r);
+              
+              if (isAlreadySelected) {
+                // Remove this hex from selection
+                selection.targetHexes = selection.targetHexes.filter(h => !(h.q === sh.q && h.r === sh.r));
+                poly.classList.remove("selected");
+              } else if (selection.targetHexes.length < actionData.max_num_targets) {
+                // Add this hex to selection
+                selection.targetHexes.push({ q: sh.q, r: sh.r });
+                poly.classList.add("selected");
+              }
+              
+              // Update UI text to show number of targets selected
+              currentHexSelector.textContent = `Selected ${selection.targetHexes.length}/${actionData.max_num_targets} targets`;
+              
+              // If we've reached max targets, clear selection mode
+              if (selection.targetHexes.length === actionData.max_num_targets) {
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  if (!hex.classList.contains("selected")) {
+                    hex.classList.remove("in-range");
+                    hex.classList.remove("attack");
+                  }
+                });
+              }
+              
               updateActionDescriptions();
               validateTurnCompletion();
             }
