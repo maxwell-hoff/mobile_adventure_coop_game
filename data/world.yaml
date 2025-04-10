@@ -2676,6 +2676,12 @@ regions:
       r: 1
     - class: Guardian
       label: G
+      color: '#556b2f'
+      side: player
+      q: -3
+      r: 1
+    - class: Guardian
+      label: G
       color: '#dc143c'
       side: enemy
       q: 3
