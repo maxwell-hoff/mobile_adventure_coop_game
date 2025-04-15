@@ -471,6 +471,34 @@ function drawRegionView(region) {
               updateActionDescriptions();
               validateTurnCompletion();
             }
+          } else if (actionData.action_type === 'trap') {
+            const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r && !p.dead);
+            const isBlocked = puzzleScenario.blockedHexes.some(h => h.q === sh.q && h.r === sh.r && !h.isTrap);
+            
+            if (!isOccupied && !isBlocked && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range, .hex-region.trap").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("trap");
+              });
+              
+              // Add the trap hex to blockedHexes with isTrap flag
+              const trapKey = `${sh.q},${sh.r}`;
+              blockedHexes.add(trapKey);
+              puzzleScenario.blockedHexes.push({
+                q: sh.q,
+                r: sh.r,
+                isTrap: true
+              });
+              poly.classList.add("trap");
+              
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
           } else if (actionData.action_type === 'single_target_attack') {
             const targetPiece = puzzleScenario.pieces.find(p => 
               p.q === sh.q && 
@@ -936,8 +964,13 @@ function drawHexDetailView(region, clickedHex) {
     poly.setAttribute("data-r", sh.r);
     const hexKey = `${sh.q},${sh.r}`;
     if (blockedHexes.has(hexKey)) {
-      poly.setAttribute("fill", "#000000");
-      poly.setAttribute("class", "hex-region blocked");
+      const blockedHex = puzzleScenario.blockedHexes.find(h => h.q === sh.q && h.r === sh.r);
+      if (blockedHex && blockedHex.isTrap) {
+        poly.setAttribute("class", "hex-region trap");
+      } else {
+        poly.setAttribute("fill", "#000000");
+        poly.setAttribute("class", "hex-region blocked");
+      }
     } else {
       poly.setAttribute("fill", regionColor(region.regionId));
     }
@@ -966,6 +999,34 @@ function drawHexDetailView(region, clickedHex) {
               document.querySelectorAll(".hex-region.in-range").forEach(hex => {
                 hex.classList.remove("in-range");
               });
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'trap') {
+            const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r && !p.dead);
+            const isBlocked = puzzleScenario.blockedHexes.some(h => h.q === sh.q && h.r === sh.r && !h.isTrap);
+            
+            if (!isOccupied && !isBlocked && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range, .hex-region.trap").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("trap");
+              });
+              
+              // Add the trap hex to blockedHexes with isTrap flag
+              const trapKey = `${sh.q},${sh.r}`;
+              blockedHexes.add(trapKey);
+              puzzleScenario.blockedHexes.push({
+                q: sh.q,
+                r: sh.r,
+                isTrap: true
+              });
+              poly.classList.add("trap");
+              
               updateActionDescriptions();
               validateTurnCompletion();
             }
@@ -1543,6 +1604,28 @@ function validateTurnCompletion() {
                     isValid = false;
                 }
                 break;
+
+            case 'trap':
+                if (!selection.targetHex) {
+                    console.log(`${uniqueLabel} has no target hex`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if target hex is blocked by a non-trap obstacle
+                const trapTargetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
+                const isBlockedByNonTrap = puzzleScenario.blockedHexes.some(h => 
+                    h.q === selection.targetHex.q && 
+                    h.r === selection.targetHex.r &&
+                    !h.isTrap
+                );
+                
+                if (isBlockedByNonTrap) {
+                    console.log(`${uniqueLabel} trap target hex is blocked by non-trap obstacle`);
+                    isValid = false;
+                    break;
+                }
+                break;
         }
     });
     
@@ -1939,6 +2022,22 @@ function showPieceActionRange(piece, pieceClass, actionName) {
               }
             }
           }
+        } else if (actionData.action_type === 'trap') {
+          // For trap, highlight any unoccupied hex within range
+          const isOccupied = puzzleScenario.pieces.some(p => 
+            p.q === targetQ && p.r === targetR && !p.dead
+          );
+          const isBlocked = puzzleScenario.blockedHexes.some(h => 
+            h.q === targetQ && h.r === targetR && !h.isTrap
+          );
+          
+          if (!isOccupied && !isBlocked) {
+            const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+            if (hex) {
+              hex.classList.add("in-range");
+              hex.classList.add("trap");
+            }
+          }
         }
       }
     }
@@ -2272,7 +2371,7 @@ function setupPlayerControls(scenario) {
         selection.affectedHexes = null; // Reset AOE affected hexes
 
         // Show hex selector for any action that needs target selection
-        const needsTargetSelection = ['move', 'swap_position', 'single_target_attack', 'multi_target_attack', 'aoe', 'pull', 'push'].includes(actionData.action_type);
+        const needsTargetSelection = ['move', 'swap_position', 'single_target_attack', 'multi_target_attack', 'aoe', 'pull', 'push', 'trap'].includes(actionData.action_type);
         hexSelect.style.display = needsTargetSelection ? "block" : "none";
         hexSelect.textContent = "Click to select hex";
         
@@ -2742,6 +2841,28 @@ function setupPlayerControls(scenario) {
                     isValid = false;
                 }
                 break;
+
+            case 'trap':
+                if (!selection.targetHex) {
+                    console.log(`${uniqueLabel} has no target hex`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if target hex is blocked by a non-trap obstacle
+                const trapTargetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
+                const isBlockedByNonTrap = puzzleScenario.blockedHexes.some(h => 
+                    h.q === selection.targetHex.q && 
+                    h.r === selection.targetHex.r &&
+                    !h.isTrap
+                );
+                
+                if (isBlockedByNonTrap) {
+                    console.log(`${uniqueLabel} trap target hex is blocked by non-trap obstacle`);
+                    isValid = false;
+                    break;
+                }
+                break;
         }
     });
 
@@ -2832,11 +2953,31 @@ function applyEnemyActionToScenario(actionResult) {
 
   switch (subAction.type) {
     case "move":
-      if (subAction.dest) {
-        const [q, r] = subAction.dest;
-        piece.q = q;
-        piece.r = r;
-        addBattleLog(`Enemy ${piece.class} (${piece.label}) moved to (${q},${r})`);
+      {
+        const tq = subAction.dest[0];
+        const tr = subAction.dest[1];
+        
+        // Check if there's a trap at the destination
+        if (puzzleScenario.traps) {
+          const trapIndex = puzzleScenario.traps.findIndex(t => t.q === tq && t.r === tr);
+          if (trapIndex !== -1) {
+            const trap = puzzleScenario.traps[trapIndex];
+            
+            // Apply trap effect
+            if (trap.effect === "immobilize") {
+              piece.immobilized = true;
+              piece.immobilizedTurns = trap.duration;
+              addBattleLog(`${piece.class} (${piece.label}) stepped on a trap and is immobilized for ${trap.duration} turns`);
+            }
+            
+            // Remove the trap after it's triggered
+            puzzleScenario.traps.splice(trapIndex, 1);
+          }
+        }
+        
+        piece.q = tq;
+        piece.r = tr;
+        addBattleLog(`Enemy ${piece.class} (${piece.label}) moved to (${tq},${tr})`);
       }
       break;
 
@@ -2921,6 +3062,27 @@ function applyEnemyActionToScenario(actionResult) {
             addBattleLog(`Enemy ${piece.class} (${piece.label}) pushed ${pushPiece.class} (${pushPiece.label}) from (${oldQ},${oldR}) to (${pushPiece.q},${pushPiece.r})`);
           }
         }
+      }
+      break;
+
+    case "trap":
+      {
+        // Add trap to the scenario
+        if (!puzzleScenario.traps) {
+          puzzleScenario.traps = [];
+        }
+        
+        const trap = {
+          q: subAction.q,
+          r: subAction.r,
+          effect: subAction.effect,
+          duration: subAction.duration,
+          caster: piece.class,
+          caster_side: piece.side
+        };
+        
+        puzzleScenario.traps.push(trap);
+        addBattleLog(`Enemy ${piece.class} (${piece.label}) set a ${trap.effect} trap at (${trap.q},${trap.r})`);
       }
       break;
 

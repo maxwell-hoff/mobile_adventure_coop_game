@@ -19,7 +19,7 @@ classes:
         action_type: "trap"
         range: 3
         attack_type: "magic"
-        effect: "immobilize"
+        effect: "stun"
         duration: 2
         requires_los: True
         description: "Set a shadow trap that immobilizes enemies for 2 turns"

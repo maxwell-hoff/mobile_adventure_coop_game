@@ -1,0 +1,28 @@
+.hex-region.trap {
+  fill: #8B4513 !important;
+  opacity: 0.5;
+  stroke: #8B4513 !important;
+  stroke-width: 1 !important;
+}
+
+.hex-region.trap:hover {
+  opacity: 0.7;
+}
+
+.hex-region.blocked {
+  fill: #000000 !important;
+  cursor: not-allowed;
+  stroke: #000000 !important;
+  stroke-width: 1 !important;
+}
+
+/* Add a more specific rule for blocked hexes that are not traps */
+.hex-region.blocked:not(.trap) {
+  fill: #000000 !important;
+  stroke: #000000 !important;
+}
+
+.piece.immobilized {
+  filter: grayscale(50%);
+  opacity: 0.7;
+} 

@@ -410,9 +410,20 @@ class HexPuzzleEnv(gym.Env):
         self.scenario["pieces"] = new_player + new_enemy
 
     def step(self, action_idx):
-        # Reset the current step reward at the start of each step
-        self.current_step_reward = 0.0
+        """
+        Execute one time step within the environment
+        """
         self.step_number += 1
+        self.current_step_reward = 0.0
+        
+        # Handle trap effects at the start of each turn
+        for piece in self.all_pieces:
+            if piece.get("immobilized", False):
+                piece["immobilizedTurns"] -= 1
+                if piece["immobilizedTurns"] <= 0:
+                    piece["immobilized"] = False
+                    del piece["immobilizedTurns"]
+                    print(f"[STEP {self.step_number}] {piece['class']} ({piece['label']}) is no longer immobilized")
         
         print(f"\n[STEP {self.step_number}] Turn {self.turn_number}, {self.turn_side.upper()} side")
         
