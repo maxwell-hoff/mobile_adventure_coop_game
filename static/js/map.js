@@ -3094,41 +3094,23 @@ function applyEnemyActionToScenario(actionResult) {
 
 async function pollActions() {
   try {
-    const resp = await fetch('/api/get_actions');
-    if (!resp.ok) {
-      console.error('Failed to fetch actions:', resp.status, resp.statusText);
-      return;
+    const response = await fetch('/api/get_actions');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-    const data = await resp.json();
-    
+    const data = await response.json();
     if (data.error) {
-      console.error('Error from server:', data.error);
-      return;
+      throw new Error(data.error);
     }
-
-    // Process each action
-    data.forEach(actionObj => {
-      if (actionObj.type === 'enemy_action') {
-        const { piece_label, sub_action } = actionObj.data;
-        let actionMsg = `${piece_label} performs `;
-        
-        if (sub_action.type === 'move') {
-          actionMsg += `move to (${sub_action.dest[0]}, ${sub_action.dest[1]})`;
-        } else if (sub_action.type === 'attack') {
-          actionMsg += `${sub_action.action_name} on ${sub_action.target_piece.label}`;
-        } else if (sub_action.type === 'push') {
-          actionMsg += `push on ${sub_action.target_piece.label}`;
-        } else if (sub_action.type === 'pass') {
-          actionMsg += 'pass';
-        } else {
-          actionMsg += JSON.stringify(sub_action);
-        }
-        
-        addBattleLog(actionMsg);
-      }
-    });
-  } catch (err) {
-    console.error('Error polling actions:', err);
+    // Reset error count and interval on success
+    errorCount = 0;
+    pollInterval = 3000;
+    // Process the actions...
+  } catch (error) {
+    console.error('Polling error:', error);
+    errorCount++;
+    // Exponential backoff with max limit
+    pollInterval = Math.min(pollInterval * 2, MAX_INTERVAL);
   }
 }
 
@@ -3136,6 +3118,7 @@ async function pollActions() {
 let pollInterval = 3000;
 let errorCount = 0;
 const MAX_ERRORS = 5;
+const MAX_INTERVAL = 30000; // 30 seconds max interval
 
 function startPolling() {
   pollActions();
