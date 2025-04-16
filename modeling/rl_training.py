@@ -95,7 +95,7 @@ class HexPuzzleEnv(gym.Env):
         player_max_pieces=4,
         enemy_min_pieces=3,
         enemy_max_pieces=5,
-        observation_dim=16  # Add observation_dim parameter
+        observation_dim=18  # Changed from 16 to 18 to handle push actions
     ):
         super().__init__()
         self.original_scenario = deepcopy(puzzle_scenario)
@@ -410,9 +410,20 @@ class HexPuzzleEnv(gym.Env):
         self.scenario["pieces"] = new_player + new_enemy
 
     def step(self, action_idx):
-        # Reset the current step reward at the start of each step
-        self.current_step_reward = 0.0
+        """
+        Execute one time step within the environment
+        """
         self.step_number += 1
+        self.current_step_reward = 0.0
+        
+        # Handle trap effects at the start of each turn
+        for piece in self.all_pieces:
+            if piece.get("immobilized", False):
+                piece["immobilizedTurns"] -= 1
+                if piece["immobilizedTurns"] <= 0:
+                    piece["immobilized"] = False
+                    del piece["immobilizedTurns"]
+                    print(f"[STEP {self.step_number}] {piece['class']} ({piece['label']}) is no longer immobilized")
         
         print(f"\n[STEP {self.step_number}] Turn {self.turn_number}, {self.turn_side.upper()} side")
         
@@ -961,7 +972,11 @@ class HexPuzzleEnv(gym.Env):
         self.done_forced = False
         self.delayedAttacks.clear()
 
+        # Calculate required observation size based on pieces
         self.obs_size = 2 * (len(self.player_pieces) + len(self.enemy_pieces))
+        # Ensure minimum size of 18 for push actions
+        self.obs_size = max(self.obs_size, 18)
+        
         self.observation_space = gym.spaces.Box(
             low=-self.grid_radius,
             high=self.grid_radius,

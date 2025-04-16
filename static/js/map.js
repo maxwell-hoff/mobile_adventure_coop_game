@@ -450,9 +450,239 @@ function drawRegionView(region) {
       hoverLabel.textContent = "";
     });
     poly.addEventListener("click", () => {
-      drawHexDetailView(region, hex);
+      if (isSelectingHex && currentHexSelector) {
+        const pieceLabel = currentHexSelector.getAttribute("data-piece-label");
+        const selection = pieceSelections.get(pieceLabel);
+        if (selection) {
+          const pieceClass = piecesData.classes[selection.class];
+          const actionData = pieceClass.actions[selection.action];
+          
+          if (actionData.action_type === 'move') {
+            const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+            if (!isOccupied && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+                hex.classList.remove("in-range");
+              });
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'trap') {
+            const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r && !p.dead);
+            const isBlocked = puzzleScenario.blockedHexes.some(h => h.q === sh.q && h.r === sh.r && !h.isTrap);
+            
+            if (!isOccupied && !isBlocked && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range, .hex-region.trap").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("trap");
+              });
+              
+              // Add the trap hex to blockedHexes with isTrap flag
+              const trapKey = `${sh.q},${sh.r}`;
+              blockedHexes.add(trapKey);
+              puzzleScenario.blockedHexes.push({
+                q: sh.q,
+                r: sh.r,
+                isTrap: true
+              });
+              poly.classList.add("trap");
+              
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'single_target_attack') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && 
+              p.r === sh.r && 
+              p.side !== 'player'
+            );
+            if (targetPiece && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("attack");
+              });
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'multi_target_attack') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && 
+              p.r === sh.r && 
+              p.side !== 'player'
+            );
+            if (targetPiece && poly.classList.contains("in-range")) {
+              // Initialize targetHexes array if it doesn't exist
+              if (!selection.targetHexes) {
+                selection.targetHexes = [];
+              }
+              
+              // Check if this hex is already selected
+              const isAlreadySelected = selection.targetHexes.some(h => h.q === sh.q && h.r === sh.r);
+              
+              if (isAlreadySelected) {
+                // Remove this hex from selection
+                selection.targetHexes = selection.targetHexes.filter(h => !(h.q === sh.q && h.r === sh.r));
+                poly.classList.remove("selected");
+              } else if (selection.targetHexes.length < actionData.max_num_targets) {
+                // Add this hex to selection
+                selection.targetHexes.push({ q: sh.q, r: sh.r });
+                poly.classList.add("selected");
+              }
+              
+              // Update UI text to show number of targets selected
+              currentHexSelector.textContent = `Selected ${selection.targetHexes.length}/${actionData.max_num_targets} targets`;
+              
+              // If we've reached max targets, clear selection mode
+              if (selection.targetHexes.length === actionData.max_num_targets) {
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  if (!hex.classList.contains("selected")) {
+                    hex.classList.remove("in-range");
+                    hex.classList.remove("attack");
+                  }
+                });
+              }
+              
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'push') {
+            // First step: select the piece to push
+            if (!selection.pushTarget) {
+              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
+              if (targetPiece && poly.classList.contains("in-range")) {
+                selection.pushTarget = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = "Select destination";
+                
+                // Clear existing highlights
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("attack");
+                });
+                
+                // Show possible destination hexes around the target piece
+                const distance = actionData.distance;
+                for (let q = -distance; q <= distance; q++) {
+                  for (let r = -distance; r <= distance; r++) {
+                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                      const destQ = targetPiece.q + q;
+                      const destR = targetPiece.r + r;
+                      const destKey = `${destQ},${destR}`;
+                      
+                      // Only show unoccupied hexes that are further from the pushing piece
+                      const isUnoccupied = !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR);
+                      const isFurther = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) > 
+                                      Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
+                      
+                      if (isUnoccupied && isFurther && !blockedHexes.has(destKey)) {
+                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                        if (destHex) {
+                          destHex.classList.add("in-range");
+                          destHex.classList.add("destination");
+                        }
+                      }
+                    }
+                  }
+                }
+                updateActionDescriptions();
+              }
+            } else {
+              // Second step: select the destination
+              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+              if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
+                selection.targetHex = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = `Push to (${sh.q}, ${sh.r})`;
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.destination").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("destination");
+                });
+                updateActionDescriptions();
+                validateTurnCompletion();
+              }
+            }
+          } else if (actionData.action_type === 'pull') {
+            // First step: select the piece to pull
+            if (!selection.pullTarget) {
+              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
+              if (targetPiece && poly.classList.contains("in-range")) {
+                selection.pullTarget = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = "Select destination";
+                
+                // Clear existing highlights
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("attack");
+                });
+                
+                // Show possible destination hexes around the target piece
+                const distance = actionData.distance;
+                for (let q = -distance; q <= distance; q++) {
+                  for (let r = -distance; r <= distance; r++) {
+                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                      const destQ = targetPiece.q + q;
+                      const destR = targetPiece.r + r;
+                      const destKey = `${destQ},${destR}`;
+                      
+                      // Only show unoccupied hexes that are closer to the pulling piece
+                      const isUnoccupied = !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR);
+                      const isCloser = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) < 
+                                     Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
+                      
+                      if (isUnoccupied && isCloser && !blockedHexes.has(destKey)) {
+                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                        if (destHex) {
+                          destHex.classList.add("in-range");
+                          destHex.classList.add("destination"); // Add a new class for destination hexes
+                        }
+                      }
+                    }
+                  }
+                }
+                updateActionDescriptions();
+              }
+            } else {
+              // Second step: select the destination
+              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+              if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
+                selection.targetHex = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = `Pull to (${sh.q}, ${sh.r})`;
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.destination").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("destination");
+                });
+                updateActionDescriptions();
+                validateTurnCompletion();
+              }
+            }
+          }
+        }
+      } else {
+        // This is the original click handler for region hexes
+        drawHexDetailView(region, hex);
+      }
     });
-
     gRegion.appendChild(poly);
   });
 
@@ -561,7 +791,7 @@ function drawCharacterDetailMarkers(g, subHexList, subAxialToPixel) {
     let parts = character.detailLocation.split(",");
     let q = parseFloat(parts[0]);
     let r = parseFloat(parts[1]);
-    // Only draw if the character’s detail location is valid (i.e. exists in the sub-hex list)
+    // Only draw if the character's detail location is valid (i.e. exists in the sub-hex list)
     if (subHexList.some(hex => hex.q === q && hex.r === r)) {
       let key = `${q},${r}`;
       if (!blockedHexes.has(key)) {
@@ -620,7 +850,7 @@ function drawHexDetailView(region, clickedHex) {
     !triggeredPOI.story.shown
   ) {
     showStoryOverlay(triggeredPOI.story.lines, function() {
-      // Mark the story as shown so that subsequent clicks won’t re-trigger it.
+      // Mark the story as shown so that subsequent clicks won't re-trigger it.
       triggeredPOI.story.shown = true;
       // Redraw the detail view after closing the story overlay.
       drawHexDetailView(region, clickedHex);
@@ -734,8 +964,13 @@ function drawHexDetailView(region, clickedHex) {
     poly.setAttribute("data-r", sh.r);
     const hexKey = `${sh.q},${sh.r}`;
     if (blockedHexes.has(hexKey)) {
-      poly.setAttribute("fill", "#000000");
-      poly.setAttribute("class", "hex-region blocked");
+      const blockedHex = puzzleScenario.blockedHexes.find(h => h.q === sh.q && h.r === sh.r);
+      if (blockedHex && blockedHex.isTrap) {
+        poly.setAttribute("class", "hex-region trap");
+      } else {
+        poly.setAttribute("fill", "#000000");
+        poly.setAttribute("class", "hex-region blocked");
+      }
     } else {
       poly.setAttribute("fill", regionColor(region.regionId));
     }
@@ -752,6 +987,7 @@ function drawHexDetailView(region, clickedHex) {
         if (selection) {
           const pieceClass = piecesData.classes[selection.class];
           const actionData = pieceClass.actions[selection.action];
+          
           if (actionData.action_type === 'move') {
             const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
             if (!isOccupied && poly.classList.contains("in-range")) {
@@ -765,6 +1001,211 @@ function drawHexDetailView(region, clickedHex) {
               });
               updateActionDescriptions();
               validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'trap') {
+            const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r && !p.dead);
+            const isBlocked = puzzleScenario.blockedHexes.some(h => h.q === sh.q && h.r === sh.r && !h.isTrap);
+            
+            if (!isOccupied && !isBlocked && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range, .hex-region.trap").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("trap");
+              });
+              
+              // Add the trap hex to blockedHexes with isTrap flag
+              const trapKey = `${sh.q},${sh.r}`;
+              blockedHexes.add(trapKey);
+              puzzleScenario.blockedHexes.push({
+                q: sh.q,
+                r: sh.r,
+                isTrap: true
+              });
+              poly.classList.add("trap");
+              
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'single_target_attack') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && 
+              p.r === sh.r && 
+              p.side !== 'player'
+            );
+            if (targetPiece && poly.classList.contains("in-range")) {
+              selection.targetHex = { q: sh.q, r: sh.r };
+              currentHexSelector.textContent = `(${sh.q}, ${sh.r})`;
+              currentHexSelector.classList.remove("selecting");
+              isSelectingHex = false;
+              currentHexSelector = null;
+              document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                hex.classList.remove("in-range");
+                hex.classList.remove("attack");
+              });
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'multi_target_attack') {
+            const targetPiece = puzzleScenario.pieces.find(p => 
+              p.q === sh.q && 
+              p.r === sh.r && 
+              p.side !== 'player'
+            );
+            if (targetPiece && poly.classList.contains("in-range")) {
+              // Initialize targetHexes array if it doesn't exist
+              if (!selection.targetHexes) {
+                selection.targetHexes = [];
+              }
+              
+              // Check if this hex is already selected
+              const isAlreadySelected = selection.targetHexes.some(h => h.q === sh.q && h.r === sh.r);
+              
+              if (isAlreadySelected) {
+                // Remove this hex from selection
+                selection.targetHexes = selection.targetHexes.filter(h => !(h.q === sh.q && h.r === sh.r));
+                poly.classList.remove("selected");
+              } else if (selection.targetHexes.length < actionData.max_num_targets) {
+                // Add this hex to selection
+                selection.targetHexes.push({ q: sh.q, r: sh.r });
+                poly.classList.add("selected");
+              }
+              
+              // Update UI text to show number of targets selected
+              currentHexSelector.textContent = `Selected ${selection.targetHexes.length}/${actionData.max_num_targets} targets`;
+              
+              // If we've reached max targets, clear selection mode
+              if (selection.targetHexes.length === actionData.max_num_targets) {
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  if (!hex.classList.contains("selected")) {
+                    hex.classList.remove("in-range");
+                    hex.classList.remove("attack");
+                  }
+                });
+              }
+              
+              updateActionDescriptions();
+              validateTurnCompletion();
+            }
+          } else if (actionData.action_type === 'push') {
+            // First step: select the piece to push
+            if (!selection.pushTarget) {
+              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
+              if (targetPiece && poly.classList.contains("in-range")) {
+                selection.pushTarget = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = "Select destination";
+                
+                // Clear existing highlights
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("attack");
+                });
+                
+                // Show possible destination hexes around the target piece
+                const distance = actionData.distance;
+                for (let q = -distance; q <= distance; q++) {
+                  for (let r = -distance; r <= distance; r++) {
+                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                      const destQ = targetPiece.q + q;
+                      const destR = targetPiece.r + r;
+                      const destKey = `${destQ},${destR}`;
+                      
+                      // Only show unoccupied hexes that are further from the pushing piece
+                      const isUnoccupied = !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR);
+                      const isFurther = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) > 
+                                      Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
+                      
+                      if (isUnoccupied && isFurther && !blockedHexes.has(destKey)) {
+                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                        if (destHex) {
+                          destHex.classList.add("in-range");
+                          destHex.classList.add("destination");
+                        }
+                      }
+                    }
+                  }
+                }
+                updateActionDescriptions();
+              }
+            } else {
+              // Second step: select the destination
+              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+              if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
+                selection.targetHex = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = `Push to (${sh.q}, ${sh.r})`;
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.destination").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("destination");
+                });
+                updateActionDescriptions();
+                validateTurnCompletion();
+              }
+            }
+          } else if (actionData.action_type === 'pull') {
+            // First step: select the piece to pull
+            if (!selection.pullTarget) {
+              const targetPiece = puzzleScenario.pieces.find(p => p.q === sh.q && p.r === sh.r);
+              if (targetPiece && poly.classList.contains("in-range")) {
+                selection.pullTarget = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = "Select destination";
+                
+                // Clear existing highlights
+                document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("attack");
+                });
+                
+                // Show possible destination hexes around the target piece
+                const distance = actionData.distance;
+                for (let q = -distance; q <= distance; q++) {
+                  for (let r = -distance; r <= distance; r++) {
+                    if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                      const destQ = targetPiece.q + q;
+                      const destR = targetPiece.r + r;
+                      const destKey = `${destQ},${destR}`;
+                      
+                      // Only show unoccupied hexes that are closer to the pulling piece
+                      const isUnoccupied = !puzzleScenario.pieces.some(p => p.q === destQ && p.r === destR);
+                      const isCloser = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) < 
+                                     Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
+                      
+                      if (isUnoccupied && isCloser && !blockedHexes.has(destKey)) {
+                        const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                        if (destHex) {
+                          destHex.classList.add("in-range");
+                          destHex.classList.add("destination"); // Add a new class for destination hexes
+                        }
+                      }
+                    }
+                  }
+                }
+                updateActionDescriptions();
+              }
+            } else {
+              // Second step: select the destination
+              const isOccupied = puzzleScenario.pieces.some(p => p.q === sh.q && p.r === sh.r);
+              if (!isOccupied && poly.classList.contains("in-range") && poly.classList.contains("destination")) {
+                selection.targetHex = { q: sh.q, r: sh.r };
+                currentHexSelector.textContent = `Pull to (${sh.q}, ${sh.r})`;
+                currentHexSelector.classList.remove("selecting");
+                isSelectingHex = false;
+                currentHexSelector = null;
+                document.querySelectorAll(".hex-region.in-range, .hex-region.destination").forEach(hex => {
+                  hex.classList.remove("in-range");
+                  hex.classList.remove("destination");
+                });
+                updateActionDescriptions();
+                validateTurnCompletion();
+              }
             }
           }
         }
@@ -844,9 +1285,9 @@ function updateActionDescriptions() {
     const actionDesc = document.getElementById("action-description");
     const descriptions = [];
     
-    pieceSelections.forEach((selection, pieceLabel) => {
+    pieceSelections.forEach((selection, uniqueLabel) => {
         if (selection.action && selection.action !== "pass") {
-            let desc = `${selection.class} (${pieceLabel}): ${selection.description}`;
+            let desc = `${selection.class} (${selection.originalLabel}): ${selection.description}`;
             
             if (selection.targetHex) {
                 if (selection.affectedHexes) {
@@ -876,12 +1317,17 @@ function validateTurnCompletion() {
     let isValid = true;
     console.log("Validating turn completion...");
     
-    pieceSelections.forEach((selection, pieceLabel) => {
-        console.log(`Checking ${pieceLabel}:`, selection);
+    pieceSelections.forEach((selection, uniqueLabel) => {
+        console.log(`Checking ${uniqueLabel}:`, selection);
         
         if (selection.action === "pass") return;
         
-        const piece = puzzleScenario.pieces.find(p => p.label === pieceLabel);
+        const [class_, q, r] = uniqueLabel.split('_');
+        const piece = puzzleScenario.pieces.find(p => 
+            p.class === class_ && 
+            p.q === parseInt(q) && 
+            p.r === parseInt(r)
+        );
         if (!piece) return;
         
         const pieceClass = piecesData.classes[piece.class];
@@ -891,15 +1337,19 @@ function validateTurnCompletion() {
         
         // Check line of sight if required
         if (actionData.requires_los) {
-          if (selection.targetHex && !hasLineOfSight(piece.q, piece.r, selection.targetHex.q, selection.targetHex.r)) {
-            console.log(`${pieceLabel}'s ${selection.action} has no line of sight to target`);
-            isValid = false;
-            return;
+          if (selection.targetHex) {
+            const ignorePiece = actionData.action_type === 'push' ? selection.pushTarget : null;
+            if (!hasLineOfSight(piece.q, piece.r, selection.targetHex.q, selection.targetHex.r, ignorePiece)) {
+              console.log(`${uniqueLabel}'s ${selection.action} has no line of sight to target`);
+              isValid = false;
+              return;
+            }
           }
           if (selection.targetHexes) {
             for (const target of selection.targetHexes) {
-              if (!hasLineOfSight(piece.q, piece.r, target.q, target.r)) {
-                console.log(`${pieceLabel}'s ${selection.action} has no line of sight to one of its targets`);
+              const ignorePiece = actionData.action_type === 'push' ? selection.pushTarget : null;
+              if (!hasLineOfSight(piece.q, piece.r, target.q, target.r, ignorePiece)) {
+                console.log(`${uniqueLabel}'s ${selection.action} has no line of sight to one of its targets`);
                 isValid = false;
                 return;
               }
@@ -910,15 +1360,7 @@ function validateTurnCompletion() {
         switch (actionData.action_type) {
             case 'move':
                 if (!selection.targetHex) {
-                    console.log(`${pieceLabel} has no target hex`);
-                    isValid = false;
-                    break;
-                }
-                
-                // Check if target hex is blocked
-                const targetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
-                if (blockedHexes.has(targetKey)) {
-                    console.log(`${pieceLabel} target hex is blocked`);
+                    console.log(`${uniqueLabel} has no target hex`);
                     isValid = false;
                     break;
                 }
@@ -928,25 +1370,64 @@ function validateTurnCompletion() {
                 const dy = Math.abs(selection.targetHex.r - piece.r);
                 const dz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
                 const distance = Math.max(dx, dy, dz);
-                
+
                 if (distance > actionData.range) {
-                    console.log(`${pieceLabel} target is out of range`);
+                    console.log(`${uniqueLabel} target is out of range`);
                     isValid = false;
+                    break;
                 }
-                
-                // Check if occupied
+
+                // Check if target hex is occupied by another piece
                 const isOccupied = puzzleScenario.pieces.some(p => 
-                    p.q === selection.targetHex.q && p.r === selection.targetHex.r
+                    p.q === selection.targetHex.q && 
+                    p.r === selection.targetHex.r && 
+                    !p.dead
                 );
+                
                 if (isOccupied) {
-                    console.log(`${pieceLabel} target hex is occupied`);
+                    console.log(`${uniqueLabel} move destination is occupied`);
                     isValid = false;
+                    break;
+                }
+
+                // Check if target hex is blocked by a non-trap obstacle
+                const isBlockedByObstacle = puzzleScenario.blockedHexes.some(h => 
+                    h.q === selection.targetHex.q && 
+                    h.r === selection.targetHex.r &&
+                    !h.isTrap
+                );
+                
+                if (isBlockedByObstacle) {
+                    console.log(`${uniqueLabel} move destination is blocked by obstacle`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if there's a trap at the destination
+                const trapIndex = puzzleScenario.blockedHexes.findIndex(h => 
+                    h.q === selection.targetHex.q && 
+                    h.r === selection.targetHex.r &&
+                    h.isTrap
+                );
+
+                if (trapIndex !== -1) {
+                    const trap = puzzleScenario.blockedHexes[trapIndex];
+                    // Apply trap effect
+                    if (trap.effect === "immobilize") {
+                        piece.immobilized = true;
+                        piece.immobilizedTurns = trap.duration;
+                        addBattleLog(`${piece.class} (${piece.label}) stepped on a trap and is immobilized for ${trap.duration} turns`);
+                    }
+                    // Remove the trap after it's triggered
+                    puzzleScenario.blockedHexes.splice(trapIndex, 1);
+                    const trapKey = `${selection.targetHex.q},${selection.targetHex.r}`;
+                    blockedHexes.delete(trapKey);
                 }
                 break;
                 
             case 'swap_position':
                 if (!selection.targetHex) {
-                    console.log(`${pieceLabel} has no target hex`);
+                    console.log(`${uniqueLabel} has no target hex`);
                     isValid = false;
                     break;
                 }
@@ -958,7 +1439,7 @@ function validateTurnCompletion() {
                 const swapDistance = Math.max(swapDx, swapDy, swapDz);
                 
                 if (swapDistance > actionData.range) {
-                    console.log(`${pieceLabel} swap target is out of range`);
+                    console.log(`${uniqueLabel} swap target is out of range`);
                     isValid = false;
                     break;
                 }
@@ -971,14 +1452,14 @@ function validateTurnCompletion() {
                 );
                 
                 if (!targetPiece) {
-                    console.log(`${pieceLabel} target hex has no piece to swap with`);
+                    console.log(`${uniqueLabel} target hex has no piece to swap with`);
                     isValid = false;
                     break;
                 }
 
                 // Check ally_only constraint
                 if (actionData.ally_only && targetPiece.side !== piece.side) {
-                    console.log(`${pieceLabel} can only swap with allies`);
+                    console.log(`${uniqueLabel} can only swap with allies`);
                     isValid = false;
                     break;
                 }
@@ -986,14 +1467,14 @@ function validateTurnCompletion() {
                 // Check if target hex is blocked
                 const swapTargetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
                 if (blockedHexes.has(swapTargetKey)) {
-                    console.log(`${pieceLabel} swap target hex is blocked`);
+                    console.log(`${uniqueLabel} swap target hex is blocked`);
                     isValid = false;
                 }
                 break;
                 
             case 'single_target_attack':
                 if (!selection.targetHex) {
-                    console.log(`${pieceLabel} has no target hex`);
+                    console.log(`${uniqueLabel} has no target hex`);
                     isValid = false;
                     break;
                 }
@@ -1005,7 +1486,7 @@ function validateTurnCompletion() {
                 const attackDistance = Math.max(attackDx, attackDy, attackDz);
                 
                 if (attackDistance > actionData.range) {
-                    console.log(`${pieceLabel} target is out of range`);
+                    console.log(`${uniqueLabel} target is out of range`);
                     isValid = false;
                 }
                 
@@ -1016,14 +1497,14 @@ function validateTurnCompletion() {
                     p.side !== 'player'
                 );
                 if (!hasEnemy) {
-                    console.log(`${pieceLabel} target hex has no enemy`);
+                    console.log(`${uniqueLabel} target hex has no enemy`);
                     isValid = false;
                 }
                 break;
                 
             case 'multi_target_attack':
                 if (!selection.targetHexes || selection.targetHexes.length === 0) {
-                    console.log(`${pieceLabel} has no targets`);
+                    console.log(`${uniqueLabel} has no targets`);
                     isValid = false;
                     break;
                 }
@@ -1037,7 +1518,7 @@ function validateTurnCompletion() {
                     const mtaDistance = Math.max(mtaDx, mtaDy, mtaDz);
                     
                     if (mtaDistance > actionData.range) {
-                        console.log(`${pieceLabel} target (${target.q},${target.r}) is out of range`);
+                        console.log(`${uniqueLabel} target (${target.q},${target.r}) is out of range`);
                         isValid = false;
                     }
                     
@@ -1048,7 +1529,7 @@ function validateTurnCompletion() {
                         p.side !== 'player'
                     );
                     if (!hasEnemy) {
-                        console.log(`${pieceLabel} target hex (${target.q},${target.r}) has no enemy`);
+                        console.log(`${uniqueLabel} target hex (${target.q},${target.r}) has no enemy`);
                         isValid = false;
                     }
                 });
@@ -1056,7 +1537,7 @@ function validateTurnCompletion() {
                 
             case 'aoe':
                 if (!selection.targetHex) {
-                    console.log(`${pieceLabel} has no target hex`);
+                    console.log(`${uniqueLabel} has no target hex`);
                     isValid = false;
                     break;
                 }
@@ -1068,8 +1549,112 @@ function validateTurnCompletion() {
                 const aoeDistance = Math.max(aoeDx, aoeDy, aoeDz);
                 
                 if (aoeDistance > actionData.range) {
-                    console.log(`${pieceLabel} target center is out of range`);
+                    console.log(`${uniqueLabel} target center is out of range`);
                     isValid = false;
+                }
+                break;
+
+            case 'pull':
+                if (!selection.pullTarget || !selection.targetHex) {
+                    console.log(`${uniqueLabel} has no pull target or destination`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if pull target is in range
+                const pullDx = Math.abs(selection.pullTarget.q - piece.q);
+                const pullDy = Math.abs(selection.pullTarget.r - piece.r);
+                const pullDz = Math.abs(-selection.pullTarget.q - selection.pullTarget.r + piece.q + piece.r);
+                const pullDistance = Math.max(pullDx, pullDy, pullDz);
+                
+                if (pullDistance > actionData.range) {
+                    console.log(`${uniqueLabel} pull target is out of range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if destination is within pull distance
+                const destDx = Math.abs(selection.targetHex.q - piece.q);
+                const destDy = Math.abs(selection.targetHex.r - piece.r);
+                const destDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
+                const destDistance = Math.max(destDx, destDy, destDz);
+                
+                if (destDistance > actionData.distance) {
+                    console.log(`${uniqueLabel} destination is out of pull range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if destination is occupied
+                const isDestOccupied = puzzleScenario.pieces.some(p => 
+                    p.q === selection.targetHex.q && p.r === selection.targetHex.r
+                );
+                if (isDestOccupied) {
+                    console.log(`${uniqueLabel} destination is occupied`);
+                    isValid = false;
+                }
+                break;
+
+            case 'push':
+                if (!selection.pushTarget || !selection.targetHex) {
+                    console.log(`${uniqueLabel} has no push target or destination`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if push target is in range
+                const pushDx = Math.abs(selection.pushTarget.q - piece.q);
+                const pushDy = Math.abs(selection.pushTarget.r - piece.r);
+                const pushDz = Math.abs(-selection.pushTarget.q - selection.pushTarget.r + piece.q + piece.r);
+                const pushDistance = Math.max(pushDx, pushDy, pushDz);
+                
+                if (pushDistance > actionData.range) {
+                    console.log(`${uniqueLabel} push target is out of range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if destination is within push distance from the target piece
+                const pushDestDx = Math.abs(selection.targetHex.q - selection.pushTarget.q);
+                const pushDestDy = Math.abs(selection.targetHex.r - selection.pushTarget.r);
+                const pushDestDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + selection.pushTarget.q + selection.pushTarget.r);
+                const pushDestDistance = Math.max(pushDestDx, pushDestDy, pushDestDz);
+                
+                if (pushDestDistance > actionData.distance) {
+                    console.log(`${uniqueLabel} push destination is out of push range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if destination is occupied
+                const isPushDestOccupied = puzzleScenario.pieces.some(p => 
+                    p.q === selection.targetHex.q && p.r === selection.targetHex.r
+                );
+                if (isPushDestOccupied) {
+                    console.log(`${uniqueLabel} push destination is occupied`);
+                    isValid = false;
+                }
+                break;
+
+            case 'trap':
+                if (!selection.targetHex) {
+                    console.log(`${uniqueLabel} has no target hex`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if target hex is blocked by a non-trap obstacle
+                const trapTargetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
+                const isBlockedByNonTrap = puzzleScenario.blockedHexes.some(h => 
+                    h.q === selection.targetHex.q && 
+                    h.r === selection.targetHex.r &&
+                    !h.isTrap
+                );
+                
+                if (isBlockedByNonTrap) {
+                    console.log(`${uniqueLabel} trap target hex is blocked by non-trap obstacle`);
+                    isValid = false;
+                    break;
                 }
                 break;
         }
@@ -1351,69 +1936,71 @@ function addBattleLog(message) {
 // Add this new function to show piece range and targets
 function showPieceActionRange(piece, pieceClass, actionName) {
   // Clear existing highlights
-  document.querySelectorAll(".hex-region.in-range, .hex-region.attack").forEach(hex => {
+  document.querySelectorAll(".hex-region.in-range, .hex-region.attack, .hex-region.destination, .hex-region.trap").forEach(hex => {
     hex.classList.remove("in-range");
     hex.classList.remove("attack");
+    hex.classList.remove("destination");
+    hex.classList.remove("trap");
   });
 
   const actionData = pieceClass.actions[actionName];
-  if (!actionData || !actionData.range) return;
+  if (!actionData) return;
 
   const range = actionData.range;
-  const requiresLOS = actionData.requires_los; // Change to check action's requires_los instead of piece's
+  const centerQ = piece.q;
+  const centerR = piece.r;
 
   // For each hex within range
   for (let q = -range; q <= range; q++) {
     for (let r = -range; r <= range; r++) {
       if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * range) {
-        const targetQ = piece.q + q;
-        const targetR = piece.r + r;
+        const targetQ = centerQ + q;
+        const targetR = centerR + r;
         
-        // Skip if target hex is blocked
-        const targetKey = `${targetQ},${targetR}`;
-        if (blockedHexes.has(targetKey)) continue;
+        // Skip if target hex is blocked by non-trap obstacle
+        const isBlockedByObstacle = puzzleScenario.blockedHexes.some(h => 
+          h.q === targetQ && h.r === targetR && !h.isTrap
+        );
+        if (isBlockedByObstacle) continue;
 
         // Check line of sight if required
-        if (requiresLOS && !hasLineOfSight(piece.q, piece.r, targetQ, targetR)) {
-          continue; // Skip this hex if no line of sight
+        if (actionData.requires_los && !hasLineOfSight(piece.q, piece.r, targetQ, targetR)) {
+          continue;
         }
 
-        // Rest of the action type logic remains the same...
         if (actionData.action_type === 'move') {
           const isOccupied = puzzleScenario.pieces.some(p => 
-            p.q === targetQ && p.r === targetR
+            p.q === targetQ && p.r === targetR && !p.dead
           );
           
           if (!isOccupied && !(q === 0 && r === 0)) {
             const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
             if (hex) {
               hex.classList.add("in-range");
-            }
-          }
-        } else if (actionData.action_type === 'swap_position') {
-          // Only highlight hexes with valid swap targets
-          const targetPiece = puzzleScenario.pieces.find(p => 
-            p.q === targetQ && p.r === targetR && p !== piece
-          );
-          
-          if (targetPiece) {
-            // Check if we can swap with this piece based on ally_only flag
-            const canSwap = !actionData.ally_only || targetPiece.side === piece.side;
-            
-            if (canSwap) {
-              const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
-              if (hex) {
-                hex.classList.add("in-range");
-                // Add attack class for enemy swaps to make them visually distinct
-                if (targetPiece.side !== piece.side) {
-                  hex.classList.add("attack");
-                }
+              // If it's a trap hex, add the trap class
+              const isTrap = puzzleScenario.blockedHexes.some(h => 
+                h.q === targetQ && h.r === targetR && h.isTrap
+              );
+              if (isTrap) {
+                hex.classList.add("trap");
               }
             }
           }
+        } else if (actionData.action_type === 'trap') {
+          // For trap, highlight any unoccupied hex within range
+          const isOccupied = puzzleScenario.pieces.some(p => 
+            p.q === targetQ && p.r === targetR && !p.dead
+          );
+          
+          if (!isOccupied && !(q === 0 && r === 0)) {
+            const hex = document.querySelector(`polygon[data-q="${targetQ}"][data-r="${targetR}"]`);
+            if (hex) {
+              hex.classList.add("in-range");
+              hex.classList.add("trap");
+            }
+          }
         } else if (actionData.action_type === 'single_target_attack' || 
-                   actionData.action_type === 'multi_target_attack' || 
-                   actionData.action_type === 'dark_bolt') {
+                  actionData.action_type === 'multi_target_attack') {
           const hasValidTarget = puzzleScenario.pieces.some(p => 
             p.q === targetQ && p.r === targetR && p.side !== 'player'
           );
@@ -1442,7 +2029,7 @@ function showPieceActionRange(piece, pieceClass, actionName) {
   }
 }
 
-function hasLineOfSight(startQ, startR, endQ, endR) {
+function hasLineOfSight(startQ, startR, endQ, endR, ignorePiece = null) {
   if (startQ === endQ && startR === endR) return true;
 
   // Build the supercover line:
@@ -1459,7 +2046,10 @@ function hasLineOfSight(startQ, startR, endQ, endR) {
       return false;
     }
     // piece in the way?
-    const hasPiece = puzzleScenario.pieces.some(p => p.q === q && p.r === r);
+    const hasPiece = puzzleScenario.pieces.some(p => 
+      p.q === q && p.r === r && 
+      (!ignorePiece || (p.q !== ignorePiece.q || p.r !== ignorePiece.r))
+    );
     if (hasPiece) {
       return false;
     }
@@ -1685,6 +2275,8 @@ function setupPlayerControls(scenario) {
     colorSpan.className = "piece-color";
     colorSpan.style.backgroundColor = piece.color;
     
+    // Create a unique identifier for the piece by combining class and position
+    const uniqueLabel = `${piece.class}_${piece.q}_${piece.r}`;
     const labelSpan = document.createElement("span");
     labelSpan.textContent = `${piece.class} (${piece.label})`;
     
@@ -1723,7 +2315,7 @@ function setupPlayerControls(scenario) {
     const hexSelect = document.createElement("div");
     hexSelect.className = "hex-select";
     hexSelect.textContent = "Click to select hex";
-    hexSelect.setAttribute("data-piece-label", piece.label);
+    hexSelect.setAttribute("data-piece-label", uniqueLabel);
     
     // Create and add info section
     const infoSection = createPieceInfoSection(piece, pieceClass);
@@ -1735,18 +2327,19 @@ function setupPlayerControls(scenario) {
       expandButton.textContent = infoSection.classList.contains("visible") ? "🔼" : "ℹ️";
     });
 
-    // Initialize piece selection tracking
-    pieceSelections.set(piece.label, {
+    // Initialize piece selection tracking with unique label
+    pieceSelections.set(uniqueLabel, {
       class: piece.class,
       action: "pass",
       description: "",
-      targetHex: null
+      targetHex: null,
+      originalLabel: piece.label // Store the original label for display
     });
 
     // Handle action selection
     select.addEventListener("change", (e) => {
       const actionName = e.target.value;
-      const selection = pieceSelections.get(piece.label);
+      const selection = pieceSelections.get(uniqueLabel);
       
       if (actionName === "pass") {
         selection.action = "pass";
@@ -1763,9 +2356,18 @@ function setupPlayerControls(scenario) {
         selection.affectedHexes = null; // Reset AOE affected hexes
 
         // Show hex selector for any action that needs target selection
-        const needsTargetSelection = ['move', 'swap_position', 'single_target_attack', 'multi_target_attack', 'aoe'].includes(actionData.action_type);
+        const needsTargetSelection = ['move', 'swap_position', 'single_target_attack', 'multi_target_attack', 'aoe', 'pull', 'push', 'trap'].includes(actionData.action_type);
         hexSelect.style.display = needsTargetSelection ? "block" : "none";
         hexSelect.textContent = "Click to select hex";
+        
+        // Reset pull-specific state
+        if (actionData.action_type === 'pull') {
+          selection.pullTarget = null;
+        }
+        // Reset push-specific state
+        if (actionData.action_type === 'push') {
+          selection.pushTarget = null;
+        }
       }
       
       // Clear any existing range indicators
@@ -1787,9 +2389,10 @@ function setupPlayerControls(scenario) {
         console.log("Clearing previous selection"); // Debug log
         currentHexSelector.classList.remove("selecting");
         currentHexSelector.textContent = "Click to select hex";
-        document.querySelectorAll(".hex-region.in-range").forEach(hex => {
+        document.querySelectorAll(".hex-region.in-range, .hex-region.attack, .hex-region.destination").forEach(hex => {
           hex.classList.remove("in-range");
           hex.classList.remove("attack");
+          hex.classList.remove("destination");
         });
       }
       
@@ -1803,7 +2406,7 @@ function setupPlayerControls(scenario) {
       const pieceLabel = hexSelect.getAttribute("data-piece-label");
       console.log("Selected piece:", pieceLabel); // Debug log
       
-      const piece = scenario.pieces.find(p => p.label === pieceLabel);
+      const piece = scenario.pieces.find(p => `${p.class}_${p.q}_${p.r}` === pieceLabel);
       const pieceClass = piecesData.classes[piece.class];
       const selection = pieceSelections.get(pieceLabel);
       const actionData = pieceClass.actions[selection.action];
@@ -1811,7 +2414,82 @@ function setupPlayerControls(scenario) {
       console.log("Piece data:", { piece, action: selection.action, actionData }); // Debug log
       
       if (piece && pieceClass && actionData) {
-        showPieceActionRange(piece, pieceClass, selection.action);
+        if (actionData.action_type === 'pull' && selection.pullTarget) {
+          // If we're selecting a destination for a pull action, show destination hexes
+          const targetPiece = scenario.pieces.find(p => 
+            p.q === selection.pullTarget.q && 
+            p.r === selection.pullTarget.r
+          );
+          
+          if (targetPiece) {
+            const distance = actionData.distance;
+            for (let q = -distance; q <= distance; q++) {
+              for (let r = -distance; r <= distance; r++) {
+                if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                  const destQ = targetPiece.q + q;
+                  const destR = targetPiece.r + r;
+                  const destKey = `${destQ},${destR}`;
+                  
+                  // Only show unoccupied hexes that are closer to the pulling piece
+                  const isUnoccupied = !scenario.pieces.some(p => p.q === destQ && p.r === destR);
+                  const isCloser = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) < 
+                                 Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
+                  
+                  if (isUnoccupied && isCloser && !blockedHexes.has(destKey)) {
+                    const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                    if (destHex) {
+                      destHex.classList.add("in-range");
+                      destHex.classList.add("destination");
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else if (actionData.action_type === 'push' && selection.pushTarget) {
+          // If we're selecting a destination for a push action, show destination hexes
+          const targetPiece = scenario.pieces.find(p => 
+            p.q === selection.pushTarget.q && 
+            p.r === selection.pushTarget.r
+          );
+          
+          if (targetPiece) {
+            const distance = actionData.distance;
+            for (let q = -distance; q <= distance; q++) {
+              for (let r = -distance; r <= distance; r++) {
+                if (Math.abs(q) + Math.abs(r) + Math.abs(-q-r) <= 2 * distance) {
+                  const destQ = targetPiece.q + q;
+                  const destR = targetPiece.r + r;
+                  const destKey = `${destQ},${destR}`;
+                  
+                  // Only show unoccupied hexes that are further from the pushing piece
+                  const isUnoccupied = !scenario.pieces.some(p => p.q === destQ && p.r === destR);
+                  const isFurther = Math.abs(destQ - piece.q) + Math.abs(destR - piece.r) > 
+                               Math.abs(targetPiece.q - piece.q) + Math.abs(targetPiece.r - piece.r);
+                  
+                  if (isUnoccupied && isFurther && !blockedHexes.has(destKey)) {
+                    const destHex = document.querySelector(`polygon[data-q="${destQ}"][data-r="${destR}"]`);
+                    if (destHex) {
+                      destHex.classList.add("in-range");
+                      destHex.classList.add("destination");
+                      // Add click handler for destination selection
+                      destHex.addEventListener("click", () => {
+                        selection.targetHex = { q: destQ, r: destR };
+                        currentHexSelector.textContent = "Destination selected";
+                        currentHexSelector.classList.remove("selecting");
+                        isSelectingHex = false;
+                        validateTurnCompletion();
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // For all other cases, use the normal range highlighting
+          showPieceActionRange(piece, pieceClass, selection.action);
+        }
       }
       validateTurnCompletion();
     });
@@ -1929,8 +2607,15 @@ function setupPlayerControls(scenario) {
     delayedAttacks = remainingAttacks;
 
     // Process current turn moves and attacks
-    pieceSelections.forEach((selection, pieceLabel) => {
-        const piece = scenario.pieces.find(p => p.label === pieceLabel);
+    pieceSelections.forEach((selection, uniqueLabel) => {
+        const [class_, q, r] = uniqueLabel.split('_');
+        const piece = puzzleScenario.pieces.find(p => 
+            p.class === class_ && 
+            p.q === parseInt(q) && 
+            p.r === parseInt(r)
+        );
+        if (!piece) return;
+        
         const pieceClass = piecesData.classes[piece.class];
         const actionData = pieceClass.actions[selection.action];
         
@@ -1941,7 +2626,7 @@ function setupPlayerControls(scenario) {
                 if (selection.targetHex) {
                     piece.q = selection.targetHex.q;
                     piece.r = selection.targetHex.r;
-                    addBattleLog(`${piece.class} (${pieceLabel}) moved to (${selection.targetHex.q}, ${selection.targetHex.r})`);
+                    addBattleLog(`${piece.class} (${uniqueLabel}) moved to (${selection.targetHex.q}, ${selection.targetHex.r})`);
                 }
                 break;
 
@@ -1960,7 +2645,7 @@ function setupPlayerControls(scenario) {
                         piece.r = targetPiece.r;
                         targetPiece.q = originalQ;
                         targetPiece.r = originalR;
-                        addBattleLog(`${piece.class} (${pieceLabel}) swapped positions with ${targetPiece.class} (${targetPiece.label})`);
+                        addBattleLog(`${piece.class} (${uniqueLabel}) swapped positions with ${targetPiece.class} (${targetPiece.label})`);
                     }
                 }
                 break;
@@ -1974,7 +2659,7 @@ function setupPlayerControls(scenario) {
                     const attackInfo = {
                         type: actionData.action_type,
                         actionName: selection.action,
-                        attackerLabel: pieceLabel,
+                        attackerLabel: uniqueLabel,
                         attackerQ: piece.q,
                         attackerR: piece.r,
                         executionTurn: executionTurn
@@ -1986,84 +2671,181 @@ function setupPlayerControls(scenario) {
                             p.r === selection.targetHex.r && 
                             p.side !== 'player'
                         );
-                        attackInfo.targets = {
-                            originalQ: selection.targetHex.q,
-                            originalR: selection.targetHex.r,
-                            label: target.label
-                        };
-                        addBattleLog(`${piece.class} (${pieceLabel}) begins casting ${selection.action} on ${target.class} (${target.label})`);
-                    } else if (actionData.action_type === 'multi_target_attack') {
-                        attackInfo.targets = selection.targetHexes.map(hex => {
-                            const target = scenario.pieces.find(p => 
-                                p.q === hex.q && 
-                                p.r === hex.r && 
-                                p.side !== 'player'
-                            );
-                            return {
-                                originalQ: hex.q,
-                                originalR: hex.r,
+                        if (target) {
+                            attackInfo.targets = {
+                                originalQ: selection.targetHex.q,
+                                originalR: selection.targetHex.r,
                                 label: target.label
                             };
-                        });
-                        const targetLabels = attackInfo.targets.map(t => t.label).join(', ');
-                        addBattleLog(`${piece.class} (${pieceLabel}) begins casting ${selection.action} on targets: ${targetLabels}`);
+                            addBattleLog(`${piece.class} (${uniqueLabel}) begins casting ${selection.action} on ${target.class} (${target.label})`);
+                            delayedAttacks.push(attackInfo);
+                        }
+                    } else if (actionData.action_type === 'multi_target_attack') {
+                        if (selection.targetHexes && selection.targetHexes.length > 0) {
+                            attackInfo.targets = selection.targetHexes.map(hex => {
+                                const target = scenario.pieces.find(p => 
+                                    p.q === hex.q && 
+                                    p.r === hex.r && 
+                                    p.side !== 'player'
+                                );
+                                return target ? {
+                                    originalQ: hex.q,
+                                    originalR: hex.r,
+                                    label: target.label
+                                } : null;
+                            }).filter(t => t !== null);
+                            
+                            if (attackInfo.targets.length > 0) {
+                                const targetLabels = attackInfo.targets.map(t => t.label).join(', ');
+                                addBattleLog(`${piece.class} (${uniqueLabel}) begins casting ${selection.action} on targets: ${targetLabels}`);
+                                delayedAttacks.push(attackInfo);
+                            }
+                        }
                     } else if (actionData.action_type === 'aoe') {
                         attackInfo.centerQ = selection.targetHex.q;
                         attackInfo.centerR = selection.targetHex.r;
                         attackInfo.radius = actionData.radius;
-                        addBattleLog(`${piece.class} (${pieceLabel}) begins casting ${selection.action} centered at (${selection.targetHex.q}, ${selection.targetHex.r})`);
+                        addBattleLog(`${piece.class} (${uniqueLabel}) begins casting ${selection.action} centered at (${selection.targetHex.q}, ${selection.targetHex.r})`);
+                        delayedAttacks.push(attackInfo);
                     }
-
-                    delayedAttacks.push(attackInfo);
                 } else {
-                    // Handle immediate attacks as before
-                    if (actionData.action_type === 'single_target_attack') {
-                        if (selection.targetHex) {
+                    // Handle immediate attacks
+                    if (actionData.action_type === 'single_target_attack' && selection.targetHex) {
+                        const targetIndex = scenario.pieces.findIndex(p => 
+                            p.q === selection.targetHex.q && 
+                            p.r === selection.targetHex.r && 
+                            p.side !== 'player'
+                        );
+                        
+                        if (targetIndex !== -1) {
+                            const removedPiece = scenario.pieces[targetIndex];
+                            scenario.pieces.splice(targetIndex, 1);
+                            addBattleLog(`${piece.class} (${uniqueLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+                        }
+                    } else if (actionData.action_type === 'multi_target_attack' && selection.targetHexes) {
+                        selection.targetHexes.forEach(targetHex => {
                             const targetIndex = scenario.pieces.findIndex(p => 
-                                p.q === selection.targetHex.q && 
-                                p.r === selection.targetHex.r && 
+                                p.q === targetHex.q && 
+                                p.r === targetHex.r && 
                                 p.side !== 'player'
                             );
                             
                             if (targetIndex !== -1) {
                                 const removedPiece = scenario.pieces[targetIndex];
                                 scenario.pieces.splice(targetIndex, 1);
-                                addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+                                addBattleLog(`${piece.class} (${uniqueLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
                             }
-                        }
-                    } else if (actionData.action_type === 'multi_target_attack') {
-                        if (selection.targetHexes) {
-                            selection.targetHexes.forEach(targetHex => {
-                                const targetIndex = scenario.pieces.findIndex(p => 
-                                    p.q === targetHex.q && 
-                                    p.r === targetHex.r && 
-                                    p.side !== 'player'
-                                );
-                                
-                                if (targetIndex !== -1) {
-                                    const removedPiece = scenario.pieces[targetIndex];
-                                    scenario.pieces.splice(targetIndex, 1);
-                                    addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
-                                }
-                            });
-                        }
-                    } else if (actionData.action_type === 'aoe') {
-                        if (selection.affectedHexes) {
-                            selection.affectedHexes.forEach(targetHex => {
-                                const targetIndex = scenario.pieces.findIndex(p => 
-                                    p.q === targetHex.q && 
-                                    p.r === targetHex.r && 
-                                    p.side !== 'player'
-                                );
-                                
-                                if (targetIndex !== -1) {
-                                    const removedPiece = scenario.pieces[targetIndex];
-                                    scenario.pieces.splice(targetIndex, 1);
-                                    addBattleLog(`${piece.class} (${pieceLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
-                                }
-                            });
-                        }
+                        });
+                    } else if (actionData.action_type === 'aoe' && selection.affectedHexes) {
+                        selection.affectedHexes.forEach(targetHex => {
+                            const targetIndex = scenario.pieces.findIndex(p => 
+                                p.q === targetHex.q && 
+                                p.r === targetHex.r && 
+                                p.side !== 'player'
+                            );
+                            
+                            if (targetIndex !== -1) {
+                                const removedPiece = scenario.pieces[targetIndex];
+                                scenario.pieces.splice(targetIndex, 1);
+                                addBattleLog(`${piece.class} (${uniqueLabel}) eliminated ${removedPiece.class} (${removedPiece.label}) with ${selection.action}`);
+                            }
+                        });
                     }
+                }
+                break;
+
+            case 'push':
+                if (selection.pushTarget && selection.targetHex) {
+                    const targetPiece = scenario.pieces.find(p => 
+                        p.q === selection.pushTarget.q && 
+                        p.r === selection.pushTarget.r
+                    );
+                    
+                    if (targetPiece) {
+                        targetPiece.q = selection.targetHex.q;
+                        targetPiece.r = selection.targetHex.r;
+                        addBattleLog(`${piece.class} (${uniqueLabel}) pushed ${targetPiece.class} (${targetPiece.label}) to (${selection.targetHex.q}, ${selection.targetHex.r})`);
+                    }
+                }
+                break;
+
+            case 'pull':
+                if (selection.pullTarget && selection.targetHex) {
+                    const targetPiece = scenario.pieces.find(p => 
+                        p.q === selection.pullTarget.q && 
+                        p.r === selection.pullTarget.r
+                    );
+                    
+                    if (targetPiece) {
+                        const originalQ = targetPiece.q;
+                        const originalR = targetPiece.r;
+                        targetPiece.q = selection.targetHex.q;
+                        targetPiece.r = selection.targetHex.r;
+                        addBattleLog(`${piece.class} (${uniqueLabel}) pulled ${targetPiece.class} (${targetPiece.label}) from (${originalQ},${originalR}) to (${targetPiece.q},${targetPiece.r})`);
+                    }
+                }
+                break;
+
+            case 'push':
+                if (!selection.pushTarget || !selection.targetHex) {
+                    console.log(`${uniqueLabel} has no push target or destination`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if push target is in range
+                const pushDx = Math.abs(selection.pushTarget.q - piece.q);
+                const pushDy = Math.abs(selection.pushTarget.r - piece.r);
+                const pushDz = Math.abs(-selection.pushTarget.q - selection.pushTarget.r + piece.q + piece.r);
+                const pushDistance = Math.max(pushDx, pushDy, pushDz);
+                
+                if (pushDistance > actionData.range) {
+                    console.log(`${uniqueLabel} push target is out of range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if destination is within push distance from the target piece
+                const pushDestDx = Math.abs(selection.targetHex.q - selection.pushTarget.q);
+                const pushDestDy = Math.abs(selection.targetHex.r - selection.pushTarget.r);
+                const pushDestDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + selection.pushTarget.q + selection.pushTarget.r);
+                const pushDestDistance = Math.max(pushDestDx, pushDestDy, pushDestDz);
+                
+                if (pushDestDistance > actionData.distance) {
+                    console.log(`${uniqueLabel} push destination is out of push range`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if destination is occupied
+                const isPushDestOccupied = puzzleScenario.pieces.some(p => 
+                    p.q === selection.targetHex.q && p.r === selection.targetHex.r
+                );
+                if (isPushDestOccupied) {
+                    console.log(`${uniqueLabel} push destination is occupied`);
+                    isValid = false;
+                }
+                break;
+
+            case 'trap':
+                if (!selection.targetHex) {
+                    console.log(`${uniqueLabel} has no target hex`);
+                    isValid = false;
+                    break;
+                }
+
+                // Check if target hex is blocked by a non-trap obstacle
+                const trapTargetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
+                const isBlockedByNonTrap = puzzleScenario.blockedHexes.some(h => 
+                    h.q === selection.targetHex.q && 
+                    h.r === selection.targetHex.r &&
+                    !h.isTrap
+                );
+                
+                if (isBlockedByNonTrap) {
+                    console.log(`${uniqueLabel} trap target hex is blocked by non-trap obstacle`);
+                    isValid = false;
+                    break;
                 }
                 break;
         }
@@ -2156,11 +2938,31 @@ function applyEnemyActionToScenario(actionResult) {
 
   switch (subAction.type) {
     case "move":
-      if (subAction.dest) {
-        const [q, r] = subAction.dest;
-        piece.q = q;
-        piece.r = r;
-        addBattleLog(`Enemy ${piece.class} (${piece.label}) moved to (${q},${r})`);
+      {
+        const tq = subAction.dest[0];
+        const tr = subAction.dest[1];
+        
+        // Check if there's a trap at the destination
+        if (puzzleScenario.traps) {
+          const trapIndex = puzzleScenario.traps.findIndex(t => t.q === tq && t.r === tr);
+          if (trapIndex !== -1) {
+            const trap = puzzleScenario.traps[trapIndex];
+            
+            // Apply trap effect
+            if (trap.effect === "immobilize") {
+              piece.immobilized = true;
+              piece.immobilizedTurns = trap.duration;
+              addBattleLog(`${piece.class} (${piece.label}) stepped on a trap and is immobilized for ${trap.duration} turns`);
+            }
+            
+            // Remove the trap after it's triggered
+            puzzleScenario.traps.splice(trapIndex, 1);
+          }
+        }
+        
+        piece.q = tq;
+        piece.r = tr;
+        addBattleLog(`Enemy ${piece.class} (${piece.label}) moved to (${tq},${tr})`);
       }
       break;
 
@@ -2231,6 +3033,44 @@ function applyEnemyActionToScenario(actionResult) {
       }
       break;
 
+    case "push":
+      {
+        const tgt = subAction.target_piece;
+        if (tgt) {
+          // find the target in puzzleScenario
+          const pushPiece = puzzleScenario.pieces.find(pp => pp.label === tgt.label);
+          if (pushPiece) {
+            // Move the target piece to the destination
+            const oldQ = pushPiece.q, oldR = pushPiece.r;
+            pushPiece.q = subAction.dest[0];
+            pushPiece.r = subAction.dest[1];
+            addBattleLog(`Enemy ${piece.class} (${piece.label}) pushed ${pushPiece.class} (${pushPiece.label}) from (${oldQ},${oldR}) to (${pushPiece.q},${pushPiece.r})`);
+          }
+        }
+      }
+      break;
+
+    case "trap":
+      {
+        // Add trap to the scenario
+        if (!puzzleScenario.traps) {
+          puzzleScenario.traps = [];
+        }
+        
+        const trap = {
+          q: subAction.q,
+          r: subAction.r,
+          effect: subAction.effect,
+          duration: subAction.duration,
+          caster: piece.class,
+          caster_side: piece.side
+        };
+        
+        puzzleScenario.traps.push(trap);
+        addBattleLog(`Enemy ${piece.class} (${piece.label}) set a ${trap.effect} trap at (${trap.q},${trap.r})`);
+      }
+      break;
+
     default:
       console.log("Unknown sub_action.type:", subAction.type);
       break;
@@ -2256,26 +3096,57 @@ async function pollActions() {
   try {
     const resp = await fetch('/api/get_actions');
     if (!resp.ok) {
-      console.error('Failed to fetch actions', resp.status);
+      console.error('Failed to fetch actions:', resp.status, resp.statusText);
       return;
     }
     const data = await resp.json();
-    // data is an array of action objects
-    // e.g. [ { type: "enemy_action", data: { piece_label: "...", ... }}, ... ]
+    
+    if (data.error) {
+      console.error('Error from server:', data.error);
+      return;
+    }
 
-    // For each new action, update your game state or UI
-    // In a real app, you’d keep track of which ones you’ve already seen.
-
-    // Example: Show them in the battle log
+    // Process each action
     data.forEach(actionObj => {
-      // parse and do something
-      const msg = `Action Type: ${actionObj.type}, data = ${JSON.stringify(actionObj.data)}`;
-      addBattleLog(msg);
+      if (actionObj.type === 'enemy_action') {
+        const { piece_label, sub_action } = actionObj.data;
+        let actionMsg = `${piece_label} performs `;
+        
+        if (sub_action.type === 'move') {
+          actionMsg += `move to (${sub_action.dest[0]}, ${sub_action.dest[1]})`;
+        } else if (sub_action.type === 'attack') {
+          actionMsg += `${sub_action.action_name} on ${sub_action.target_piece.label}`;
+        } else if (sub_action.type === 'push') {
+          actionMsg += `push on ${sub_action.target_piece.label}`;
+        } else if (sub_action.type === 'pass') {
+          actionMsg += 'pass';
+        } else {
+          actionMsg += JSON.stringify(sub_action);
+        }
+        
+        addBattleLog(actionMsg);
+      }
     });
   } catch (err) {
     console.error('Error polling actions:', err);
   }
 }
 
-// Then call pollActions every 3 seconds, for example:
-setInterval(pollActions, 3000);
+// Poll every 3 seconds, but add exponential backoff on errors
+let pollInterval = 3000;
+let errorCount = 0;
+const MAX_ERRORS = 5;
+
+function startPolling() {
+  pollActions();
+  setTimeout(() => {
+    if (errorCount >= MAX_ERRORS) {
+      console.error('Too many polling errors, stopping');
+      return;
+    }
+    startPolling();
+  }, pollInterval);
+}
+
+// Start polling when the page loads
+startPolling();

@@ -15,6 +15,30 @@ classes:
         max_num_targets: 1
         requires_los: True
         description: "Cast a dark bolt at an enemy within 3 hexes"
+      shadow_trap:
+        action_type: "trap"
+        range: 3
+        attack_type: "magic"
+        effect: "stun"
+        duration: 2
+        requires_los: True
+        description: "Set a shadow trap that immobilizes enemies for 2 turns"
+      void_shield:
+        action_type: "shield"
+        range: 2
+        attack_type: "magic"
+        shield_type: "magic"
+        duration: 2
+        requires_los: True
+        description: "Create a magical shield that blocks 2 magic attacks"
+      dark_reflection:
+        action_type: "reflect"
+        range: 0
+        attack_type: "magic"
+        duration: 1
+        hidden: true
+        requires_los: false
+        description: "Reflect the next magic attack back at the caster"
       # dark_bolt:
       #   action_type: "multi_target_attack"
       #   range: 4
@@ -59,7 +83,22 @@ classes:
         ally_only: False
         requires_los: False
         description: "Swap positions with an ally or enemy within 4 hexes"
-
+      elemental_orb:
+        action_type: "projectile_aoe"
+        range: 4
+        attack_type: "magic"
+        radius: 1
+        travel_speed: 1
+        duration: 3
+        requires_los: True
+        description: "Launch an elemental orb that travels 1 hex per turn for 3 turns, damaging all in radius"
+      spell_steal:
+        action_type: "ability_swap"
+        range: 3
+        attack_type: "magic"
+        duration: 2
+        requires_los: True
+        description: "Steal an enemy's ability for 2 turns" 
 
   Priest:
     description: "A holy guardian with healing and protective abilities"
@@ -70,10 +109,27 @@ classes:
         range: 1
         requires_los: True
         description: "Move up to 1 hex in any direction"
-      # holy_smite:
-      #   action_type: "attack"
-      #   range: 2
-      #   description: "Smite an enemy within 2 hexes"
+      holy_shield:
+        action_type: "shield"
+        range: 2
+        attack_type: "magic"
+        shield_type: "all"
+        duration: 1
+        requires_los: True
+        description: "Create a holy shield that blocks all attacks for 1 turn"
+      divine_intervention:
+        action_type: "defensive"
+        range: 0
+        attack_type: "magic"
+        duration: 1
+        requires_los: false
+        description: "Become immune to all damage but cannot move for 1 turn"
+      holy_ward:
+        action_type: "trap_removal"
+        range: 2
+        attack_type: "magic"
+        requires_los: True
+        description: "Remove all traps and blocked hexes in range"
 
   Guardian:
     description: "A stalwart defender with heavy armor"
@@ -91,6 +147,20 @@ classes:
         radius: 1
         requires_los: True
         description: "Strike all adjacent enemies"
+      shield_wall:
+        action_type: "defensive"
+        range: 0
+        attack_type: "physical"
+        duration: 1
+        requires_los: false
+        description: "Block all physical attacks but cannot move for 1 turn"
+      push_back:
+        action_type: "push"
+        range: 1
+        attack_type: "physical"
+        distance: 2
+        requires_los: True
+        description: "Push an enemy back 2 hexes"
 
   BloodWarden:
     description: "A fearsome commander who draws power from life force"
@@ -109,6 +179,21 @@ classes:
         cast_speed: 3
         requires_los: False
         description: "Drain life from all enemies on grid"
+      life_drain:
+        action_type: "single_target_attack"
+        range: 2
+        attack_type: "magic"
+        max_num_targets: 1
+        requires_los: True
+        description: "Drain life from a single enemy"
+      blood_trap:
+        action_type: "trap"
+        range: 3
+        attack_type: "magic"
+        effect: "disarm"
+        duration: 2
+        requires_los: True
+        description: "Set a blood trap that disarms enemies for 2 turns"
 
   Hunter:
     description: "A skilled tracker with exceptional mobility"
@@ -125,4 +210,119 @@ classes:
         attack_type: "physical"
         max_num_targets: 2
         requires_los: True
-        description: "Fire an arrow at an enemy within 3 hexes" 
+        description: "Fire an arrow at an enemy within 3 hexes"
+      snare_trap:
+        action_type: "trap"
+        range: 3
+        attack_type: "physical"
+        effect: "immobilize"
+        duration: 2
+        requires_los: True
+        description: "Set a snare trap that immobilizes enemies for 2 turns"
+      pull_shot:
+        action_type: "pull"
+        range: 3
+        attack_type: "physical"
+        distance: 2
+        pull: true
+        requires_los: True
+        description: "Pull an enemy 2 hexes closer"
+
+  Enchanter:
+    description: "A master of magical manipulation and control"
+    label: "E"
+    actions:
+      move:
+        action_type: "move"
+        range: 1
+        requires_los: True
+        description: "Move up to 1 hex in any direction"
+      spell_reflection:
+        action_type: "reflect"
+        range: 0
+        attack_type: "magic"
+        duration: 2
+        hidden: false
+        requires_los: false
+        description: "Reflect all magic attacks for 2 turns"
+      ability_swap:
+        action_type: "ability_swap"
+        range: 2
+        attack_type: "magic"
+        duration: 3
+        requires_los: True
+        description: "Swap abilities with an enemy for 3 turns"
+      arcane_trap:
+        action_type: "trap"
+        range: 3
+        attack_type: "magic"
+        effect: "ability_swap"
+        duration: 2
+        requires_los: True
+        description: "Set a trap that swaps abilities with the first enemy to trigger it"
+
+  Rogue:
+    description: "A stealthy assassin with deadly precision"
+    label: "R"
+    actions:
+      move:
+        action_type: "move"
+        range: 1
+        requires_los: True
+        description: "Move up to 2 hexes in any direction"
+      backstab:
+        action_type: "single_target_attack"
+        range: 1
+        attack_type: "physical"
+        max_num_targets: 1
+        requires_los: True
+        description: "Deal massive damage to an adjacent enemy"
+      smoke_bomb:
+        action_type: "aoe"
+        range: 0
+        attack_type: "physical"
+        radius: 2
+        duration: 2
+        requires_los: false
+        description: "Create a smoke cloud that blocks line of sight"
+      poison_trap:
+        action_type: "trap"
+        range: 3
+        attack_type: "physical"
+        effect: "damage_over_time"
+        duration: 3
+        requires_los: True
+        description: "Set a trap that poisons enemies for 3 turns"
+
+  Druid:
+    description: "A nature-bound spellcaster with control over the elements"
+    label: "D"
+    actions:
+      move:
+        action_type: "move"
+        range: 1
+        requires_los: True
+        description: "Move up to 1 hex in any direction"
+      entangling_roots:
+        action_type: "immobilize"
+        range: 3
+        attack_type: "magic"
+        duration: 2
+        requires_los: True
+        description: "Root an enemy in place for 2 turns"
+      nature_shield:
+        action_type: "shield"
+        range: 2
+        attack_type: "magic"
+        shield_type: "all"
+        duration: 2
+        requires_los: True
+        description: "Create a shield of nature that blocks all attacks for 2 turns"
+      vine_whip:
+        action_type: "pull"
+        range: 3
+        attack_type: "magic"
+        distance: 2
+        pull: true
+        requires_los: True
+        description: "Pull an enemy 2 hexes closer with vines" 
