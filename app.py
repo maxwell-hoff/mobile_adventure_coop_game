@@ -17,8 +17,19 @@ import numpy as np
 app = Flask(__name__)
 app.secret_key = "CHANGE_THIS_TO_SOMETHING_SECRET"
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:5000/0")
-redis_client = redis.from_url(REDIS_URL) 
+# Redis connection with retry logic
+def get_redis_client():
+    try:
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        return redis.from_url(redis_url, socket_timeout=5, socket_connect_timeout=5)
+    except redis.ConnectionError as e:
+        print(f"Redis connection error: {e}")
+        return None
+
+redis_client = get_redis_client()
+
+if not redis_client:
+    print("Warning: Failed to connect to Redis. Some features may not work properly.")
 
 # Load world and pieces data (unchanged)
 with open(os.path.join("data", "world.yaml"), "r", encoding="utf-8") as f:
@@ -276,8 +287,8 @@ def create_character():
     return jsonify(success=True, message="Character created successfully."), 200
 
 # -------------------------
-# (Optional) “Begin Game” or “Load Character”
-# This is where you’d handle continuing to the next screen, etc.
+# (Optional) "Begin Game" or "Load Character"
+# This is where you'd handle continuing to the next screen, etc.
 # -------------------------
 @app.route("/load_character/<int:char_id>", methods=["GET"])
 def load_character(char_id):
@@ -314,12 +325,14 @@ def load_character(char_id):
 # ---------------------------------------
 @app.route("/api/enemy_action", methods=["POST"])
 def enemy_action():
+    if not redis_client:
+        return jsonify({"error": "Redis connection failed"}), 500
+
     from modeling.rl_training import mcts_tree
     mcts_tree.clear()
 
-    # Grab the incoming JSON
     data = request.get_json()
-    print("[DEBUG] Received /api/enemy_action data:", data)  # <--- add debug print
+    print("[DEBUG] Received /api/enemy_action data:", data)
 
     scenario_in = data.get("scenario")
     approach = data.get("approach", "mcts")
@@ -327,46 +340,38 @@ def enemy_action():
     if not scenario_in:
         return jsonify({"error": "No scenario provided"}), 400
 
-    # Build an environment
     env = HexPuzzleEnv(puzzle_scenario=scenario_in, max_turns=10, randomize_positions=False)
     env.sync_with_puzzle_scenario(scenario_in, turn_side="enemy")
 
-    # Check valid actions
     valid_actions = env.build_action_list()
-    print("[DEBUG] Number of valid_actions:", len(valid_actions))         # how many are valid
-    print("[DEBUG] valid_actions detail:", valid_actions)                # see them all
+    print("[DEBUG] Number of valid_actions:", len(valid_actions))
+    print("[DEBUG] valid_actions detail:", valid_actions)
 
     if not valid_actions:
         print("[DEBUG] No valid actions => returning error msg.")
         return jsonify({"error": "No valid actions for enemy side."}), 200
 
-    # Decide which approach
     if approach == "mcts":
         action_idx = mcts_policy(env, max_iterations=50)
         print("[DEBUG] MCTS chosen action_idx:", action_idx)
     elif approach == "ppo" and ppo_model is not None:
-        # 1) Convert env state to observation
         obs = env.get_obs()
-
-        # 2) If you are using ActionMasker, you typically just do:
-        #    action, _ = ppo_model.predict(obs, deterministic=True)
-        #    and rely on the mask automatically blocking invalid actions
         action, _ = ppo_model.predict(obs, deterministic=True)
-
-        # But note that `action` is already an integer index in the discrete action space
         action_idx = int(action)
         print("[DEBUG] PPO chosen action_idx:", action_idx)
-
-        # *** Important *** 
-        # If the PPO model can pick an action that is out-of-range or invalid,
-        # you may need to clamp it or verify it. Typically if you used
-        # MaskablePPO + ActionMasker, that won't happen.
+        # Validate action index is within valid range
+        if action_idx >= len(valid_actions):
+            print(f"[WARNING] PPO predicted invalid action {action_idx}, falling back to random action")
+            action_idx = random.randint(0, len(valid_actions)-1)
     else:
-        # fallback = random
         action_idx = random.randint(0, len(valid_actions)-1)
         print("[DEBUG] Randomly chosen action_idx:", action_idx)
 
-    # Step
+    # Double check action index is valid
+    if action_idx < 0 or action_idx >= len(valid_actions):
+        print(f"[ERROR] Invalid action index {action_idx} (valid range: 0-{len(valid_actions)-1})")
+        return jsonify({"error": "Invalid action index"}), 500
+
     obs2, reward, done, truncated, info = env.step(action_idx)
     (pidx, chosen_subaction) = valid_actions[action_idx]
     piece_label = env.all_pieces[pidx].get("label", "?")
@@ -380,24 +385,35 @@ def enemy_action():
         "sub_action": chosen_subaction
     }
 
-    # === NEW: Push the action details into Redis list
-    action_record = {
-        "type": "enemy_action",
-        "data": result
-    }
-    redis_client.lpush("game_actions", json.dumps(action_record))
-    # Optionally limit the list size
-    redis_client.ltrim("game_actions", 0, 1000)
+    try:
+        action_record = {
+            "type": "enemy_action",
+            "data": result
+        }
+        redis_client.lpush("game_actions", json.dumps(action_record))
+        redis_client.ltrim("game_actions", 0, 1000)
+    except redis.RedisError as e:
+        print(f"Redis error when storing action: {e}")
+        return jsonify({"error": "Failed to store action"}), 500
 
     return jsonify(result), 200
 
 # (Optional) Add a route to retrieve actions for polling
 @app.route("/api/get_actions", methods=["GET"])
 def get_actions():
-    # Return all actions stored in 'game_actions'
-    actions_raw = redis_client.lrange("game_actions", 0, -1)
-    actions_list = [json.loads(a) for a in actions_raw]
-    return jsonify(actions_list), 200
+    if not redis_client:
+        return jsonify({"error": "Redis connection failed"}), 500
+
+    try:
+        actions_raw = redis_client.lrange("game_actions", 0, -1)
+        actions_list = [json.loads(a) for a in actions_raw]
+        return jsonify(actions_list), 200
+    except redis.RedisError as e:
+        print(f"Redis error when retrieving actions: {e}")
+        return jsonify({"error": "Failed to retrieve actions"}), 500
+    except json.JSONDecodeError as e:
+        print(f"JSON decode error: {e}")
+        return jsonify({"error": "Failed to parse actions"}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
