@@ -6,3 +6,4 @@ dump.rdb
 ppo_model.zip
 .archive/
 puzzle_generator.log
+__pycache__/

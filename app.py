@@ -6,6 +6,7 @@ import sqlite3
 from passlib.hash import bcrypt
 import redis
 import json
+from game_logic import GameState, Piece, HexCoordinate
 
 # If you want to run MCTS or PPO, import from your training script:
 from modeling.rl_training import HexPuzzleEnv, mcts_policy, make_env_fn
@@ -414,6 +415,262 @@ def get_actions():
     except json.JSONDecodeError as e:
         print(f"JSON decode error: {e}")
         return jsonify({"error": "Failed to parse actions"}), 500
+
+@app.route("/api/validate_move", methods=["POST"])
+def validate_move():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    # Create game state from request data
+    pieces = [
+        Piece(
+            class_=p["class"],
+            label=p["label"],
+            q=p["q"],
+            r=p["r"],
+            side=p.get("side", "player")
+        ) for p in data["pieces"]
+    ]
+    game_state = GameState(pieces, data["blocked_hexes"])
+
+    # Get move parameters
+    piece = next(p for p in pieces if p.class_ == data["piece_class"] and p.label == data["piece_label"])
+    target_q = data["target_q"]
+    target_r = data["target_r"]
+    max_range = data["max_range"]
+
+    # Validate move
+    is_valid, message = game_state.validate_move(piece, target_q, target_r, max_range)
+    
+    return jsonify({
+        "valid": is_valid,
+        "message": message
+    })
+
+@app.route("/api/apply_trap_effect", methods=["POST"])
+def apply_trap_effect():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    # Create game state from request data
+    pieces = [
+        Piece(
+            class_=p["class"],
+            label=p["label"],
+            q=p["q"],
+            r=p["r"],
+            side=p.get("side", "player")
+        ) for p in data["pieces"]
+    ]
+    game_state = GameState(pieces, data["blocked_hexes"])
+
+    # Get piece and trap
+    piece = next(p for p in pieces if p.class_ == data["piece_class"] and p.label == data["piece_label"])
+    trap = data["trap"]
+
+    # Apply trap effect
+    message = game_state.apply_trap_effect(piece, trap)
+    
+    return jsonify({
+        "message": message,
+        "piece_state": {
+            "immobilized": piece.immobilized,
+            "immobilized_turns": piece.immobilized_turns
+        }
+    })
+
+@app.route("/api/validate_attack", methods=["POST"])
+def validate_attack():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    pieces = [
+        Piece(
+            class_=p["class"],
+            label=p["label"],
+            q=p["q"],
+            r=p["r"],
+            side=p.get("side", "player")
+        ) for p in data["pieces"]
+    ]
+    game_state = GameState(pieces, data["blocked_hexes"])
+
+    piece = next(p for p in pieces if p.class_ == data["piece_class"] and p.label == data["piece_label"])
+    target_q = data["target_q"]
+    target_r = data["target_r"]
+    max_range = data["max_range"]
+    max_targets = data.get("max_targets", 1)
+
+    is_valid, message = game_state.validate_attack(piece, target_q, target_r, max_range, max_targets)
+    
+    return jsonify({
+        "valid": is_valid,
+        "message": message
+    })
+
+@app.route("/api/validate_swap_position", methods=["POST"])
+def validate_swap_position():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    pieces = [
+        Piece(
+            class_=p["class"],
+            label=p["label"],
+            q=p["q"],
+            r=p["r"],
+            side=p.get("side", "player")
+        ) for p in data["pieces"]
+    ]
+    game_state = GameState(pieces, data["blocked_hexes"])
+
+    piece = next(p for p in pieces if p.class_ == data["piece_class"] and p.label == data["piece_label"])
+    target_q = data["target_q"]
+    target_r = data["target_r"]
+    max_range = data["max_range"]
+    ally_only = data.get("ally_only", False)
+
+    is_valid, message = game_state.validate_swap_position(piece, target_q, target_r, max_range, ally_only)
+    
+    return jsonify({
+        "valid": is_valid,
+        "message": message
+    })
+
+@app.route("/api/validate_pull_push", methods=["POST"])
+def validate_pull_push():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    pieces = [
+        Piece(
+            class_=p["class"],
+            label=p["label"],
+            q=p["q"],
+            r=p["r"],
+            side=p.get("side", "player")
+        ) for p in data["pieces"]
+    ]
+    game_state = GameState(pieces, data["blocked_hexes"])
+
+    piece = next(p for p in pieces if p.class_ == data["piece_class"] and p.label == data["piece_label"])
+    target_q = data["target_q"]
+    target_r = data["target_r"]
+    max_range = data["max_range"]
+    distance = data["distance"]
+    is_pull = data["is_pull"]
+
+    is_valid, message = game_state.validate_pull_push(piece, target_q, target_r, max_range, distance, is_pull)
+    
+    return jsonify({
+        "valid": is_valid,
+        "message": message
+    })
+
+@app.route("/api/validate_aoe", methods=["POST"])
+def validate_aoe():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    pieces = [
+        Piece(
+            class_=p["class"],
+            label=p["label"],
+            q=p["q"],
+            r=p["r"],
+            side=p.get("side", "player")
+        ) for p in data["pieces"]
+    ]
+    game_state = GameState(pieces, data["blocked_hexes"])
+
+    piece = next(p for p in pieces if p.class_ == data["piece_class"] and p.label == data["piece_label"])
+    center_q = data["center_q"]
+    center_r = data["center_r"]
+    max_range = data["max_range"]
+    radius = data["radius"]
+
+    is_valid, message = game_state.validate_aoe(piece, center_q, center_r, max_range, radius)
+    
+    return jsonify({
+        "valid": is_valid,
+        "message": message
+    })
+
+@app.route("/api/apply_damage", methods=["POST"])
+def apply_damage():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    pieces = [
+        Piece(
+            class_=p["class"],
+            label=p["label"],
+            q=p["q"],
+            r=p["r"],
+            side=p.get("side", "player")
+        ) for p in data["pieces"]
+    ]
+    game_state = GameState(pieces, data["blocked_hexes"])
+
+    piece = next(p for p in pieces if p.class_ == data["piece_class"] and p.label == data["piece_label"])
+    damage = data["damage"]
+
+    message = game_state.apply_damage(piece, damage)
+    
+    return jsonify({
+        "message": message,
+        "piece_state": {
+            "health": piece.health,
+            "dead": piece.dead
+        }
+    })
+
+# Update the end_turn endpoint to handle cooldowns and effects
+@app.route("/api/end_turn", methods=["POST"])
+def end_turn():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    pieces = [
+        Piece(
+            class_=p["class"],
+            label=p["label"],
+            q=p["q"],
+            r=p["r"],
+            side=p.get("side", "player")
+        ) for p in data["pieces"]
+    ]
+    game_state = GameState(pieces, data["blocked_hexes"])
+
+    # Handle all turn-end effects
+    messages = []
+    messages.extend(game_state.decrement_immobilized_turns())
+    messages.extend(game_state.decrement_cooldowns())
+    messages.extend(game_state.decrement_effects())
+    
+    return jsonify({
+        "messages": messages,
+        "updated_pieces": [
+            {
+                "class": p.class_,
+                "label": p.label,
+                "immobilized": p.immobilized,
+                "immobilized_turns": p.immobilized_turns,
+                "health": p.health,
+                "dead": p.dead,
+                "cooldowns": p.cooldowns,
+                "active_effects": p.active_effects
+            } for p in pieces
+        ]
+    })
 
 if __name__ == "__main__":
     app.run(debug=True)

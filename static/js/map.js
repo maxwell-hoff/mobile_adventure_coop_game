@@ -1313,359 +1313,334 @@ function updateActionDescriptions() {
 }
 
 // Move validateTurnCompletion outside of setupPlayerControls to make it globally accessible
-function validateTurnCompletion() {
+async function validateTurnCompletion() {
     let isValid = true;
-    console.log("Validating turn completion...");
-    
-    pieceSelections.forEach((selection, uniqueLabel) => {
-        console.log(`Checking ${uniqueLabel}:`, selection);
+    const messages = [];
+
+    // Call Python endpoint to handle turn end effects
+    try {
+        const response = await fetch('/api/end_turn', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                pieces: puzzleScenario.pieces,
+                blocked_hexes: puzzleScenario.blockedHexes
+            })
+        });
         
-        if (selection.action === "pass") return;
-        
-        const [class_, q, r] = uniqueLabel.split('_');
-        const piece = puzzleScenario.pieces.find(p => 
-            p.class === class_ && 
-            p.q === parseInt(q) && 
-            p.r === parseInt(r)
-        );
-        if (!piece) return;
-        
-        const pieceClass = piecesData.classes[piece.class];
-        const actionData = pieceClass.actions[selection.action];
-        
-        if (!actionData) return;
-        
-        // Check line of sight if required
-        if (actionData.requires_los) {
-          if (selection.targetHex) {
-            const ignorePiece = actionData.action_type === 'push' ? selection.pushTarget : null;
-            if (!hasLineOfSight(piece.q, piece.r, selection.targetHex.q, selection.targetHex.r, ignorePiece)) {
-              console.log(`${uniqueLabel}'s ${selection.action} has no line of sight to target`);
-              isValid = false;
-              return;
-            }
-          }
-          if (selection.targetHexes) {
-            for (const target of selection.targetHexes) {
-              const ignorePiece = actionData.action_type === 'push' ? selection.pushTarget : null;
-              if (!hasLineOfSight(piece.q, piece.r, target.q, target.r, ignorePiece)) {
-                console.log(`${uniqueLabel}'s ${selection.action} has no line of sight to one of its targets`);
-                isValid = false;
-                return;
-              }
-            }
-          }
+        if (!response.ok) {
+            throw new Error('Failed to end turn');
         }
-
-        switch (actionData.action_type) {
-            case 'move':
-                if (!selection.targetHex) {
-                    console.log(`${uniqueLabel} has no target hex`);
-                    isValid = false;
-                    break;
-                }
-                
-                // Check distance
-                const dx = Math.abs(selection.targetHex.q - piece.q);
-                const dy = Math.abs(selection.targetHex.r - piece.r);
-                const dz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
-                const distance = Math.max(dx, dy, dz);
-
-                if (distance > actionData.range) {
-                    console.log(`${uniqueLabel} target is out of range`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if target hex is occupied by another piece
-                const isOccupied = puzzleScenario.pieces.some(p => 
-                    p.q === selection.targetHex.q && 
-                    p.r === selection.targetHex.r && 
-                    !p.dead
-                );
-                
-                if (isOccupied) {
-                    console.log(`${uniqueLabel} move destination is occupied`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if target hex is blocked by a non-trap obstacle
-                const isBlockedByObstacle = puzzleScenario.blockedHexes.some(h => 
-                    h.q === selection.targetHex.q && 
-                    h.r === selection.targetHex.r &&
-                    !h.isTrap
-                );
-                
-                if (isBlockedByObstacle) {
-                    console.log(`${uniqueLabel} move destination is blocked by obstacle`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if there's a trap at the destination
-                const trapIndex = puzzleScenario.blockedHexes.findIndex(h => 
-                    h.q === selection.targetHex.q && 
-                    h.r === selection.targetHex.r &&
-                    h.isTrap
-                );
-
-                if (trapIndex !== -1) {
-                    const trap = puzzleScenario.blockedHexes[trapIndex];
-                    // Apply trap effect
-                    if (trap.effect === "immobilize") {
-                        piece.immobilized = true;
-                        piece.immobilizedTurns = trap.duration;
-                        addBattleLog(`${piece.class} (${piece.label}) stepped on a trap and is immobilized for ${trap.duration} turns`);
-                    }
-                    // Remove the trap after it's triggered
-                    puzzleScenario.blockedHexes.splice(trapIndex, 1);
-                    const trapKey = `${selection.targetHex.q},${selection.targetHex.r}`;
-                    blockedHexes.delete(trapKey);
-                }
-                break;
-                
-            case 'swap_position':
-                if (!selection.targetHex) {
-                    console.log(`${uniqueLabel} has no target hex`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check distance
-                const swapDx = Math.abs(selection.targetHex.q - piece.q);
-                const swapDy = Math.abs(selection.targetHex.r - piece.r);
-                const swapDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
-                const swapDistance = Math.max(swapDx, swapDy, swapDz);
-                
-                if (swapDistance > actionData.range) {
-                    console.log(`${uniqueLabel} swap target is out of range`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if target hex has a piece to swap with
-                const targetPiece = puzzleScenario.pieces.find(p => 
-                    p.q === selection.targetHex.q && 
-                    p.r === selection.targetHex.r && 
-                    p !== piece
-                );
-                
-                if (!targetPiece) {
-                    console.log(`${uniqueLabel} target hex has no piece to swap with`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check ally_only constraint
-                if (actionData.ally_only && targetPiece.side !== piece.side) {
-                    console.log(`${uniqueLabel} can only swap with allies`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if target hex is blocked
-                const swapTargetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
-                if (blockedHexes.has(swapTargetKey)) {
-                    console.log(`${uniqueLabel} swap target hex is blocked`);
-                    isValid = false;
-                }
-                break;
-                
-            case 'single_target_attack':
-                if (!selection.targetHex) {
-                    console.log(`${uniqueLabel} has no target hex`);
-                    isValid = false;
-                    break;
-                }
-                
-                // Check distance
-                const attackDx = Math.abs(selection.targetHex.q - piece.q);
-                const attackDy = Math.abs(selection.targetHex.r - piece.r);
-                const attackDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
-                const attackDistance = Math.max(attackDx, attackDy, attackDz);
-                
-                if (attackDistance > actionData.range) {
-                    console.log(`${uniqueLabel} target is out of range`);
-                    isValid = false;
-                }
-                
-                // Check if target has enemy
-                const hasEnemy = puzzleScenario.pieces.some(p => 
-                    p.q === selection.targetHex.q && 
-                    p.r === selection.targetHex.r && 
-                    p.side !== 'player'
-                );
-                if (!hasEnemy) {
-                    console.log(`${uniqueLabel} target hex has no enemy`);
-                    isValid = false;
-                }
-                break;
-                
-            case 'multi_target_attack':
-                if (!selection.targetHexes || selection.targetHexes.length === 0) {
-                    console.log(`${uniqueLabel} has no targets`);
-                    isValid = false;
-                    break;
-                }
-                
-                // Check each target
-                selection.targetHexes.forEach(target => {
-                    // Check distance
-                    const mtaDx = Math.abs(target.q - piece.q);
-                    const mtaDy = Math.abs(target.r - piece.r);
-                    const mtaDz = Math.abs(-target.q - target.r + piece.q + piece.r);
-                    const mtaDistance = Math.max(mtaDx, mtaDy, mtaDz);
-                    
-                    if (mtaDistance > actionData.range) {
-                        console.log(`${uniqueLabel} target (${target.q},${target.r}) is out of range`);
-                        isValid = false;
-                    }
-                    
-                    // Check if target has enemy
-                    const hasEnemy = puzzleScenario.pieces.some(p => 
-                        p.q === target.q && 
-                        p.r === target.r && 
-                        p.side !== 'player'
-                    );
-                    if (!hasEnemy) {
-                        console.log(`${uniqueLabel} target hex (${target.q},${target.r}) has no enemy`);
-                        isValid = false;
-                    }
-                });
-                break;
-                
-            case 'aoe':
-                if (!selection.targetHex) {
-                    console.log(`${uniqueLabel} has no target hex`);
-                    isValid = false;
-                    break;
-                }
-                
-                // Check if center point is in range
-                const aoeDx = Math.abs(selection.targetHex.q - piece.q);
-                const aoeDy = Math.abs(selection.targetHex.r - piece.r);
-                const aoeDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
-                const aoeDistance = Math.max(aoeDx, aoeDy, aoeDz);
-                
-                if (aoeDistance > actionData.range) {
-                    console.log(`${uniqueLabel} target center is out of range`);
-                    isValid = false;
-                }
-                break;
-
-            case 'pull':
-                if (!selection.pullTarget || !selection.targetHex) {
-                    console.log(`${uniqueLabel} has no pull target or destination`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if pull target is in range
-                const pullDx = Math.abs(selection.pullTarget.q - piece.q);
-                const pullDy = Math.abs(selection.pullTarget.r - piece.r);
-                const pullDz = Math.abs(-selection.pullTarget.q - selection.pullTarget.r + piece.q + piece.r);
-                const pullDistance = Math.max(pullDx, pullDy, pullDz);
-                
-                if (pullDistance > actionData.range) {
-                    console.log(`${uniqueLabel} pull target is out of range`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if destination is within pull distance
-                const destDx = Math.abs(selection.targetHex.q - piece.q);
-                const destDy = Math.abs(selection.targetHex.r - piece.r);
-                const destDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + piece.q + piece.r);
-                const destDistance = Math.max(destDx, destDy, destDz);
-                
-                if (destDistance > actionData.distance) {
-                    console.log(`${uniqueLabel} destination is out of pull range`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if destination is occupied
-                const isDestOccupied = puzzleScenario.pieces.some(p => 
-                    p.q === selection.targetHex.q && p.r === selection.targetHex.r
-                );
-                if (isDestOccupied) {
-                    console.log(`${uniqueLabel} destination is occupied`);
-                    isValid = false;
-                }
-                break;
-
-            case 'push':
-                if (!selection.pushTarget || !selection.targetHex) {
-                    console.log(`${uniqueLabel} has no push target or destination`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if push target is in range
-                const pushDx = Math.abs(selection.pushTarget.q - piece.q);
-                const pushDy = Math.abs(selection.pushTarget.r - piece.r);
-                const pushDz = Math.abs(-selection.pushTarget.q - selection.pushTarget.r + piece.q + piece.r);
-                const pushDistance = Math.max(pushDx, pushDy, pushDz);
-                
-                if (pushDistance > actionData.range) {
-                    console.log(`${uniqueLabel} push target is out of range`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if destination is within push distance from the target piece
-                const pushDestDx = Math.abs(selection.targetHex.q - selection.pushTarget.q);
-                const pushDestDy = Math.abs(selection.targetHex.r - selection.pushTarget.r);
-                const pushDestDz = Math.abs(-selection.targetHex.q - selection.targetHex.r + selection.pushTarget.q + selection.pushTarget.r);
-                const pushDestDistance = Math.max(pushDestDx, pushDestDy, pushDestDz);
-                
-                if (pushDestDistance > actionData.distance) {
-                    console.log(`${uniqueLabel} push destination is out of push range`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if destination is occupied
-                const isPushDestOccupied = puzzleScenario.pieces.some(p => 
-                    p.q === selection.targetHex.q && p.r === selection.targetHex.r
-                );
-                if (isPushDestOccupied) {
-                    console.log(`${uniqueLabel} push destination is occupied`);
-                    isValid = false;
-                }
-                break;
-
-            case 'trap':
-                if (!selection.targetHex) {
-                    console.log(`${uniqueLabel} has no target hex`);
-                    isValid = false;
-                    break;
-                }
-
-                // Check if target hex is blocked by a non-trap obstacle
-                const trapTargetKey = `${selection.targetHex.q},${selection.targetHex.r}`;
-                const isBlockedByNonTrap = puzzleScenario.blockedHexes.some(h => 
-                    h.q === selection.targetHex.q && 
-                    h.r === selection.targetHex.r &&
-                    !h.isTrap
-                );
-                
-                if (isBlockedByNonTrap) {
-                    console.log(`${uniqueLabel} trap target hex is blocked by non-trap obstacle`);
-                    isValid = false;
-                    break;
-                }
-                break;
-        }
-    });
-    
-    console.log("Turn validation result:", isValid);
-    
-    const completeTurnBtn = document.getElementById("complete-turn");
-    if (completeTurnBtn) {
-        completeTurnBtn.disabled = !isValid;
+        
+        const data = await response.json();
+        data.messages.forEach(msg => addBattleLog(msg));
+        
+        // Update piece states
+        data.updated_pieces.forEach(updatedPiece => {
+            const piece = puzzleScenario.pieces.find(p => 
+                p.class === updatedPiece.class && 
+                p.label === updatedPiece.label
+            );
+            if (piece) {
+                piece.immobilized = updatedPiece.immobilized;
+                piece.immobilizedTurns = updatedPiece.immobilized_turns;
+                piece.health = updatedPiece.health;
+                piece.dead = updatedPiece.dead;
+                piece.cooldowns = updatedPiece.cooldowns;
+                piece.active_effects = updatedPiece.active_effects;
+            }
+        });
+    } catch (error) {
+        console.error('Error ending turn:', error);
+        isValid = false;
     }
+
+    for (const [uniqueLabel, selection] of pieceSelections) {
+        const [class_, q, r] = uniqueLabel.split('_');
+        const piece = puzzleScenario.pieces.find(p => p.class === class_ && p.q === parseInt(q) && p.r === parseInt(r));
+        if (!piece) {
+            console.log(`${uniqueLabel} piece not found`);
+            isValid = false;
+            continue;
+        }
+
+        const actionData = pieces_data.classes[piece.class].actions[selection.actionName];
+        if (!actionData) {
+            console.log(`${uniqueLabel} action ${selection.actionName} not found`);
+            isValid = false;
+            continue;
+        }
+
+        try {
+            switch (actionData.action_type) {
+                case 'move': {
+                    if (!selection.targetHex) {
+                        console.log(`${uniqueLabel} has no target hex`);
+                        isValid = false;
+                        break;
+                    }
+
+                    const moveResponse = await fetch('/api/validate_move', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            pieces: puzzleScenario.pieces,
+                            blocked_hexes: puzzleScenario.blockedHexes,
+                            piece_class: piece.class,
+                            piece_label: piece.label,
+                            target_q: selection.targetHex.q,
+                            target_r: selection.targetHex.r,
+                            max_range: actionData.range
+                        })
+                    });
+
+                    if (!moveResponse.ok) {
+                        throw new Error('Failed to validate move');
+                    }
+
+                    const moveData = await moveResponse.json();
+                    if (!moveData.valid) {
+                        console.log(`${uniqueLabel} move validation failed: ${moveData.message}`);
+                        isValid = false;
+                        break;
+                    }
+
+                    // Check for trap at destination
+                    const trapIndex = puzzleScenario.blockedHexes.findIndex(h => 
+                        h.q === selection.targetHex.q && 
+                        h.r === selection.targetHex.r &&
+                        h.isTrap
+                    );
+
+                    if (trapIndex !== -1) {
+                        const trap = puzzleScenario.blockedHexes[trapIndex];
+                        const trapResponse = await fetch('/api/apply_trap_effect', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                pieces: puzzleScenario.pieces,
+                                blocked_hexes: puzzleScenario.blockedHexes,
+                                piece_class: piece.class,
+                                piece_label: piece.label,
+                                trap: trap
+                            })
+                        });
+
+                        if (!trapResponse.ok) {
+                            throw new Error('Failed to apply trap effect');
+                        }
+
+                        const trapData = await trapResponse.json();
+                        addBattleLog(trapData.message);
+                        
+                        // Update piece state
+                        piece.immobilized = trapData.piece_state.immobilized;
+                        piece.immobilizedTurns = trapData.piece_state.immobilized_turns;
+
+                        // Remove the trap
+                        puzzleScenario.blockedHexes.splice(trapIndex, 1);
+                        const trapKey = `${selection.targetHex.q},${selection.targetHex.r}`;
+                        blockedHexes.delete(trapKey);
+                    }
+                    break;
+                }
+
+                case 'single_target_attack':
+                case 'multi_target_attack': {
+                    if (!selection.targetHex) {
+                        console.log(`${uniqueLabel} has no target hex`);
+                        isValid = false;
+                        break;
+                    }
+
+                    const attackResponse = await fetch('/api/validate_attack', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            pieces: puzzleScenario.pieces,
+                            blocked_hexes: puzzleScenario.blockedHexes,
+                            piece_class: piece.class,
+                            piece_label: piece.label,
+                            target_q: selection.targetHex.q,
+                            target_r: selection.targetHex.r,
+                            max_range: actionData.range,
+                            max_targets: actionData.max_num_targets
+                        })
+                    });
+
+                    if (!attackResponse.ok) {
+                        throw new Error('Failed to validate attack');
+                    }
+
+                    const attackData = await attackResponse.json();
+                    if (!attackData.valid) {
+                        console.log(`${uniqueLabel} attack validation failed: ${attackData.message}`);
+                        isValid = false;
+                        break;
+                    }
+
+                    // Apply damage
+                    const damageResponse = await fetch('/api/apply_damage', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            pieces: puzzleScenario.pieces,
+                            blocked_hexes: puzzleScenario.blockedHexes,
+                            piece_class: selection.targetHex.piece.class,
+                            piece_label: selection.targetHex.piece.label,
+                            damage: actionData.damage || 20  // Default damage if not specified
+                        })
+                    });
+
+                    if (!damageResponse.ok) {
+                        throw new Error('Failed to apply damage');
+                    }
+
+                    const damageData = await damageResponse.json();
+                    addBattleLog(damageData.message);
+                    
+                    // Update target piece state
+                    const targetPiece = puzzleScenario.pieces.find(p => 
+                        p.class === selection.targetHex.piece.class && 
+                        p.label === selection.targetHex.piece.label
+                    );
+                    if (targetPiece) {
+                        targetPiece.health = damageData.piece_state.health;
+                        targetPiece.dead = damageData.piece_state.dead;
+                    }
+                    break;
+                }
+
+                case 'swap_position': {
+                    if (!selection.targetHex) {
+                        console.log(`${uniqueLabel} has no target hex`);
+                        isValid = false;
+                        break;
+                    }
+
+                    const swapResponse = await fetch('/api/validate_swap_position', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            pieces: puzzleScenario.pieces,
+                            blocked_hexes: puzzleScenario.blockedHexes,
+                            piece_class: piece.class,
+                            piece_label: piece.label,
+                            target_q: selection.targetHex.q,
+                            target_r: selection.targetHex.r,
+                            max_range: actionData.range,
+                            ally_only: actionData.ally_only
+                        })
+                    });
+
+                    if (!swapResponse.ok) {
+                        throw new Error('Failed to validate swap position');
+                    }
+
+                    const swapData = await swapResponse.json();
+                    if (!swapData.valid) {
+                        console.log(`${uniqueLabel} swap validation failed: ${swapData.message}`);
+                        isValid = false;
+                        break;
+                    }
+                    break;
+                }
+
+                case 'pull':
+                case 'push': {
+                    if (!selection.targetHex || !selection.pullTarget) {
+                        console.log(`${uniqueLabel} has no target hex or pull/push target`);
+                        isValid = false;
+                        break;
+                    }
+
+                    const pullPushResponse = await fetch('/api/validate_pull_push', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            pieces: puzzleScenario.pieces,
+                            blocked_hexes: puzzleScenario.blockedHexes,
+                            piece_class: piece.class,
+                            piece_label: piece.label,
+                            target_q: selection.pullTarget.q,
+                            target_r: selection.pullTarget.r,
+                            max_range: actionData.range,
+                            distance: actionData.distance,
+                            is_pull: actionData.action_type === 'pull'
+                        })
+                    });
+
+                    if (!pullPushResponse.ok) {
+                        throw new Error('Failed to validate pull/push');
+                    }
+
+                    const pullPushData = await pullPushResponse.json();
+                    if (!pullPushData.valid) {
+                        console.log(`${uniqueLabel} pull/push validation failed: ${pullPushData.message}`);
+                        isValid = false;
+                        break;
+                    }
+                    break;
+                }
+
+                case 'aoe': {
+                    if (!selection.targetHex) {
+                        console.log(`${uniqueLabel} has no target hex`);
+                        isValid = false;
+                        break;
+                    }
+
+                    const aoeResponse = await fetch('/api/validate_aoe', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            pieces: puzzleScenario.pieces,
+                            blocked_hexes: puzzleScenario.blockedHexes,
+                            piece_class: piece.class,
+                            piece_label: piece.label,
+                            center_q: selection.targetHex.q,
+                            center_r: selection.targetHex.r,
+                            max_range: actionData.range,
+                            radius: actionData.radius
+                        })
+                    });
+
+                    if (!aoeResponse.ok) {
+                        throw new Error('Failed to validate AOE');
+                    }
+
+                    const aoeData = await aoeResponse.json();
+                    if (!aoeData.valid) {
+                        console.log(`${uniqueLabel} AOE validation failed: ${aoeData.message}`);
+                        isValid = false;
+                        break;
+                    }
+                    break;
+                }
+            }
+        } catch (error) {
+            console.error(`Error validating ${actionData.action_type}:`, error);
+            isValid = false;
+        }
+    }
+
+    return isValid;
 }
 
 // Update createPieceInfoSection to add hover handlers for each action
